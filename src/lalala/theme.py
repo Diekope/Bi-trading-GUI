@@ -61,10 +61,6 @@ QStatusBar::item {{ border: none; }}
     background-color: transparent;
     color: {TEXT_MUTED};
 }}
-#accentBar {{
-    background-color: {ACCENT};
-    border-radius: 1px;
-}}
 QSplitter#cardSplitter, QSplitter#tileSplitter {{
     background-color: transparent;
 }}

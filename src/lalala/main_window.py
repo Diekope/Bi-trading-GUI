@@ -2,7 +2,7 @@
 
 Canvas with a slim top bar (latency) over a horizontal splitter:
 
-    Polymarket placeholder  |  vertical splitter of market cards
+    Polymarket 5m BTC market  |  vertical splitter of market cards
 
 Every split — horizontal and vertical — uses the same 8px transparent gap, so
 all cards float on the canvas identically. The "+" button lives on the newest
@@ -29,7 +29,9 @@ from PySide6.QtWidgets import (
 from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
 from lalala.market_data import DEFAULT_MARKET, TIMEFRAMES, CandleSeries, Market
-from lalala.panels import MAX_TILES, VenuePanel
+from lalala.panels import MAX_TILES
+from lalala.polymarket_feed import PolymarketFeed
+from lalala.polymarket_panel import PolymarketPanel
 from lalala.theme import CANVAS, CARD_GAP
 
 log = logging.getLogger(__name__)
@@ -99,7 +101,7 @@ class MainWindow(QMainWindow):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(CARD_GAP)
 
-        self.polymarket = VenuePanel("Polymarket", self.splitter)
+        self.polymarket = PolymarketPanel(self.splitter)
 
         # Same gap as the horizontal split, but vertical.
         self.stack = QSplitter(Qt.Orientation.Vertical, self.splitter)
@@ -141,6 +143,16 @@ class MainWindow(QMainWindow):
         self._sync_watches()
         if autostart:
             self.feed.start()
+
+        # -- polymarket feed (one five-minute BTC up/down market) --
+        self.polymarket_feed = PolymarketFeed(self)
+        self.polymarket_feed.market_ready.connect(self.polymarket.set_market)
+        self.polymarket_feed.book_updated.connect(self.polymarket.apply_book)
+        self.polymarket_feed.trade.connect(self.polymarket.apply_trade)
+        self.polymarket_feed.status.connect(self.polymarket.set_status)
+        self.polymarket_feed.error.connect(self._on_polymarket_error)
+        if autostart:
+            self.polymarket_feed.start()
 
     # -- cards -------------------------------------------------------------
 
@@ -267,6 +279,9 @@ class MainWindow(QMainWindow):
             price = mids.get(card.coin or "")
             if price is not None:
                 card.apply_mid(price)
+        btc = mids.get("BTC")
+        if btc is not None:
+            self.polymarket.set_btc(btc)
 
     def _on_candles(self, series: CandleSeries) -> None:
         for card in self.cards:
@@ -310,6 +325,10 @@ class MainWindow(QMainWindow):
     def _on_error(message: str) -> None:
         log.warning("feed: %s", message)
 
+    @staticmethod
+    def _on_polymarket_error(message: str) -> None:
+        log.warning("polymarket: %s", message)
+
     # -- window ------------------------------------------------------------
 
     def _focused_card(self) -> MarketCard:
@@ -342,4 +361,5 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.feed.stop()
+        self.polymarket_feed.stop()
         super().closeEvent(event)

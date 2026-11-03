@@ -1,7 +1,7 @@
 # lalala
 
-Dark trading terminal shell. Hyperliquid candles are live; Polymarket is still
-an empty column.
+Dark trading terminal. Hyperliquid candles are live on the right; the left
+column tracks the current Polymarket five-minute BTC up/down market.
 
 ## Run
 
@@ -124,7 +124,30 @@ Hyperliquid actually quotes: `spy`/`s&p` → `xyz:SP500`, `qqq`/`nasdaq` →
 all** — those exact contracts do not exist on the venue, so the alias is the
 closest tradable equivalent.
 
-**Polymarket column** (left): placeholder.
+**Polymarket column** (left) — one market at a time: the five-minute Bitcoin
+up/down window that is open right now.
+
+- `btc-updown-5m-dynamic_time_utc` is the template. Real slugs are
+  `btc-updown-5m-<unix ts>`, with the timestamp aligned to 300 seconds, so the
+  panel derives the slug from the clock and rolls to the next window by itself.
+  Nothing to configure; the countdown and question change on the boundary.
+- **Outcome tiles** — UP and DOWN in cents, with a probability bar and the best
+  bid/ask on each. Click a tile to switch the ladder to that token.
+- **Clock** — the window in UTC and a live countdown; white, amber inside a
+  minute, red inside 30 seconds.
+- **Stats** — spread, Gamma liquidity, top-of-book depth (the price × size of
+  the best eight levels on each side), tick size, and the Hyperliquid BTC perp
+  mid with its move since this window opened.
+- **Ladder** — the selected token's asks and bids around the mid, with depth
+  bars and a spread strip. Updates arrive incrementally on the market socket.
+- **Tape** — the last twelve prints, newest first, with the outcome, price and
+  fractional share size.
+
+Sources: Gamma for the market and its tokens, CLOB `/book` for the initial
+snapshot, then one WebSocket subscription to both tokens (`book`,
+`price_change`, `last_trade_price`). Books and the tape are cleared when the
+window rolls; the socket reconnects within the same window on a drop. Order
+placement is deliberately not wired — the column is read-only.
 
 ## Why Python here
 
@@ -146,17 +169,21 @@ src/lalala/
   app.py           QApplication bootstrap
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
-  panels.py        Card / VenuePanel chrome, MAX_TILES
+  panels.py        Card chrome, MAX_TILES
   cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
   market_data.py   parsing, price formatting, candles, bands, search (no Qt)
-  feed.py          streams, latency probe (QObject + asyncio)
+  feed.py          Hyperliquid streams, latency probe (QObject + asyncio)
+  polymarket_data.py   slugs, Gamma/CLOB/WS parsing, formatting (no Qt)
+  polymarket_feed.py   one 5m market: resolve, snapshot, stream, roll over
+  polymarket_panel.py  outcome tiles, countdown, ladder, tape (QPainter)
   venues/
     base.py         Venue protocol for order placement (not used by the UI yet)
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             113 tests: parsing/search/aliases, feed routing, candle stream,
-                   chart pan/zoom, axis zoom, backfill paging, shortcuts, overlays
+tests/             156 tests: parsing/search/aliases, slug math, candle + book
+                   routing, chart pan/zoom, axis zoom, backfill paging,
+                   shortcuts, overlays, the Polymarket panel
 ```
 
 ## Window layout
@@ -170,9 +197,9 @@ tests/             113 tests: parsing/search/aliases, feed routing, candle strea
 |                         |  |╿╽│╿╽ ...            │ 85.3   |
 |                         |  |╿╽│╿╽                │        |
 |       Polymarket        +---------------------------------+
-|                         |  xyz:CL  [XYZ]             96.7 +|
-|                         |  1m 3m 5m 15m 30m 1h            |
-|                         |  |╿╽│╿╽ ...                      |
+|   UP 64.5¢  DOWN 35.5¢  |  xyz:CL  [XYZ]             96.7 +|
+|   19:35–19:40  closes…  |  1m 3m 5m 15m 30m 1h            |
+|   ladder + tape         |  |╿╽│╿╽ ...                      |
 +-------------------------+---------------------------------+
 ```
 
@@ -184,7 +211,7 @@ Palette (`theme.py`):
 | `PANEL` | `#0b0b0d` | floating cards, darker |
 | `BORDER` | `#25262a` | card edge |
 | `ACCENT` | `#1793d1` | Arch cyan, last-price line |
-| `UP` / `DOWN` | `#3ddc84` / `#ff5c5c` | candles, latency colours |
+| `UP` / `DOWN` | `#3ddc84` / `#ff5c5c` | candles, latency colours, Polymarket sides |
 
 ## Data sources
 
@@ -200,13 +227,25 @@ Public endpoints only, no key, no signing:
 
 Reconnects with exponential backoff (1s → 10s) and re-subscribes on reconnect.
 
+Polymarket, also public:
+
+- `GET https://gamma-api.polymarket.com/markets?slug=…` — one market per
+  five-minute window: question, condition id, two CLOB token ids, prices,
+  liquidity, tick size, close time.
+- `GET https://clob.polymarket.com/book?token_id=…` — a full book for each
+  outcome token, before the stream starts.
+- `wss://ws-subscriptions-clob.polymarket.com/ws/market` — one subscription to
+  both tokens; `book`, `price_change` and `last_trade_price` frames. The socket
+  is dropped at the window boundary and reopened on the next slug.
+
 ## Not implemented yet
 
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.
-- Polymarket, beyond the client skeleton. `PolymarketVenue.balances()` still
-  raises with the endpoint it needs.
+- Polymarket order entry. The column reads the market live; nothing places an
+  order, and `PolymarketVenue.balances()` still raises with the endpoint it
+  needs.
 - Volume/hover readouts on the chart; candles are OHLC only.
 - `l2Book` support still exists in `feed.py` (tested) but no widget subscribes
   to it any more, since the order book was replaced by candles.
