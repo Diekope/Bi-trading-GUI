@@ -40,7 +40,7 @@ from lalala.polymarket_data import (  # noqa: E402
     window_price_points,
 )
 from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
-from lalala.polymarket_panel import SAMPLE_EVERY_MS  # noqa: E402
+from lalala.polymarket_panel import EASE_RANGE, SAMPLE_EVERY_MS  # noqa: E402
 from lalala.theme import apply_dark_theme  # noqa: E402
 
 TOKENS = (
@@ -750,8 +750,8 @@ def test_the_price_range_eases_toward_new_extremes(
     # …a wider sample moves it part of the way, not all at once.
     before_lo, before_hi = lo, hi
     lo, hi = chart._range([77_000.0, 78_100.0], 78_000.0)
-    assert lo == pytest.approx(before_lo + (76_802.0 - before_lo) * 0.18)
-    assert hi == pytest.approx(before_hi + (78_298.0 - before_hi) * 0.18)
+    assert lo == pytest.approx(before_lo + (76_802.0 - before_lo) * EASE_RANGE)
+    assert hi == pytest.approx(before_hi + (78_298.0 - before_hi) * EASE_RANGE)
     assert lo < before_lo and hi > before_hi
 
     # A rollover keeps the scale and eases toward the new window's prices.
@@ -771,8 +771,26 @@ def test_the_live_tip_eases_toward_the_newest_quote(window: MainWindow) -> None:
     chart.set_live(100_100.0)
     chart._ease()
 
-    assert chart._tip == pytest.approx(100_025.0)  # a quarter of the gap
+    assert chart._tip == pytest.approx(100_028.0)  # part of the gap, not a snap
     assert chart._tip < 100_100.0
+
+
+def test_the_delayed_tip_is_interpolated_between_samples(
+    window: MainWindow,
+) -> None:
+    chart = window.polymarket.price_chart
+    chart.points = [PricePoint(1_000, 100.0), PricePoint(2_000, 102.0)]
+    chart._live = None
+    chart._live_at = None
+
+    assert chart._tip_at(1_500) == pytest.approx(101.0)
+    assert chart._tip_at(1_000) == pytest.approx(100.0)
+    assert chart._tip_at(2_000) == pytest.approx(102.0)
+    assert chart._tip_at(500) == pytest.approx(100.0)
+
+    # The live quote is a keyframe after the last sample.
+    chart._live, chart._live_at = 104.0, 2_500
+    assert chart._tip_at(2_250) == pytest.approx(103.0)
 
 
 def test_trades_fill_the_tape_newest_first(window: MainWindow) -> None:

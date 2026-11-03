@@ -63,8 +63,9 @@ MAX_POINTS = 3_600         # one hour of samples; the line keeps rolling past wi
 VIEW_MS = 15 * 60_000
 WINDOW_MARK_MS = 300_000
 FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
-EASE_TIP = 0.25            # per frame, toward the newest price
-EASE_RANGE = 0.18          # per frame, toward the natural y-range
+LAG_MS = 700               # draw slightly behind live so samples never snap
+EASE_TIP = 0.28            # per frame, toward the interpolated tip
+EASE_RANGE = 0.12          # per frame, toward the natural y-range
 
 
 def _alpha(color: str, alpha: int) -> QColor:
@@ -176,11 +177,12 @@ class PriceChart(QWidget):
 
     The binary market's question is whether BTC ends above where the window
     started, so the useful line is the underlying price, not the implied
-    probability. The x-axis always ends now, so a rollover never clears the
-    line: the last windows scroll left while the new target segment grows from
-    the right edge. One-second samples are joined by a live tip that eases
-    toward the newest quote, and the y-range eases too, so the chart glides
-    instead of stepping once per sample.
+    probability. The x-axis is a rolling fifteen minutes that ends a fraction
+    of a second behind live, so a rollover never clears the line and the newest
+    sample never snaps: old windows scroll left, the new target segment grows
+    from the right edge, and the tip is interpolated along the last segment.
+    The y-range eases too, so the chart glides instead of stepping once per
+    sample.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -191,6 +193,7 @@ class PriceChart(QWidget):
         self._lo: float | None = None
         self._hi: float | None = None
         self._live: float | None = None
+        self._live_at: int | None = None
         self._tip: float | None = None
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -220,8 +223,9 @@ class PriceChart(QWidget):
         self.update()
 
     def set_live(self, price: float) -> None:
-        """The newest quote; the painted tip eases toward it."""
+        """The newest quote, used as the last keyframe of the delayed tip."""
         self._live = float(price)
+        self._live_at = int(time.time() * 1000)
         if self._tip is None:
             self._tip = self._live
 
@@ -232,12 +236,44 @@ class PriceChart(QWidget):
         self.update()
 
     def _ease(self) -> None:
-        if self._live is None:
+        target = self._tip_at(int(time.time() * 1000) - LAG_MS)
+        if target is None:
             return
         if self._tip is None:
-            self._tip = self._live
+            self._tip = target
         else:
-            self._tip += (self._live - self._tip) * EASE_TIP
+            self._tip += (target - self._tip) * EASE_TIP
+
+    def _tip_at(self, moment_ms: int) -> float | None:
+        """Price at a moment between keyframes, so the line never snaps back.
+
+        One-second samples and the latest live quote are the keyframes. The
+        painted tip sits on the segment that contains `moment_ms`, which is
+        continuous as samples cross the delayed cursor.
+        """
+        before: PricePoint | None = None
+        after: PricePoint | None = None
+        for point in self.points:
+            if point.timestamp_ms <= moment_ms:
+                before = point
+            else:
+                after = point
+                break
+
+        if self._live is not None and self._live_at is not None:
+            if self._live_at <= moment_ms:
+                if before is None or self._live_at > before.timestamp_ms:
+                    before = PricePoint(self._live_at, self._live)
+            elif after is None or self._live_at < after.timestamp_ms:
+                after = PricePoint(self._live_at, self._live)
+
+        if before is None:
+            return after.price if after is not None else None
+        if after is None or after.timestamp_ms <= before.timestamp_ms:
+            return before.price
+        gap = after.timestamp_ms - before.timestamp_ms
+        fraction = (moment_ms - before.timestamp_ms) / gap
+        return before.price + (after.price - before.price) * fraction
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -259,16 +295,17 @@ class PriceChart(QWidget):
             return
 
         now = int(time.time() * 1000)
-        start = now - VIEW_MS
+        end = now - LAG_MS
+        start = end - VIEW_MS
         span = float(VIEW_MS)
 
         points = [
             point
             for point in self.points
-            if start <= point.timestamp_ms <= now
+            if start <= point.timestamp_ms <= end
         ]
         target = self.target
-        tip = self._tip
+        tip = self._tip if self._tip is not None else self._tip_at(end)
         reference = tip if tip is not None else (points[-1].price if points else None)
         if reference is None:
             self._message(painter, "collecting…")
@@ -310,15 +347,16 @@ class PriceChart(QWidget):
         def y_of(price: float) -> float:
             return bottom - (price - lo) / (hi - lo) * (bottom - top)
 
-        # Five-minute boundaries: enough context to see a window roll over
-        # without labelling every minute.
+        # Five-minute boundaries: enough context to see a window roll over.
+        # Only a tick on the edge, not a full-height rule: the line stays one
+        # unbroken curve across windows.
         painter.setFont(mono_font(7))
         boundary = ((start + WINDOW_MARK_MS - 1) // WINDOW_MARK_MS) * WINDOW_MARK_MS
         last_label = left - 44.0
-        while boundary <= now:
+        while boundary <= end:
             x = x_of(boundary)
             painter.setPen(QPen(QColor(BORDER), 1))
-            painter.drawLine(x, top, x, bottom)
+            painter.drawLine(x, bottom - 3, x, bottom)
             if x - last_label >= 44.0 and x <= right - 44.0:
                 painter.setPen(QColor(TEXT_FAINT))
                 painter.drawText(
@@ -335,15 +373,15 @@ class PriceChart(QWidget):
         painter.drawText(
             QRectF(right - 44, bottom + 1, 44, 13),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            datetime.fromtimestamp(now / 1000, tz=timezone.utc).strftime("%H:%M"),
+            datetime.fromtimestamp(end / 1000, tz=timezone.utc).strftime("%H:%M"),
         )
 
         # The line: the samples inside the view, plus the eased live tip.
         series: list[tuple[int, float]] = [
             (point.timestamp_ms, point.price) for point in points
         ]
-        if tip is not None and (not series or series[-1][0] < now):
-            series.append((now, tip))
+        if tip is not None and (not series or series[-1][0] < end):
+            series.append((end, tip))
 
         above = target is not None and reference >= target
         color = (UP if above else DOWN) if target is not None else ACCENT
@@ -392,7 +430,7 @@ class PriceChart(QWidget):
                 painter.restore()
 
             seg_start = max(start, market.start_ms)
-            seg_end = min(now, market.end_ms if market.end_ms > 0 else now)
+            seg_end = min(end, market.end_ms if market.end_ms > 0 else end)
             if seg_end > seg_start:
                 painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
                 painter.drawLine(
@@ -417,7 +455,7 @@ class PriceChart(QWidget):
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(color))
-        painter.drawEllipse(QPointF(x_of(now), y_of(reference)), 2.6, 2.6)
+        painter.drawEllipse(QPointF(x_of(end), y_of(reference)), 2.6, 2.6)
 
         # The side and the gap in the header: the answer to the market's
         # question, not just the price.

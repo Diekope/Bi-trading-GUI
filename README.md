@@ -154,10 +154,11 @@ up/down window that is open right now.
   current window's target as a dashed line and the gap shaded green above / red
   below. A rollover does not reset the line: the previous windows scroll left
   while the new target segment grows from the right edge. Five-minute
-  boundaries are marked on the time axis. One-second samples are joined by a
-  live tip that eases toward the newest quote, and the y-range eases toward the
-  visible data on every frame, so the chart moves continuously instead of
-  stepping once a second. An hour of samples is retained.
+  boundaries get a tick and a time label, not a full-height rule, so the line
+  stays one unbroken curve. The view ends ~0.7s behind live and the tip is
+  interpolated between one-second samples and the newest quote, then eased, so
+  it glides instead of snapping on every update. The y-range eases too. An hour
+  of samples is retained.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
@@ -213,7 +214,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             173 tests: parsing/search/aliases, slug math, candle + book
+tests/             174 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
