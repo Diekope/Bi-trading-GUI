@@ -96,6 +96,11 @@ class CandleChart(QWidget):
     TIME_AXIS = 16       # bottom time axis
     MIN_VISIBLE = 8
     DEFAULT_VISIBLE = 80
+    # Upper bound on the wheel's zoom-out. Without it `_visible` grows without
+    # limit while the series is short (the view silently stops widening), and
+    # then history paging suddenly makes the chart draw thousands of bars per
+    # repaint. 600 bars is about one per pixel on a normal card.
+    MAX_VISIBLE = 600
     ZOOM_STEP = 1.12     # one wheel notch; deliberately gentle
     DRAG_GAIN = 0.75     # candles travelled per slot dragged
     PRICE_ZOOM_STEP = 1.10
@@ -329,7 +334,7 @@ class CandleChart(QWidget):
 
     def _clamp(self) -> None:
         total = len(self._candles)
-        self._visible = max(self.MIN_VISIBLE, self._visible)
+        self._visible = max(self.MIN_VISIBLE, min(self._visible, self.MAX_VISIBLE))
         self._offset = max(0, min(self._offset, max(0, total - self.visible_count)))
 
     # -- interaction -------------------------------------------------------

@@ -353,6 +353,45 @@ def test_chart_zoom_is_clamped(window: MainWindow) -> None:
     assert chart.visible_count <= chart.candle_count
 
 
+def test_zoom_out_stops_at_a_sane_window(window: MainWindow) -> None:
+    """The wheel used to ratchet `_visible` past 75k while the series was short."""
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+
+    for _ in range(200):
+        chart.zoom(-1)
+
+    assert chart._visible == chart.MAX_VISIBLE
+    assert chart.visible_count == 200  # still capped by the data
+
+
+def test_a_short_series_still_grows_back_into_the_window(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(40))
+    for _ in range(50):
+        chart.zoom(-1)
+    assert chart.visible_count == 40
+
+    chart.set_series(_long_series(300))
+
+    assert chart.visible_count == 300
+
+
+def test_history_paging_cannot_widen_the_drawn_window_past_the_cap(
+    window: MainWindow,
+) -> None:
+    """Regression: 60 zoom-outs + deep history made every repaint 50ms."""
+    chart = window.main_card.chart
+    chart.set_series(_long_series(300))
+    for _ in range(100):
+        chart.zoom(-1)
+
+    chart.add_history(_stamped_series(1_500_000_000_000, 3000))
+
+    assert chart.candle_count == 3300
+    assert chart.visible_count == chart.MAX_VISIBLE
+
+
 def test_chart_pans_back_and_forth(window: MainWindow) -> None:
     chart = window.main_card.chart
     chart.set_series(_long_series())

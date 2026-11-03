@@ -86,6 +86,12 @@ axis changes only the time range. The pointer turns into a vertical resize
 cursor over the price gutter and a horizontal one over the time axis, so it is
 clear which wheel you are about to use.
 
+Zooming out stops at 600 bars (`MAX_VISIBLE`). Before that cap the requested
+window kept growing while the series was short — invisibly, since only the
+existing bars can be drawn — and then paging in history made every repaint
+draw thousands of bars: 25ms at 3000, 51ms at 6000. Bounded, a repaint is ~5ms
+no matter how far back the chart is paged.
+
 The vertical scale pivots on the centre of the natural price range, so zooming
 does not make the chart jump. Scrolling back freezes the viewport — new bars no
 longer drag the view forward — and shows `N back · double-click for live`. Until
@@ -149,7 +155,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             110 tests: parsing/search/aliases, feed routing, candle stream,
+tests/             113 tests: parsing/search/aliases, feed routing, candle stream,
                    chart pan/zoom, axis zoom, backfill paging, shortcuts, overlays
 ```
 
