@@ -169,13 +169,32 @@ class DepthLadder(QWidget):
         super().__init__(parent)
         self.book: TokenBook | None = None
         self.title = ""
+        self._shown: tuple | None = None
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_book(self, book: TokenBook | None, title: str) -> None:
+        # The wire moves levels well below the visible slice far more often
+        # than it moves the top of the book. Repainting on those would burn
+        # most of the CPU for pixels nobody can see.
+        shown = (title, self._signature(book))
+        if shown == self._shown:
+            return
+        self._shown = shown
         self.book = book
         self.title = title
         self.update()
+
+    @staticmethod
+    def _signature(book: TokenBook | None) -> tuple:
+        if book is None:
+            return ()
+        depth = DepthLadder.MAX_LEVELS
+        return (
+            book.token_id,
+            tuple((level.price, level.size) for level in book.asks[:depth]),
+            tuple((level.price, level.size) for level in book.bids[:depth]),
+        )
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -382,7 +401,7 @@ class PolymarketPanel(Card):
         header.setSpacing(6)
 
         self.title_label = QLabel("POLYMARKET")
-        title_font = mono_font(8, bold=True)
+        title_font = QFont(mono_font(8, bold=True))
         title_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
         self.title_label.setFont(title_font)
         self.title_label.setStyleSheet(f"color: {TEXT_MUTED}; background: transparent;")
@@ -551,20 +570,27 @@ class PolymarketPanel(Card):
 
         selected = self._selected_book()
         if selected is not None:
-            self.spread_value.setText(format_cents(selected.spread))
+            self._set_text(self.spread_value, format_cents(selected.spread))
         # Depth near the touch: the whole ladder is dominated by 1¢ lottery
         # tickets far from the price, which says little about executable size.
-        self.depth_value.setText(
+        self._set_text(
+            self.depth_value,
             format_compact(
                 sum(
                     level.price * level.size
                     for held in self.books.values()
                     for level in held.bids[:8] + held.asks[:8]
                 )
-            )
+            ),
         )
         if book.token_id == self._selected_token():
             self.ladder.set_book(book, outcome.name)
+
+    @staticmethod
+    def _set_text(label: QLabel, text: str) -> None:
+        """QLabel relayouts on every setText, even when the string is equal."""
+        if label.text() != text:
+            label.setText(text)
 
     def apply_trade(self, trade: Trade) -> None:
         if self.market is None:

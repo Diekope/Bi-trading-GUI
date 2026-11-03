@@ -42,7 +42,7 @@ from lalala.market_data import (
     search_markets,
 )
 from lalala.panels import Card
-from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, TEXT_MUTED, UP
+from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, UP
 
 
 def format_axis_time(stamp_ms: int, interval: str) -> str:
@@ -53,10 +53,18 @@ def format_axis_time(stamp_ms: int, interval: str) -> str:
     return moment.strftime("%H:%M")
 
 
+_FONTS: dict[tuple[int, bool], QFont] = {}
+
+
 def mono_font(points: int = 12, bold: bool = False) -> QFont:
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    font.setPointSize(points)
-    font.setBold(bold)
+    """Cached fixed-width font. Callers must `QFont(font)` before mutating it."""
+    key = (points, bold)
+    font = _FONTS.get(key)
+    if font is None:
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSize(points)
+        font.setBold(bold)
+        _FONTS[key] = font
     return font
 
 

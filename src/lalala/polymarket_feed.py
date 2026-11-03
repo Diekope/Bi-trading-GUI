@@ -47,9 +47,10 @@ CLOB_URL = "https://clob.polymarket.com"
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 RESOLVE_RETRY = 1.5     # seconds between attempts, while the next slug is not listed
-RECV_TIMEOUT = 1.0      # also how often the loop checks the clock
 CLOSE_GRACE = 3.0       # keep the socket a moment past the close, for late prints
 MAX_BACKOFF = 8.0
+FLUSH_EVERY = 0.1       # UI books refresh at most 10x/s; the wire is much faster
+CLOCK_POLL = 0.5        # how often the socket watchdog re-reads the clock
 
 
 class PolymarketFeed(QObject):
@@ -64,6 +65,8 @@ class PolymarketFeed(QObject):
         self._runner = AsyncRunner("pm-feed")
         # Only touched on the asyncio thread (or directly in tests).
         self._books: dict[str, TokenBook] = {}
+        # Insertion-ordered so a flush emits each token once, in arrival order.
+        self._dirty: dict[str, None] = {}
         self._started = False
         self._stopping = False
 
@@ -82,22 +85,28 @@ class PolymarketFeed(QObject):
 
     async def _main(self) -> None:
         async with httpx.AsyncClient(timeout=12.0) as http:
-            while not self._stopping:
-                slug = market_slug()
-                market: PolymarketMarket | None = None
-                try:
-                    market = await self._resolve(http, slug)
-                except Exception as exc:
-                    self.error.emit(f"gamma: {type(exc).__name__}: {exc}")
+            flush_task = asyncio.create_task(self._flush_loop())
+            try:
+                while not self._stopping:
+                    slug = market_slug()
+                    market: PolymarketMarket | None = None
+                    try:
+                        market = await self._resolve(http, slug)
+                    except Exception as exc:
+                        self.error.emit(f"gamma: {type(exc).__name__}: {exc}")
 
-                if market is None:
-                    self.status.emit("waiting")
-                    await asyncio.sleep(RESOLVE_RETRY)
-                    continue
+                    if market is None:
+                        self.status.emit("waiting")
+                        await asyncio.sleep(RESOLVE_RETRY)
+                        continue
 
-                self._books.clear()
-                self.market_ready.emit(market)
-                await self._watch(http, market)
+                    self._books.clear()
+                    self._dirty.clear()
+                    self.market_ready.emit(market)
+                    await self._watch(http, market)
+            finally:
+                flush_task.cancel()
+                await asyncio.gather(flush_task, return_exceptions=True)
 
     async def _resolve(
         self, http: httpx.AsyncClient, slug: str
@@ -153,6 +162,8 @@ class PolymarketFeed(QObject):
                 continue
             if book is not None:
                 self._apply_book(book)
+        # Do not make the first paint wait for the next tick of the flusher.
+        self.flush_books()
 
     async def _session(self, tokens: list[str], deadline: float) -> None:
         async with websockets.connect(
@@ -160,14 +171,48 @@ class PolymarketFeed(QObject):
         ) as ws:
             await ws.send(json.dumps({"assets_ids": tokens, "type": "market"}))
             self.status.emit("live")
-            while not self._stopping and time.time() < deadline:
-                try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT)
-                except asyncio.TimeoutError:
-                    continue
-                self.dispatch(raw)
+            # A task rather than `wait_for` per frame: the venue sends ~700
+            # frames/s, and a timeout wrapper per recv costs more than the
+            # routing itself.
+            watchdog = asyncio.create_task(self._close_at(ws, deadline))
+            try:
+                async for raw in ws:
+                    self.dispatch(raw)
+                    if self._stopping:
+                        break
+            finally:
+                watchdog.cancel()
+                await asyncio.gather(watchdog, return_exceptions=True)
+
+    async def _close_at(self, ws: Any, deadline: float) -> None:
+        """Close the socket when the window ends or the app asks to stop."""
+        while not self._stopping and time.time() < deadline:
+            await asyncio.sleep(CLOCK_POLL)
+        await ws.close()
 
     # -- routing -----------------------------------------------------------
+
+    async def _flush_loop(self) -> None:
+        """Coalesce the wire's burst rate down to something a UI can paint.
+
+        The venue pushes several hundred book updates a second. Applying each
+        one to the held book is cheap, but emitting each one costs a queued
+        signal per update; at 10 Hz the panel still looks live and the GUI
+        thread only sees a fraction of the frames.
+        """
+        while True:
+            await asyncio.sleep(FLUSH_EVERY)
+            self.flush_books()
+
+    def flush_books(self) -> None:
+        """Emit the current state of every book that changed since last flush."""
+        if not self._dirty:
+            return
+        dirty, self._dirty = self._dirty, {}
+        for token_id in dirty:
+            book = self._books.get(token_id)
+            if book is not None:
+                self.book_updated.emit(book)
 
     def dispatch(self, raw: str | bytes) -> None:
         """Route one websocket frame. Pure apart from the held-book update."""
@@ -196,10 +241,9 @@ class PolymarketFeed(QObject):
 
     def _apply_book(self, book: TokenBook) -> None:
         self._books[book.token_id] = book
-        self.book_updated.emit(book)
+        self._dirty[book.token_id] = None
 
     def _apply_changes(self, message: dict[str, Any]) -> None:
-        touched: list[str] = []
         for change in parse_price_changes(message):
             held = self._books.get(change.token_id)
             if held is None:
@@ -207,7 +251,4 @@ class PolymarketFeed(QObject):
                 # the next `book` frame repairs the ladder.
                 continue
             self._books[change.token_id] = apply_price_change(held, change)
-            if change.token_id not in touched:
-                touched.append(change.token_id)
-        for token_id in touched:
-            self.book_updated.emit(self._books[token_id])
+            self._dirty[change.token_id] = None

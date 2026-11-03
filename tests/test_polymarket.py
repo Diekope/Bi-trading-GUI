@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -62,7 +63,9 @@ def gamma_payload(
         {
             "slug": slug,
             "question": "Bitcoin Up or Down - November 3, 2:30PM-2:35PM ET",
-            "conditionId": "0x7561fa95b688baff81024b0af566edfc3152d2336b99acaad479362fb0762234",
+            "conditionId": (
+                "0x7561fa95b688baff81024b0af566edfc3152d2336b99acaad479362fb0762234"
+            ),
             "clobTokenIds": json.dumps(list(TOKENS)),
             "outcomes": json.dumps(["Up", "Down"]),
             "outcomePrices": json.dumps(["0.5", "0.5"]),
@@ -372,15 +375,55 @@ def test_a_book_frame_reaches_the_panel() -> None:
     feed.book_updated.connect(seen.append)
 
     feed.dispatch(json.dumps([_book_frame()]))
+    feed.flush_books()
 
     assert len(seen) == 1
     assert seen[0].token_id == UP_TOKEN
     assert seen[0].best_bid == pytest.approx(0.66)
 
 
+def test_many_updates_coalesce_into_one_emit_per_token() -> None:
+    feed = _feed()
+    feed.dispatch(json.dumps([_book_frame(UP_TOKEN), _book_frame(DOWN_TOKEN)]))
+    seen: list[TokenBook] = []
+    feed.book_updated.connect(seen.append)
+
+    for price in ("0.67", "0.68", "0.69"):
+        feed.dispatch(
+            json.dumps(
+                [
+                    {
+                        "event_type": "price_change",
+                        "timestamp": "1793734282794",
+                        "price_changes": [
+                            {
+                                "asset_id": UP_TOKEN,
+                                "price": price,
+                                "size": "10",
+                                "side": "BUY",
+                            }
+                        ],
+                    },
+                    _book_frame(DOWN_TOKEN),
+                ]
+            )
+        )
+
+    assert seen == []
+    feed.flush_books()
+
+    assert [book.token_id for book in seen] == [UP_TOKEN, DOWN_TOKEN]
+    assert seen[0].best_bid == pytest.approx(0.69)
+
+    # A second flush with nothing new emits nothing.
+    feed.flush_books()
+    assert len(seen) == 2
+
+
 def test_a_price_change_updates_the_held_book_once() -> None:
     feed = _feed()
     feed.dispatch(json.dumps(_book_frame()))
+    feed.flush_books()
     seen: list[TokenBook] = []
     feed.book_updated.connect(seen.append)
 
@@ -406,6 +449,7 @@ def test_a_price_change_updates_the_held_book_once() -> None:
             }
         )
     )
+    feed.flush_books()
 
     assert len(seen) == 1
     assert seen[0].best_bid == pytest.approx(0.67)
@@ -427,6 +471,7 @@ def test_a_change_before_the_snapshot_is_dropped() -> None:
             }
         )
     )
+    feed.flush_books()
 
     assert seen == []
 
@@ -437,6 +482,7 @@ def test_both_tokens_keep_their_own_books() -> None:
     feed.book_updated.connect(seen.append)
 
     feed.dispatch(json.dumps([_book_frame(UP_TOKEN), _book_frame(DOWN_TOKEN)]))
+    feed.flush_books()
 
     assert [book.token_id for book in seen] == [UP_TOKEN, DOWN_TOKEN]
 
@@ -560,6 +606,27 @@ def test_clicking_down_switches_the_ladder(window: MainWindow) -> None:
     assert panel.ladder.book.token_id == DOWN_TOKEN
     assert panel.down_tile.selected is True
     assert panel.up_tile.selected is False
+
+
+def test_the_ladder_only_repaints_when_a_visible_level_moves(
+    window: MainWindow,
+) -> None:
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+    bids = tuple((0.66 - index * 0.01, 100.0) for index in range(10))
+    book = parse_book(book_payload(UP_TOKEN, bids=bids))
+    panel.apply_book(book)
+    shown = panel.ladder._shown
+
+    # Replace the tenth bid: it is below the eight rows the ladder can show.
+    panel.apply_book(
+        replace(book, bids=book.bids[:9] + (Level(0.01, 9_999.0),))
+    )
+    assert panel.ladder._shown == shown
+
+    # A new best bid is visible, so the ladder schedules a repaint.
+    panel.apply_book(replace(book, bids=(Level(0.67, 500.0),) + book.bids))
+    assert panel.ladder._shown != shown
 
 
 def test_trades_fill_the_tape_newest_first(window: MainWindow) -> None:

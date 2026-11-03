@@ -149,6 +149,12 @@ snapshot, then one WebSocket subscription to both tokens (`book`,
 window rolls; the socket reconnects within the same window on a drop. Order
 placement is deliberately not wired — the column is read-only.
 
+The wire is fast: a busy five-minute market pushes several hundred book frames
+a second. All of them are folded into the held books, but the panel is only told
+about the result 10 times a second, and the ladder skips the repaint when its
+visible top eight levels did not move. That keeps a live column at roughly the
+cost of the candle feed instead of pinning a core.
+
 ## Why Python here
 
 | Need | Consequence |
@@ -181,7 +187,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             156 tests: parsing/search/aliases, slug math, candle + book
+tests/             158 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
