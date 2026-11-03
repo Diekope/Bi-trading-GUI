@@ -86,6 +86,9 @@ class CandleChart(QWidget):
     DEFAULT_VISIBLE = 80
     ZOOM_STEP = 1.12     # one wheel notch; deliberately gentle
     DRAG_GAIN = 0.75     # candles travelled per slot dragged
+    PRICE_ZOOM_STEP = 1.10
+    MIN_PRICE_ZOOM = 0.2
+    MAX_PRICE_ZOOM = 20.0
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -93,12 +96,17 @@ class CandleChart(QWidget):
         # stacked cards must still fit inside the window's minimum height.
         self.setMinimumHeight(36)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setToolTip("Wheel: zoom · drag or ← →: pan · double-click: latest")
+        self.setToolTip(
+            "Wheel: zoom time · wheel over the price axis: stretch prices · "
+            "drag or ← →: pan · double-click: reset"
+        )
 
         self._candles: tuple[Candle, ...] = ()
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
+        self._price_zoom = 1.0
         self._precision = 2
         self._interval = DEFAULT_TIMEFRAME
         self._show_volume = True
@@ -139,6 +147,9 @@ class CandleChart(QWidget):
         return self._show_bollinger
 
     def set_series(self, candles: tuple[Candle, ...]) -> None:
+        if not candles:
+            # A new market or interval starts from the default vertical scale.
+            self._price_zoom = 1.0
         self._candles = tuple(candles)
         self._clamp()
         self.update()
@@ -163,6 +174,11 @@ class CandleChart(QWidget):
     @property
     def offset(self) -> int:
         return self._offset
+
+    @property
+    def price_zoom(self) -> float:
+        """1.0 is the natural range; higher stretches prices apart."""
+        return self._price_zoom
 
     @property
     def is_live(self) -> bool:
@@ -202,9 +218,20 @@ class CandleChart(QWidget):
         self._clamp()
         self.update()
 
+    def zoom_price(self, direction: int) -> None:
+        """direction > 0 stretches the price range apart (fewer prices shown)."""
+        if not self._candles or direction == 0:
+            return
+        factor = self.PRICE_ZOOM_STEP if direction > 0 else 1 / self.PRICE_ZOOM_STEP
+        self._price_zoom = min(
+            self.MAX_PRICE_ZOOM, max(self.MIN_PRICE_ZOOM, self._price_zoom * factor)
+        )
+        self.update()
+
     def reset_view(self) -> None:
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
+        self._price_zoom = 1.0
         self._clamp()
         self.update()
 
@@ -215,20 +242,42 @@ class CandleChart(QWidget):
 
     # -- interaction -------------------------------------------------------
 
+    def _axis_at(self, x: float, y: float) -> str:
+        """Which axis, if any, the pointer is over: "price", "time" or ""."""
+        if x >= self.width() - self.GUTTER:
+            return "price"
+        if y >= self.height() - self.TIME_AXIS:
+            return "time"
+        return ""
+
     def wheelEvent(self, event) -> None:  # noqa: N802
         steps = event.angleDelta().y() / 120.0
         if steps == 0:
             return
+
+        notches = max(1, int(abs(steps)))
+        direction = 1 if steps > 0 else -1
+        axis = self._axis_at(event.position().x(), event.position().y())
+
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.pan(int(-steps * 2))
+        elif axis == "price":
+            # Next to the price labels: stretch or squash the vertical range
+            # without touching how much history is on screen.
+            for _ in range(notches):
+                self.zoom_price(direction)
         else:
-            direction = 1 if steps > 0 else -1
-            for _ in range(max(1, int(abs(steps)))):
+            # Over the plot or the time axis: zoom the time range.
+            for _ in range(notches):
                 self.zoom(direction)
         event.accept()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._axis_at(event.position().x(), event.position().y()):
+                # Pressing an axis is not a pan; leave the drag alone.
+                event.accept()
+                return
             self._drag_x = event.position().x()
             self._drag_offset = self._offset
             self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -236,7 +285,19 @@ class CandleChart(QWidget):
             return
         super().mousePressEvent(event)
 
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_x = None
+        super().mouseReleaseEvent(event)
+
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_x is None:
+            axis = self._axis_at(event.position().x(), event.position().y())
+            if axis == "price":
+                self.setCursor(Qt.CursorShape.SizeVerCursor)
+            elif axis == "time":
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
         if self._drag_x is None or not self._candles:
             super().mouseMoveEvent(event)
             return
@@ -246,10 +307,6 @@ class CandleChart(QWidget):
         self._clamp()
         self.update()
         event.accept()
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        self._drag_x = None
-        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
         self.reset_view()
@@ -331,7 +388,14 @@ class CandleChart(QWidget):
         pad = (high - low) * 0.05 or max(high, 1.0) * 0.001
         high += pad
         low -= pad
-        span = high - low
+
+        # Vertical zoom: shrinking the span stretches prices apart. The centre
+        # of the natural range stays put, so the wheel does not make the chart
+        # jump up or down while zooming.
+        span = (high - low) / self._price_zoom
+        centre = (high + low) / 2
+        high = centre + span / 2
+        low = centre - span / 2
 
         slot = full.width() / len(candles)
         body_width = max(1.0, slot * 0.62)

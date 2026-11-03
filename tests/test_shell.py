@@ -7,8 +7,8 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala.cards import MarketCard, format_axis_time  # noqa: E402
@@ -573,3 +573,112 @@ def test_overlay_checkboxes_sit_in_the_top_bar(window: MainWindow) -> None:
     assert window.volume_toggle.objectName() == "overlayToggle"
     assert window.bollinger_toggle.objectName() == "overlayToggle"
     assert window.volume_toggle.parent() is window.latency_label.parent()
+
+
+# -- axis-specific wheel zoom ---------------------------------------------
+
+def _wheel(chart, x: float, y: float, notches: int = 1) -> None:
+    """Deliver a wheel notch at (x, y) inside the chart."""
+    event = QWheelEvent(
+        QPointF(x, y),
+        QPointF(x, y),
+        QPoint(0, 0),
+        QPoint(0, 120 * notches),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    chart.wheelEvent(event)
+
+
+def _price_axis_point(chart) -> tuple[float, float]:
+    return (chart.width() - 8.0, chart.height() / 2)
+
+
+def _time_axis_point(chart) -> tuple[float, float]:
+    return (chart.width() / 2, chart.height() - 4.0)
+
+
+def test_wheel_over_the_price_axis_stretches_prices_only(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    before_visible = chart.visible_count
+
+    _wheel(chart, *_price_axis_point(chart), notches=2)
+
+    assert chart.price_zoom > 1.0
+    assert chart.visible_count == before_visible
+    assert chart.offset == 0
+
+
+def test_wheel_over_the_time_axis_zooms_time_only(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    before_visible = chart.visible_count
+
+    _wheel(chart, *_time_axis_point(chart), notches=2)
+
+    assert chart.visible_count < before_visible
+    assert chart.price_zoom == 1.0
+
+
+def test_wheel_over_the_plot_still_zooms_time(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    before_visible = chart.visible_count
+
+    _wheel(chart, chart.width() / 2, chart.height() / 2, notches=1)
+
+    assert chart.visible_count < before_visible
+    assert chart.price_zoom == 1.0
+
+
+def test_price_zoom_clamps_both_ways(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+
+    for _ in range(200):
+        chart.zoom_price(1)
+    assert chart.price_zoom == chart.MAX_PRICE_ZOOM
+
+    for _ in range(400):
+        chart.zoom_price(-1)
+    assert chart.price_zoom == chart.MIN_PRICE_ZOOM
+
+
+def test_reset_view_restores_the_price_zoom(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    chart.zoom_price(1)
+    chart.pan(10)
+    assert chart.price_zoom > 1.0
+
+    chart.reset_view()
+
+    assert chart.price_zoom == 1.0
+    assert chart.is_live is True
+
+
+def test_a_new_series_resets_the_price_zoom(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    chart.zoom_price(1)
+
+    chart.set_series(())
+
+    assert chart.price_zoom == 1.0
+
+
+def test_price_zoom_changes_what_is_painted(app: QApplication, window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    chart.set_show_volume(False)
+
+    natural = chart.grab().toImage()
+    chart.zoom_price(1)
+    chart.zoom_price(1)
+    stretched = chart.grab().toImage()
+
+    assert chart.price_zoom > 1.0
+    assert natural != stretched

@@ -64,16 +64,27 @@ squeezing the candles.
 
 | Input | Action |
 | --- | --- |
-| Wheel | zoom in / out (one gentle step per notch) |
+| Wheel over the price axis | stretch / squash the price range |
+| Wheel over the time axis | zoom the time range |
+| Wheel over the plot | zoom the time range |
 | Shift + wheel | pan two candles per notch |
 | Drag | pan, 0.75 candles per candle-width |
 | ← / → | pan one candle (Shift: ten) |
-| ↑ / ↓ | zoom |
+| ↑ / ↓ | zoom the time range |
 | Home | jump to the oldest candle |
-| End, `0`, double-click | snap back to the live edge |
+| End, `0`, double-click | reset: live edge, default range, 1.0 price zoom |
 
-The viewport is pinned to the newest candle by default and stays live as data
-arrives; scrolling back freezes it and shows `N back · double-click for live`.
+The two axes are separate. The price gutter on the right changes only the
+vertical scale — how far apart prices sit — and leaves the number of candles
+alone; each wheel notch is 10%, clamped between 0.2× and 20×. The bottom time
+axis changes only the time range. The pointer turns into a vertical resize
+cursor over the price gutter and a horizontal one over the time axis, so it is
+clear which wheel you are about to use.
+
+The vertical scale pivots on the centre of the natural price range, so zooming
+does not make the chart jump. Scrolling back freezes the viewport and shows
+`N back · double-click for live`; the viewport is pinned to the newest candle
+until then.
 
 **Search** covers 377 markets: 235 main perps plus 142 HIP-3 markets on the
 `xyz` dex, which is where commodities and equities live. Results render as a
@@ -119,8 +130,8 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             84 tests: parsing/search/aliases, feed routing, candle stream,
-                   chart pan/zoom/time axis, overlays, inline search
+tests/             91 tests: parsing/search/aliases, feed routing, candle stream,
+                   chart pan/zoom, axis wheel zoom, overlays, inline search
 ```
 
 ## Window layout
