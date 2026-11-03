@@ -169,7 +169,14 @@ class PolymarketFeed(QObject):
 
     async def _session(self, tokens: list[str], deadline: float) -> None:
         async with websockets.connect(
-            WS_URL, ping_interval=20, ping_timeout=20, close_timeout=2
+            WS_URL,
+            ping_interval=20,
+            ping_timeout=20,
+            close_timeout=2,
+            # A busy market pushes several hundred frames a second. Give the
+            # reader room to absorb a burst instead of pausing the socket and
+            # tripping the venue's slow-consumer guard.
+            max_queue=256,
         ) as ws:
             await ws.send(json.dumps({"assets_ids": tokens, "type": "market"}))
             self.status.emit("live")
