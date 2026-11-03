@@ -18,11 +18,17 @@ uv run pytest -q
 
 ## What works now
 
-**Top bar** — two WebSocket ping/pong round-trips, both the real socket path
-rather than an HTTP timer, so they reflect what order flow would experience.
-`HL` is the link to `api.hyperliquid.xyz`, refreshed every 2s; `PM` is the link
-to `ws-subscriptions-clob.polymarket.com`, refreshed every 5s while a market is
-open. Green ≤120ms, amber ≤300ms, red above.
+**Top bar** — Hyperliquid's own WebSocket ping/pong round-trip, measured on
+the real socket path rather than an HTTP timer, so it reflects what order flow
+would experience. Refreshed every 2s. Green ≤120ms, amber ≤300ms, red above.
+Polymarket's equivalent sits at the top of its column, above the tiles,
+refreshed every 5s while a market is open.
+
+The two numbers differ because the venues answer at different speeds, not
+because one probe is broken: from the same machine, TCP + TLS to both edge
+endpoints completes in ~25ms, while Hyperliquid's `/info` takes 250–370ms to
+first byte and Polymarket's CLOB `/time` takes 75–110ms. The extra time is the
+venue's application/origin, and the WebSocket pings show the same split.
 
 **Market cards** (right side)
 
@@ -138,15 +144,20 @@ up/down window that is open right now.
   stats describe.
 - **Clock** — the window in UTC and a live countdown; white, amber inside a
   minute, red inside 30 seconds.
+- **Venue delay** — Polymarket's WebSocket ping/pong, top-left above the tiles;
+  green ≤120ms, amber ≤300ms, red above.
 - **Stats** — spread, Gamma liquidity, top-of-book depth (the price × size of
   the best eight levels on each side), the window-open **target**, the live
   Hyperliquid BTC perp mid, and the signed percent from the target to it.
   Above-target reads green, below reads red.
-- **BTC chart** — the underlying price across the five-minute window, with the
-  target as a dashed line. The gap between the line and the target is shaded
-  green above and red below, so the market's "up or down?" question is legible
-  at a glance. The x-axis is always the whole window; the y-axis widens as the
-  range grows and never shrinks mid-window, so the line does not jump.
+- **BTC chart** — a rolling fifteen-minute view of the underlying, with the
+  current window's target as a dashed line and the gap shaded green above / red
+  below. A rollover does not reset the line: the previous windows scroll left
+  while the new target segment grows from the right edge. Five-minute
+  boundaries are marked on the time axis. One-second samples are joined by a
+  live tip that eases toward the newest quote, and the y-range eases toward the
+  visible data on every frame, so the chart moves continuously instead of
+  stepping once a second. An hour of samples is retained.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
@@ -155,10 +166,10 @@ snapshot, then one WebSocket subscription to both tokens (`book`,
 `price_change`, `last_trade_price`). Separately, one Hyperliquid `1m`
 `candleSnapshot` per window seeds the target and backfills the pre-launch part
 of the price line; live BTC quotes come from the `bbo` channel, because
-`allMids` can be several seconds apart on a quiet book. Books, price samples and
-the tape are cleared when the window rolls; the socket reconnects within the
-same window on a drop. Order placement is deliberately not wired — the column
-is read-only.
+`allMids` can be several seconds apart on a quiet book. Books and the tape are
+cleared when the window rolls; the price line keeps rolling. The socket
+reconnects within the same window on a drop. Order placement is deliberately
+not wired — the column is read-only.
 
 The target is the open of the Hyperliquid bar at the window start. Polymarket
 resolves on Chainlink's BTC/USD TWAP, not on Hyperliquid, so within a few
@@ -202,7 +213,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             171 tests: parsing/search/aliases, slug math, candle + book
+tests/             173 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
@@ -211,7 +222,7 @@ tests/             171 tests: parsing/search/aliases, slug math, candle + book
 
 ```
 +-------------------------------------------------------------+
-|        Volume  Bollinger            HL ● 210 ms   PM ● 26 ms|
+|        Volume  Bollinger                       HL ● 210 ms  |
 +-------------------------+-----------------------------------+
 |                         |  HYPE                       84.6  |
 |                         |  1m 3m 5m 15m 30m 1h              |
@@ -220,7 +231,8 @@ tests/             171 tests: parsing/search/aliases, slug math, candle + book
 |        Polymarket       +-----------------------------------+
 |  UP 64.5¢  DOWN 35.5¢   |  xyz:CL  [XYZ]               96.7 +|
 |  19:35–19:40  closes…   |  1m 3m 5m 15m 30m 1h              |
-|  BTC chart + tape       |  |╿╽│╿╽ ...                       |
+|  PM ● 26 ms             |  |╿╽│╿╽ ...                       |
+|  BTC chart + tape       |                                   |
 +-------------------------+-----------------------------------+
 ```
 

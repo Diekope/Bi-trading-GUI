@@ -39,6 +39,7 @@ from lalala.polymarket_data import (
     format_cents,
     format_compact,
     format_countdown,
+    format_delta,
     format_shares,
 )
 from lalala.theme import (
@@ -54,8 +55,16 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
-SAMPLE_EVERY_MS = 1_000    # price-chart resolution; the wire is much faster
-MAX_POINTS = 1_200         # a 5m window at 1 Hz is 300; leave room for backfill
+SAMPLE_EVERY_MS = 1_000    # one history point per second; the wire is faster
+MAX_POINTS = 3_600         # one hour of samples; the line keeps rolling past windows
+
+# The chart is a rolling window, not one market window. Fifteen minutes shows
+# three Polymarket windows and still gives a five-minute move room to breathe.
+VIEW_MS = 15 * 60_000
+WINDOW_MARK_MS = 300_000
+FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
+EASE_TIP = 0.25            # per frame, toward the newest price
+EASE_RANGE = 0.18          # per frame, toward the natural y-range
 
 
 def _alpha(color: str, alpha: int) -> QColor:
@@ -163,12 +172,15 @@ class OutcomeTile(QWidget):
 
 
 class PriceChart(QWidget):
-    """BTC through the five-minute window, against the target (open) price.
+    """BTC over a rolling fifteen minutes, against the window's target.
 
-    The binary market's question is whether BTC ends above where it started, so
-    the useful line is the underlying price, not the implied probability. The
-    chart keeps the full window as its x-axis even when only part of it has
-    data, so the line visibly fills in as the window runs.
+    The binary market's question is whether BTC ends above where the window
+    started, so the useful line is the underlying price, not the implied
+    probability. The x-axis always ends now, so a rollover never clears the
+    line: the last windows scroll left while the new target segment grows from
+    the right edge. One-second samples are joined by a live tip that eases
+    toward the newest quote, and the y-range eases too, so the chart glides
+    instead of stepping once per sample.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -178,8 +190,15 @@ class PriceChart(QWidget):
         self.target: float | None = None
         self._lo: float | None = None
         self._hi: float | None = None
+        self._live: float | None = None
+        self._tip: float | None = None
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(FRAME_MS)
+        self._timer.timeout.connect(self._advance)
+        self._timer.start()
 
     def set_market(
         self,
@@ -187,20 +206,38 @@ class PriceChart(QWidget):
         points: list[PricePoint],
         target: float | None,
     ) -> None:
-        if self.market is None or self.market.slug != market.slug:
-            # New window, new scale. Within a window the range only widens,
-            # so the line does not jump as BTC moves.
-            self._lo = None
-            self._hi = None
+        """Point the chart at a new window without dropping the history."""
         self.market = market
         self.points = points
-        self.target = target
+        if target is not None:
+            self.target = target
         self.update()
 
     def set_data(self, points: list[PricePoint], target: float | None) -> None:
         self.points = points
-        self.target = target
+        if target is not None:
+            self.target = target
         self.update()
+
+    def set_live(self, price: float) -> None:
+        """The newest quote; the painted tip eases toward it."""
+        self._live = float(price)
+        if self._tip is None:
+            self._tip = self._live
+
+    def _advance(self) -> None:
+        if self.market is None or not self.isVisible():
+            return
+        self._ease()
+        self.update()
+
+    def _ease(self) -> None:
+        if self._live is None:
+            return
+        if self._tip is None:
+            self._tip = self._live
+        else:
+            self._tip += (self._live - self._tip) * EASE_TIP
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -221,24 +258,28 @@ class PriceChart(QWidget):
             self._message(painter, "waiting for the market…")
             return
 
-        start = market.start_ms
-        end = market.end_ms
-        if end <= start:
-            end = start + 1
-        span = end - start
+        now = int(time.time() * 1000)
+        start = now - VIEW_MS
+        span = float(VIEW_MS)
 
         points = [
             point
             for point in self.points
-            if start <= point.timestamp_ms <= end
+            if start <= point.timestamp_ms <= now
         ]
         target = self.target
-        if not points or target is None:
+        tip = self._tip
+        reference = tip if tip is not None else (points[-1].price if points else None)
+        if reference is None:
             self._message(painter, "collecting…")
             return
 
-        values = [point.price for point in points] + [target]
-        lo, hi = self._range(values, target)
+        values = [point.price for point in points]
+        if target is not None:
+            values.append(target)
+        if tip is not None:
+            values.append(tip)
+        lo, hi = self._range(values, target if target is not None else reference)
 
         left = 46.0
         right = width - 8.0
@@ -261,71 +302,111 @@ class PriceChart(QWidget):
                 f"{value:,.0f}",
             )
 
-        # Window bounds on the time axis.
-        start_at = datetime.fromtimestamp(start / 1000, tz=timezone.utc)
-        end_at = datetime.fromtimestamp(end / 1000, tz=timezone.utc)
-        painter.setFont(mono_font(7))
-        painter.setPen(QColor(TEXT_FAINT))
-        painter.drawText(
-            QRectF(left, bottom + 1, 60, 13),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            f"{start_at:%H:%M}",
-        )
-        painter.drawText(
-            QRectF(right - 60, bottom + 1, 60, 13),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            f"{end_at:%H:%M}",
-        )
-
-        def x_of(point: PricePoint) -> float:
+        def x_of(stamp_ms: int) -> float:
             return left + min(
-                1.0, max(0.0, (point.timestamp_ms - start) / span)
+                1.0, max(0.0, (stamp_ms - start) / span)
             ) * (right - left)
 
         def y_of(price: float) -> float:
             return bottom - (price - lo) / (hi - lo) * (bottom - top)
 
-        target_y = y_of(target)
-        last = points[-1]
-        above = last.price >= target
-        color = UP if above else DOWN
+        # Five-minute boundaries: enough context to see a window roll over
+        # without labelling every minute.
+        painter.setFont(mono_font(7))
+        boundary = ((start + WINDOW_MARK_MS - 1) // WINDOW_MARK_MS) * WINDOW_MARK_MS
+        last_label = left - 44.0
+        while boundary <= now:
+            x = x_of(boundary)
+            painter.setPen(QPen(QColor(BORDER), 1))
+            painter.drawLine(x, top, x, bottom)
+            if x - last_label >= 44.0 and x <= right - 44.0:
+                painter.setPen(QColor(TEXT_FAINT))
+                painter.drawText(
+                    QRectF(x - 18, bottom + 1, 36, 13),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                    datetime.fromtimestamp(
+                        boundary / 1000, tz=timezone.utc
+                    ).strftime("%H:%M"),
+                )
+                last_label = x
+            boundary += WINDOW_MARK_MS
+
+        painter.setPen(QColor(TEXT_FAINT))
+        painter.drawText(
+            QRectF(right - 44, bottom + 1, 44, 13),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            datetime.fromtimestamp(now / 1000, tz=timezone.utc).strftime("%H:%M"),
+        )
+
+        # The line: the samples inside the view, plus the eased live tip.
+        series: list[tuple[int, float]] = [
+            (point.timestamp_ms, point.price) for point in points
+        ]
+        if tip is not None and (not series or series[-1][0] < now):
+            series.append((now, tip))
+
+        above = target is not None and reference >= target
+        color = (UP if above else DOWN) if target is not None else ACCENT
 
         path = QPainterPath()
-        for point in points:
+        for stamp, price in series:
             if path.elementCount() == 0:
-                path.moveTo(x_of(point), y_of(point.price))
+                path.moveTo(x_of(stamp), y_of(price))
             else:
-                path.lineTo(x_of(point), y_of(point.price))
+                path.lineTo(x_of(stamp), y_of(price))
 
-        # Shade the gap to the target, green above and red below, so the side
-        # of the line reads even when the move is only a few dollars.
-        fill = QPainterPath(path)
-        fill.lineTo(x_of(last), target_y)
-        fill.lineTo(x_of(points[0]), target_y)
-        fill.closeSubpath()
-        painter.save()
-        painter.setClipRect(
-            QRectF(left, top, right - left, max(0.0, target_y - top))
-        )
-        painter.fillPath(fill, _alpha(UP, 30))
-        painter.restore()
-        painter.save()
-        painter.setClipRect(
-            QRectF(left, target_y, right - left, max(0.0, bottom - target_y))
-        )
-        painter.fillPath(fill, _alpha(DOWN, 30))
-        painter.restore()
+        # The target and the shaded gap belong to the current window only:
+        # older windows had a different opening price, so shading them against
+        # this one would be a lie.
+        if target is not None:
+            target_y = y_of(target)
+            window = [
+                (stamp, price)
+                for stamp, price in series
+                if stamp >= market.start_ms
+            ]
+            if window:
+                fill = QPainterPath()
+                fill.moveTo(x_of(window[0][0]), y_of(window[0][1]))
+                for stamp, price in window[1:]:
+                    fill.lineTo(x_of(stamp), y_of(price))
+                fill.lineTo(x_of(window[-1][0]), target_y)
+                fill.lineTo(x_of(window[0][0]), target_y)
+                fill.closeSubpath()
+                painter.save()
+                painter.setClipRect(
+                    QRectF(left, top, right - left, max(0.0, target_y - top))
+                )
+                painter.fillPath(fill, _alpha(UP, 30))
+                painter.restore()
+                painter.save()
+                painter.setClipRect(
+                    QRectF(
+                        left,
+                        target_y,
+                        right - left,
+                        max(0.0, bottom - target_y),
+                    )
+                )
+                painter.fillPath(fill, _alpha(DOWN, 30))
+                painter.restore()
 
-        # The target: the window-open price the outcome is measured against.
-        painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(left, target_y, right, target_y)
-        painter.setFont(mono_font(7))
-        painter.setPen(QColor(AMBER))
-        painter.drawText(
-            QRectF(left + 2, target_y - 13, right - left - 4, 12),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            f"open {target:,.1f}",
-        )
+            seg_start = max(start, market.start_ms)
+            seg_end = min(now, market.end_ms if market.end_ms > 0 else now)
+            if seg_end > seg_start:
+                painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(
+                    x_of(seg_start), target_y, x_of(seg_end), target_y
+                )
+                if x_of(seg_end) - x_of(seg_start) > 70:
+                    painter.setFont(mono_font(7))
+                    painter.setPen(QColor(AMBER))
+                    painter.drawText(
+                        QRectF(x_of(seg_end) - 90, target_y - 13, 88, 12),
+                        Qt.AlignmentFlag.AlignRight
+                        | Qt.AlignmentFlag.AlignVCenter,
+                        f"open {target:,.1f}",
+                    )
 
         pen = QPen(QColor(color), 1.8)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -336,35 +417,42 @@ class PriceChart(QWidget):
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(color))
-        painter.drawEllipse(
-            QPointF(x_of(last), y_of(last.price)), 2.6, 2.6
-        )
+        painter.drawEllipse(QPointF(x_of(now), y_of(reference)), 2.6, 2.6)
 
         # The side and the gap in the header: the answer to the market's
         # question, not just the price.
-        delta = (last.price - target) / target * 100.0 if target else 0.0
         painter.setFont(mono_font(8, bold=True))
         painter.setPen(QColor(color))
+        if target is not None and target > 0:
+            delta = (reference - target) / target * 100.0
+            text = f"{'ABOVE' if above else 'BELOW'} {format_delta(delta)}"
+        else:
+            text = f"{reference:,.1f}"
         painter.drawText(
             QRectF(left, 0, right - left, 14),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            f"{'ABOVE' if above else 'BELOW'} {delta:+.2f}%",
+            text,
         )
 
-    def _range(self, values: list[float], target: float) -> tuple[float, float]:
-        """The y-range, sticky within a window: widen, never shrink."""
+    def _range(
+        self, values: list[float], target: float
+    ) -> tuple[float, float]:
+        """Ease the y-range toward the visible data instead of snapping.
+
+        The range still leaves the target clear of the edges, and it can shrink
+        again once an old extreme scrolls out of view — otherwise an hour of
+        history would flatten the line to nothing.
+        """
         low = min(values)
         high = max(values)
-        # Keep the target's line away from the edges, and give a quiet window
-        # enough resolution to see a $10 move on a $78,000 price.
         pad = max((high - low) * 0.18, abs(target) * 0.00025, 1.0)
         lo = low - pad
         hi = high + pad
         if self._lo is None:
             self._lo, self._hi = lo, hi
         else:
-            self._lo = min(self._lo, lo)
-            self._hi = max(self._hi, hi)
+            self._lo += (lo - self._lo) * EASE_RANGE
+            self._hi += (hi - self._hi) * EASE_RANGE
         return self._lo, self._hi
 
     def _message(self, painter: QPainter, text: str) -> None:
@@ -554,6 +642,24 @@ class PolymarketPanel(Card):
         clock.addWidget(close_caption)
         clock.addWidget(self.countdown)
 
+        # -- latency --
+        # Above the tiles, on the left: the venue's own round trip, next to
+        # the market it belongs to rather than in the Hyperliquid top bar.
+        delay = QHBoxLayout()
+        delay.setContentsMargins(0, 0, 0, 0)
+        delay.setSpacing(6)
+
+        self.latency_label = QLabel("PM ● —")
+        self.latency_label.setFont(mono_font(8))
+        self.latency_label.setStyleSheet(
+            f"color: {TEXT_FAINT}; background: transparent;"
+        )
+        self.latency_label.setToolTip(
+            "WebSocket ping/pong round trip to Polymarket's CLOB"
+        )
+        delay.addWidget(self.latency_label)
+        delay.addStretch(1)
+
         # -- outcome tiles --
         tiles = QHBoxLayout()
         tiles.setContentsMargins(0, 0, 0, 0)
@@ -594,6 +700,7 @@ class PolymarketPanel(Card):
         self.body.addLayout(header)
         self.body.addWidget(self.question)
         self.body.addLayout(clock)
+        self.body.addLayout(delay)
         self.body.addLayout(tiles)
         self.body.addLayout(stats)
         self.body.addSpacing(2)
@@ -629,26 +736,16 @@ class PolymarketPanel(Card):
 
         if rolled:
             self.books.clear()
-            self.points = []
-            self.target = None
             self._selected = 0
             self._last_sample = 0
             self.tape.clear()
-            self.price_chart.set_market(market, self.points, self.target)
             self.depth_value.setText("—")
-            self.target_value.setText("—")
-            self.move_value.setText("—")
-            self.move_value.setStyleSheet(
-                f"color: {TEXT}; background: transparent;"
-            )
-            self.btc_value.setStyleSheet(
-                f"color: {TEXT}; background: transparent;"
-            )
             self.spread_value.setText(
                 format_cents(market.spread) if market.spread > 0 else "—"
             )
-        else:
-            self.price_chart.set_market(market, self.points, self.target)
+        # The price line keeps rolling across rollovers. Only the book, the
+        # tape and the target segment belong to one window.
+        self.price_chart.set_market(market, self.points, self.target)
 
         self.question.setText(market.question)
         self.window_label.setText(self._window_text(market))
@@ -734,17 +831,20 @@ class PolymarketPanel(Card):
             return
         delta = (price - target) / target * 100.0
         color = UP if delta >= 0 else DOWN
-        self._set_text(self.move_value, f"{delta:+.2f}%")
+        self._set_text(self.move_value, format_delta(delta))
         self.move_value.setStyleSheet(
             f"color: {color}; background: transparent;"
         )
         self.btc_value.setStyleSheet(
             f"color: {color}; background: transparent;"
         )
-        self.move_value.setToolTip(
-            f"{'Above' if delta >= 0 else 'Below'} target by "
-            f"{abs(price - target):,.1f} ({abs(delta):.2f}%)"
-        )
+        if abs(delta) < 0.005:
+            self.move_value.setToolTip("At the target (less than 0.01%)")
+        else:
+            self.move_value.setToolTip(
+                f"{'Above' if delta >= 0 else 'Below'} target by "
+                f"{abs(price - target):,.1f} ({abs(delta):.2f}%)"
+            )
 
     @staticmethod
     def _set_text(label: QLabel, text: str) -> None:
@@ -765,6 +865,14 @@ class PolymarketPanel(Card):
         self._set_text(self.btc_value, f"{price:,.1f}")
         self._update_delta(price)
         self._sample_price(price)
+        self.price_chart.set_live(price)
+
+    def set_latency(self, milliseconds: float, color: str = TEXT_MUTED) -> None:
+        """Polymarket's own round trip, shown above its tiles."""
+        self._set_text(self.latency_label, f"PM ● {milliseconds:.0f} ms")
+        self.latency_label.setStyleSheet(
+            f"color: {color}; background: transparent;"
+        )
 
     def set_status(self, status: str) -> None:
         looked_up = STATUS.get(status)

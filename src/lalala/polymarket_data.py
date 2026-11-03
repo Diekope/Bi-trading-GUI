@@ -460,6 +460,15 @@ def format_shares(size: float | None) -> str:
     return text or "0"
 
 
+def format_delta(percent: float | None) -> str:
+    """A signed percent, without a '-0.00%' that reads like a bug."""
+    if percent is None:
+        return "—"
+    if abs(percent) < 0.005:
+        return "0.00%"
+    return f"{percent:+.2f}%"
+
+
 def format_countdown(seconds: float | None) -> str:
     """mm:ss, or h:mm:ss when there is an hour or more left."""
     if seconds is None:

@@ -29,6 +29,7 @@ from lalala.polymarket_data import (  # noqa: E402
     format_cents,
     format_compact,
     format_countdown,
+    format_delta,
     format_shares,
     market_slug,
     parse_book,
@@ -400,6 +401,14 @@ def test_compact_money_keeps_a_width_that_fits_a_column() -> None:
     assert format_compact(None) == "—"
 
 
+def test_a_tiny_move_never_formats_as_negative_zero() -> None:
+    assert format_delta(0.5) == "+0.50%"
+    assert format_delta(-0.5) == "-0.50%"
+    assert format_delta(-0.0019) == "0.00%"
+    assert format_delta(0.0) == "0.00%"
+    assert format_delta(None) == "—"
+
+
 def test_the_countdown_never_shows_zero_before_the_close() -> None:
     assert format_countdown(0.2) == "00:01"
     assert format_countdown(61) == "01:01"
@@ -727,32 +736,43 @@ def test_window_prices_are_ignored_without_a_target(window: MainWindow) -> None:
     assert panel.target_value.text() == "—"
 
 
-def test_the_price_range_is_sticky_and_resets_on_rollover(
+def test_the_price_range_eases_toward_new_extremes(
     window: MainWindow,
 ) -> None:
     chart = window.polymarket.price_chart
     panel = window.polymarket
     panel.set_market(market_from_gamma())
 
-    # A wide window pins the range…
+    # The first range fits the data exactly…
     lo, hi = chart._range([78_000.0, 78_100.0], 78_000.0)
     assert lo == pytest.approx(77_980.5)
     assert hi == pytest.approx(78_119.5)
-    # …and a later, narrower sample must not shrink it.
-    lo, hi = chart._range([78_040.0, 78_050.0], 78_000.0)
-    assert lo == pytest.approx(77_980.5)
-    assert hi == pytest.approx(78_119.5)
-    # A wider sample still widens it.
+    # …a wider sample moves it part of the way, not all at once.
+    before_lo, before_hi = lo, hi
     lo, hi = chart._range([77_000.0, 78_100.0], 78_000.0)
-    assert lo == pytest.approx(76_802.0)
-    assert hi == pytest.approx(78_298.0)
+    assert lo == pytest.approx(before_lo + (76_802.0 - before_lo) * 0.18)
+    assert hi == pytest.approx(before_hi + (78_298.0 - before_hi) * 0.18)
+    assert lo < before_lo and hi > before_hi
 
-    # A new five-minute window starts from a fresh scale.
+    # A rollover keeps the scale and eases toward the new window's prices.
     panel.set_market(market_from_gamma(slug="btc-updown-5m-1793734500"))
-    assert chart._lo is None and chart._hi is None
+    assert chart._lo == pytest.approx(lo)
+    assert chart._hi == pytest.approx(hi)
     lo, hi = chart._range([100_000.0, 100_050.0], 100_000.0)
-    assert lo == pytest.approx(99_975.0)
-    assert hi == pytest.approx(100_075.0)
+    assert 78_000.0 < lo < 99_975.0
+    assert 78_300.0 < hi < 100_075.0
+
+
+def test_the_live_tip_eases_toward_the_newest_quote(window: MainWindow) -> None:
+    chart = window.polymarket.price_chart
+    chart.set_live(100_000.0)
+    assert chart._tip == pytest.approx(100_000.0)
+
+    chart.set_live(100_100.0)
+    chart._ease()
+
+    assert chart._tip == pytest.approx(100_025.0)  # a quarter of the gap
+    assert chart._tip < 100_100.0
 
 
 def test_trades_fill_the_tape_newest_first(window: MainWindow) -> None:
@@ -778,7 +798,7 @@ def test_the_tape_stops_at_a_screenful(window: MainWindow) -> None:
     assert panel.tape.trades[0][0].size == 40
 
 
-def test_a_new_window_clears_the_old_book_chart_and_tape(
+def test_a_new_window_clears_the_book_and_tape_but_keeps_the_line(
     window: MainWindow,
 ) -> None:
     panel = window.polymarket
@@ -789,6 +809,7 @@ def test_a_new_window_clears_the_old_book_chart_and_tape(
     panel.set_window_prices(78_000.0, (PricePoint(first.start_ms, 78_000.0),))
     panel.set_btc(78_100.0)
     assert panel.points
+    points, target = panel.points, panel.target
 
     second = market_from_gamma(slug="btc-updown-5m-1793734500")
     panel.set_market(second)
@@ -796,9 +817,13 @@ def test_a_new_window_clears_the_old_book_chart_and_tape(
     assert panel.market is second
     assert panel.books == {}
     assert panel.tape.trades == []
-    assert panel.points == []
-    assert panel.target is None
+    # The line keeps going: the previous points and their target survive.
+    assert panel.points is points
+    assert len(panel.points) == 2
+    assert panel.points[-1].price == pytest.approx(78_100.0)
+    assert panel.target == pytest.approx(78_000.0)
     assert panel.price_chart.market is second
+    assert panel.price_chart.points is points
 
 
 def test_the_btc_reference_shows_above_and_below_the_target(
@@ -821,6 +846,10 @@ def test_the_btc_reference_shows_above_and_below_the_target(
     assert "#ff5c5c" in panel.move_value.styleSheet()
     assert "Below" in panel.move_value.toolTip()
 
+    panel.set_btc(100_000.2)
+    assert panel.move_value.text() == "0.00%"
+    assert "At the target" in panel.move_value.toolTip()
+
 
 def test_status_changes_are_visible(window: MainWindow) -> None:
     panel = window.polymarket
@@ -835,17 +864,18 @@ def test_status_changes_are_visible(window: MainWindow) -> None:
     assert "waiting" in panel.status_text.text()
 
 
-def test_the_polymarket_delay_lands_in_the_top_bar(window: MainWindow) -> None:
+def test_the_polymarket_delay_sits_above_its_tiles(window: MainWindow) -> None:
     window.polymarket_feed.latency.emit(42)
 
-    assert window.pm_latency_label.text() == "PM ● 42 ms"
-    assert "#3ddc84" in window.pm_latency_label.styleSheet()
+    label = window.polymarket.latency_label
+    assert label.text() == "PM ● 42 ms"
+    assert "#3ddc84" in label.styleSheet()
 
     window.polymarket_feed.latency.emit(250)
-    assert "#e0b341" in window.pm_latency_label.styleSheet()
+    assert "#e0b341" in label.styleSheet()
 
     window.polymarket_feed.latency.emit(900)
-    assert "#ff5c5c" in window.pm_latency_label.styleSheet()
+    assert "#ff5c5c" in label.styleSheet()
 
 
 def test_the_window_forwards_the_btc_mid_to_the_panel(window: MainWindow) -> None:

@@ -95,15 +95,6 @@ class MainWindow(QMainWindow):
             "WebSocket round-trip to api.hyperliquid.xyz"
         )
         top_layout.addWidget(self.latency_label)
-
-        self.pm_latency_label = QLabel("PM —")
-        self.pm_latency_label.setStyleSheet(
-            "color: #6f6f76; font-size: 10px; background: transparent;"
-        )
-        self.pm_latency_label.setToolTip(
-            "WebSocket round-trip to ws-subscriptions-clob.polymarket.com"
-        )
-        top_layout.addWidget(self.pm_latency_label)
         layout.addWidget(top_bar)
 
         # -- content --
@@ -360,10 +351,7 @@ class MainWindow(QMainWindow):
             color = "#e0b341"
         else:
             color = "#ff5c5c"
-        self.pm_latency_label.setStyleSheet(
-            f"color: {color}; font-size: 10px; background: transparent;"
-        )
-        self.pm_latency_label.setText(f"PM ● {milliseconds:.0f} ms")
+        self.polymarket.set_latency(milliseconds, color)
 
     def _on_connected(self, is_connected: bool) -> None:
         if not is_connected:
