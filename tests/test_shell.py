@@ -9,11 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QWheelEvent  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala.cards import MarketCard, format_axis_time  # noqa: E402
 from lalala.main_window import MainWindow  # noqa: E402
 from lalala.market_data import (  # noqa: E402
+    TIMEFRAMES,
     Candle,
     CandleSeries,
     Market,
@@ -682,3 +684,220 @@ def test_price_zoom_changes_what_is_painted(app: QApplication, window: MainWindo
 
     assert chart.price_zoom > 1.0
     assert natural != stretched
+
+
+# -- deeper history -------------------------------------------------------
+
+def _detach_feed(window: MainWindow) -> None:
+    """Stop the (unstarted) feed from answering, so `awaiting` can be observed."""
+    try:
+        window.main_card.history_requested.disconnect()
+    except RuntimeError:
+        pass
+
+
+def _stamped_series(start: int, count: int, step: int = 60_000) -> tuple[Candle, ...]:
+    return tuple(
+        Candle(t=start + i * step, o=1.0, h=2.0, l=0.5, c=1.5)
+        for i in range(count)
+    )
+
+
+def test_panning_to_the_left_edge_asks_for_older_history(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    _detach_feed(window)
+    asked: list[int] = []
+    chart.history_requested.connect(asked.append)
+
+    chart.pan(10_000)  # clamps at the oldest bar
+
+    assert asked == [chart.visible_candles()[0].t]
+    assert chart.awaiting_history is True
+
+
+def test_only_one_history_request_is_in_flight(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    _detach_feed(window)
+    asked: list[int] = []
+    chart.history_requested.connect(asked.append)
+
+    for _ in range(5):
+        chart.pan(10_000)
+
+    assert len(asked) == 1
+
+
+def test_a_page_is_prepended_without_moving_the_viewport(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    chart.pan(10_000)
+    shown = chart.visible_candles()
+
+    chart.add_history(_stamped_series(1_600_000_000_000, 50))
+
+    assert chart.candle_count == 250
+    assert chart.visible_candles() == shown
+    assert chart.awaiting_history is False
+    assert chart.offset == 120  # unchanged: the page landed to the left
+
+
+def test_an_empty_page_means_the_history_is_exhausted(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    chart.pan(10_000)
+    asked: list[int] = []
+    chart.history_requested.connect(asked.append)
+
+    chart.add_history(())
+    assert chart.history_exhausted is True
+
+    chart.pan(10_000)
+    assert asked == []  # no more requests
+
+
+def test_a_failed_page_can_be_retried(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    _detach_feed(window)
+    asked: list[int] = []
+    chart.history_requested.connect(asked.append)
+
+    chart.pan(10_000)
+    assert chart.awaiting_history is True
+
+    chart.cancel_history_request()
+    assert chart.awaiting_history is False
+    assert chart.history_exhausted is False
+
+    chart.pan(10_000)
+    assert len(asked) == 2
+
+
+def test_a_reconcile_does_not_drop_history(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    chart.add_history(_stamped_series(1_600_000_000_000, 100))
+    assert chart.candle_count == 300
+
+    # The venue's 60s reconcile sends only the recent window.
+    chart.merge_series(_long_series(200))
+
+    assert chart.candle_count == 300
+    assert chart.visible_candles()[-1].t == _long_series(200)[-1].t
+
+
+def test_a_live_bar_does_not_drag_a_scrolled_back_view(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    chart.pan(50)
+    shown = chart.visible_candles()
+
+    # One new bar printed at the venue.
+    newer = _stamped_series(1_700_000_000_000 + 200 * 60_000, 1)
+    chart.merge_series(newer)
+
+    assert chart.candle_count == 201
+    assert chart.visible_candles()[0].t == shown[0].t
+    assert chart.visible_candles()[-1].t == shown[-1].t
+    assert chart.offset == 51
+
+
+def test_a_live_bar_keeps_a_live_chart_live(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+
+    chart.merge_series(_stamped_series(1_700_000_000_000 + 200 * 60_000, 1))
+
+    assert chart.is_live is True
+    assert chart.visible_candles()[-1].t == 1_700_000_000_000 + 200 * 60_000
+
+
+def test_a_new_series_resets_the_history_flags(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+    chart.pan(10_000)
+    chart.add_history(())
+    assert chart.history_exhausted is True
+
+    chart.set_series(_long_series(50))
+
+    assert chart.history_exhausted is False
+    assert chart.awaiting_history is False
+
+
+def test_the_card_routes_history_requests_to_the_feed(window: MainWindow) -> None:
+    """The feed is not started in tests, so this exercises the failure path."""
+    chart = window.main_card.chart
+    chart.set_series(_long_series(200))
+
+    chart.pan(10_000)
+
+    assert window.feed._started is False
+    # The immediate failure unblocks the chart instead of leaving it waiting.
+    assert chart.awaiting_history is False
+    assert chart.history_exhausted is False
+
+
+def test_a_fetched_page_reaches_the_right_card(window: MainWindow) -> None:
+    card = window.main_card
+    card.chart.set_series(_long_series(200))
+    before = card.chart.candle_count
+
+    window._on_older_candles(
+        CandleSeries(card.coin, card.interval, _stamped_series(1_600_000_000_000, 40))
+    )
+
+    assert card.chart.candle_count == before + 40
+
+
+def test_a_page_for_another_market_is_ignored(window: MainWindow) -> None:
+    card = window.main_card
+    card.chart.set_series(_long_series(200))
+    before = card.chart.candle_count
+
+    window._on_older_candles(
+        CandleSeries("xyz:CL", card.interval, _stamped_series(1_600_000_000_000, 40))
+    )
+
+    assert card.chart.candle_count == before
+
+
+# -- keyboard shortcuts ---------------------------------------------------
+
+def test_digit_keys_switch_the_timeframe(app: QApplication, window: MainWindow) -> None:
+    card = window.main_card
+    card.chart.setFocus()
+
+    QTest.keyClick(card.chart, Qt.Key.Key_3)
+
+    assert card.interval == "5m"
+    assert card.timeframes.current() == "5m"
+
+
+def test_digit_keys_reach_the_window_when_nothing_has_focus(
+    app: QApplication, window: MainWindow
+) -> None:
+    QTest.keyClick(window, Qt.Key.Key_5)
+
+    assert window.main_card.interval == "30m"
+
+
+def test_digit_keys_do_not_hijack_the_search_box(
+    app: QApplication, window: MainWindow
+) -> None:
+    card = window.main_card
+    card.open_search()
+    app.processEvents()
+
+    QTest.keyClicks(card.search.edit, "5")
+
+    assert card.search.text() == "5"
+    assert card.interval == "1m"
+
+
+def test_timeframe_pills_advertise_their_key(window: MainWindow) -> None:
+    group = window.main_card.timeframes.group
+    for index in range(len(TIMEFRAMES)):
+        assert f"press {index + 1}" in group.button(index).toolTip()

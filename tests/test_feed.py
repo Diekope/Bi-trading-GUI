@@ -162,3 +162,47 @@ def test_unwatching_drops_the_cached_series() -> None:
     feed.unwatch_candles("HYPE", "1m")
 
     assert ("HYPE", "1m") not in feed._candle_cache
+
+
+# -- backfill requests -----------------------------------------------------
+
+def test_a_backfill_is_refused_while_the_feed_is_stopped() -> None:
+    feed = _feed()
+    feed.watch_candles("HYPE", "1m")
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    # No runner thread is spun up, and the chart is told to try again later.
+    assert failures == [("HYPE", "1m")]
+    assert feed._history_pending == set()
+
+
+def test_a_backfill_for_an_unwatched_pair_is_refused() -> None:
+    feed = _feed()
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    assert failures == [("HYPE", "1m")]
+
+
+def test_two_owners_asking_at_once_do_not_stack_requests() -> None:
+    feed = _feed()
+    feed.watch_candles("HYPE", "1m")
+    feed._started = True  # pretend the app is running, but keep the runner off
+    submitted: list[object] = []
+    feed._runner.submit = lambda coro: submitted.append(coro)  # type: ignore[method-assign]
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    assert len(submitted) == 1
+    assert failures == [("HYPE", "1m")]
+
+    for coro in submitted:
+        coro.close()  # type: ignore[attr-defined]  # never scheduled on purpose

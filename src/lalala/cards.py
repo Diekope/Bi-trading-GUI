@@ -73,12 +73,24 @@ class ClickableLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+BOLLINGER_PERIOD = 20
+
+
 class CandleChart(QWidget):
     """OHLC candles with a viewport that can be zoomed and panned.
 
     `_visible` is how many candles are on screen; `_offset` is how many candles
     sit to the right of the viewport (0 = pinned to the live edge).
+
+    The chart owns the deep history: `set_series` replaces it, `merge_series`
+    unions the live/reconcile feed into it, and `add_history` prepends a page
+    fetched when the viewport is dragged to its left edge. The card wires that
+    up; the chart only knows how to ask.
     """
+
+    # Signal(int) is a C int: a millisecond timestamp overflows it.
+    history_requested = Signal(object)   # oldest open time held, ms
+    interval_selected = Signal(str)   # a digit shortcut, e.g. "5m"
 
     GUTTER = 56          # right-hand price axis
     TIME_AXIS = 16       # bottom time axis
@@ -114,6 +126,8 @@ class CandleChart(QWidget):
         self._placeholder = "search a market"
         self._drag_x: float | None = None
         self._drag_offset = 0
+        self._history_pending = False
+        self._history_exhausted = False
 
     # -- data --------------------------------------------------------------
 
@@ -147,12 +161,66 @@ class CandleChart(QWidget):
         return self._show_bollinger
 
     def set_series(self, candles: tuple[Candle, ...]) -> None:
+        """Replace the series, as when a market or interval changes."""
         if not candles:
             # A new market or interval starts from the default vertical scale.
             self._price_zoom = 1.0
         self._candles = tuple(candles)
+        self._history_pending = False
+        self._history_exhausted = False
         self._clamp()
         self.update()
+
+    def merge_series(self, candles: tuple[Candle, ...]) -> None:
+        """Fold in a live or reconcile update without dropping older bars.
+
+        The venue sends the last few hundred bars; the chart may be holding
+        thousands from backfills. Union by open time, newer values winning.
+        """
+        if not candles:
+            return
+        if not self._candles:
+            self.set_series(candles)
+            return
+
+        newest = self._candles[-1].t
+        pool = {candle.t: candle for candle in self._candles}
+        appended = 0
+        for candle in candles:
+            pool[candle.t] = candle
+            if candle.t > newest:
+                appended += 1
+
+        self._candles = tuple(sorted(pool.values(), key=lambda c: c.t))
+        if appended and self._offset > 0:
+            # Scrolled back means frozen: new bars must not drag the viewport
+            # forward a candle every minute.
+            self._offset += appended
+        self._clamp()
+        self.update()
+
+    def add_history(self, candles: tuple[Candle, ...]) -> None:
+        """Prepend one page fetched from the venue.
+
+        An empty page means the venue has nothing older, so stop asking.
+        """
+        self._history_pending = False
+        oldest = self._candles[0].t if self._candles else None
+        fresh = tuple(c for c in candles if oldest is None or c.t < oldest)
+        if not fresh:
+            self._history_exhausted = True
+            return
+
+        # `_offset` counts back from the newest bar, so prepending leaves the
+        # viewport on exactly the same candles: a page arrives silently to the
+        # left, and the next pan walks into it.
+        self._candles = fresh + self._candles
+        self._clamp()
+        self.update()
+
+    def cancel_history_request(self) -> None:
+        """The fetch failed; allow the next pan-to-edge to try again."""
+        self._history_pending = False
 
     @property
     def candle_count(self) -> int:
@@ -185,6 +253,15 @@ class CandleChart(QWidget):
         """True when the viewport is pinned to the newest candle."""
         return self._offset == 0
 
+    @property
+    def history_exhausted(self) -> bool:
+        """True once the venue has no older page for this series."""
+        return self._history_exhausted
+
+    @property
+    def awaiting_history(self) -> bool:
+        return self._history_pending
+
     def _visible_bounds(self) -> tuple[int, int]:
         if not self._candles:
             return (0, 0)
@@ -209,6 +286,7 @@ class CandleChart(QWidget):
             self._visible = max(self._visible + 1, int(self._visible * self.ZOOM_STEP) + 1)
         self._clamp()
         self.update()
+        self._maybe_request_history()
 
     def pan(self, candles: int) -> None:
         """Positive moves back in time."""
@@ -217,6 +295,8 @@ class CandleChart(QWidget):
         self._offset += candles
         self._clamp()
         self.update()
+        if candles > 0:
+            self._maybe_request_history()
 
     def zoom_price(self, direction: int) -> None:
         """direction > 0 stretches the price range apart (fewer prices shown)."""
@@ -234,6 +314,18 @@ class CandleChart(QWidget):
         self._price_zoom = 1.0
         self._clamp()
         self.update()
+
+    def _max_offset(self) -> int:
+        return max(0, len(self._candles) - self.visible_count)
+
+    def _maybe_request_history(self) -> None:
+        """Ask the card for an older page once the left edge is reached."""
+        if self._history_pending or self._history_exhausted:
+            return
+        if not self._candles or self._offset < self._max_offset():
+            return
+        self._history_pending = True
+        self.history_requested.emit(self._candles[0].t)
 
     def _clamp(self) -> None:
         total = len(self._candles)
@@ -306,6 +398,9 @@ class CandleChart(QWidget):
         self._offset = self._drag_offset + shift
         self._clamp()
         self.update()
+        if shift > 0:
+            # Dragging back past the oldest bar pages in more history.
+            self._maybe_request_history()
         event.accept()
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
@@ -323,6 +418,12 @@ class CandleChart(QWidget):
             self.pan(len(self._candles))
         elif key in (Qt.Key.Key_End, Qt.Key.Key_0):
             self.reset_view()
+        elif event.modifiers() == Qt.KeyboardModifier.NoModifier and (
+            Qt.Key.Key_1 <= key <= Qt.Key.Key_6
+        ):
+            index = key - Qt.Key.Key_1
+            if index < len(TIMEFRAMES):
+                self.interval_selected.emit(TIMEFRAMES[index])
         else:
             super().keyPressEvent(event)
             return
@@ -364,8 +465,13 @@ class CandleChart(QWidget):
 
         source = self._candles
         start, end = self._visible_bounds()
-        bands = bollinger_bands(source) if self._show_bollinger else ()
-        visible_bands = bands[start:end] if bands else ()
+        band_start = max(0, start - (BOLLINGER_PERIOD - 1))
+        bands = (
+            bollinger_bands(source[band_start:end])
+            if self._show_bollinger
+            else ()
+        )
+        visible_bands = bands[start - band_start:] if bands else ()
 
         candle_high = max(c.h for c in candles)
         candle_low = min(c.l for c in candles)
@@ -580,6 +686,7 @@ class Timeframes(QWidget):
         for index, interval in enumerate(TIMEFRAMES):
             button = QPushButton(interval)
             button.setObjectName("tfButton")
+            button.setToolTip(f"{interval} — press {index + 1}")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setChecked(interval == current)
@@ -727,6 +834,8 @@ class MarketCard(Card):
 
     market_changed = Signal(str)
     interval_changed = Signal(str)
+    # before_ms is a Python int on purpose: Signal(int) is a 32-bit C int.
+    history_requested = Signal(str, str, object)   # coin, interval, before ms
     add_requested = Signal()
     close_requested = Signal()
 
@@ -805,6 +914,8 @@ class MarketCard(Card):
         self.chart = CandleChart()
         self.chart.set_precision(self._sz_decimals)
         self.chart.set_interval(self.interval)
+        self.chart.history_requested.connect(self._on_history_requested)
+        self.chart.interval_selected.connect(self.set_interval)
 
         self.body.addLayout(header)
         self.body.addWidget(self.search)
@@ -861,7 +972,9 @@ class MarketCard(Card):
     def apply_candles(self, series: CandleSeries) -> None:
         if series.coin != self.coin or series.interval != self.interval:
             return
-        self.chart.set_series(series.candles)
+        # Merge rather than replace: a reconcile carries only the last few
+        # hundred bars, and the chart may be holding pages panned back to.
+        self.chart.merge_series(series.candles)
         self.set_placeholder("waiting for candles…")
         last = series.last_price
         if last is not None and not self._has_mids:
@@ -874,9 +987,31 @@ class MarketCard(Card):
         self.search.setVisible(False)
         self.market_changed.emit(coin)
 
-    def _on_interval_changed(self, interval: str) -> None:
+    def set_interval(self, interval: str) -> None:
+        """Switch timeframe from a pill or the 1-6 keys."""
+        if interval not in TIMEFRAMES:
+            return
+        self.timeframes.set_current(interval)
         self.interval = interval
         self.chart.set_interval(interval)
         self.chart.set_series(())
         self.set_placeholder("loading…")
         self.interval_changed.emit(interval)
+
+    def _on_interval_changed(self, interval: str) -> None:
+        self.set_interval(interval)
+
+    # -- history -----------------------------------------------------------
+
+    def _on_history_requested(self, before_ms: int) -> None:
+        if self.coin:
+            self.history_requested.emit(self.coin, self.interval, before_ms)
+
+    def apply_history(self, series: CandleSeries) -> None:
+        if series.coin != self.coin or series.interval != self.interval:
+            return
+        self.chart.add_history(series.candles)
+
+    def apply_history_failure(self, coin: str, interval: str) -> None:
+        if coin == self.coin and interval == self.interval:
+            self.chart.cancel_history_request()

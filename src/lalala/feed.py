@@ -12,6 +12,9 @@ Streams
 Fetched once per watch
     candleSnapshot   initial history for a (coin, interval) pair
 
+On demand
+    candleSnapshot   an older page, when a chart is panned to its left edge
+
 Latency
     A WebSocket ping/pong every few seconds; the measured round trip is what
     the header shows. It is the real path to the venue, unlike an HTTP timer.
@@ -53,6 +56,7 @@ MAX_BACKOFF = 10.0
 PING_EVERY = 2.0          # seconds between latency probes
 CANDLE_COUNT = 300        # history kept for panning back
 CANDLE_RECONCILE = 60.0   # slow REST re-sync; the stream carries live updates
+HISTORY_PAGE = 300        # bars per backfill request (one page per pan-to-edge)
 
 
 class MarketFeed(QObject):
@@ -62,6 +66,8 @@ class MarketFeed(QObject):
     mids_updated = Signal(object)     # dict[str, float]
     book_updated = Signal(object)     # Book
     candles_updated = Signal(object)  # CandleSeries
+    older_candles = Signal(object)    # CandleSeries: a backfilled older page
+    history_failed = Signal(str, str)  # (coin, interval): ask again later
     error = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -73,14 +79,17 @@ class MarketFeed(QObject):
         self._pending: list[tuple[str, dict[str, Any]]] = []
         self._watches: set[tuple[str, str]] = set()
         self._candle_cache: dict[tuple[str, str], tuple[Candle, ...]] = {}
+        self._history_pending: set[tuple[str, str]] = set()
         self._candles_dirty = True
         self._markets: dict[str, Market] = {}
+        self._started = False
         self._stopping = False
         self._http: httpx.AsyncClient | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
+        self._started = True
         self._runner.start()
         self._runner.submit(self._main())
 
@@ -138,6 +147,34 @@ class MarketFeed(QObject):
                     {"type": "candle", "coin": coin, "interval": interval},
                 )
             )
+
+    def request_older(
+        self, coin: str, interval: str, before_ms: int, count: int = HISTORY_PAGE
+    ) -> None:
+        """Ask for the page of bars immediately before `before_ms`.
+
+        Called when a chart is panned to its left edge. One request per
+        (coin, interval) at a time: a drag can hit the edge repeatedly, and
+        the venue reacts to request bursts with HTTP 429.
+        """
+        key = (coin, interval)
+        with self._lock:
+            ready = (
+                key not in self._history_pending
+                and self._started
+                and key in self._watches
+            )
+            if ready:
+                self._history_pending.add(key)
+
+        if not ready:
+            # Nothing to ask: report it now so the chart unblocks and can try
+            # again. This is the path tests take (autostart=False), and it
+            # keeps the feature off the network unless the app is running.
+            self.history_failed.emit(coin, interval)
+            return
+
+        self._runner.submit(self._fetch_older(coin, interval, before_ms, count))
 
     # -- asyncio side ------------------------------------------------------
 
@@ -309,6 +346,38 @@ class MarketFeed(QObject):
             }
         )
         return CandleSeries(coin, interval, parse_candles(payload))
+
+    async def _fetch_older(
+        self, coin: str, interval: str, before_ms: int, count: int
+    ) -> None:
+        """One older page, filtered to bars the caller does not already have."""
+        key = (coin, interval)
+        try:
+            if self._http is None:
+                raise RuntimeError("feed stopped")
+            payload = await self._post(
+                {
+                    "type": "candleSnapshot",
+                    "req": {
+                        "coin": coin,
+                        "interval": interval,
+                        "startTime": before_ms - candle_window_ms(interval, count),
+                        "endTime": before_ms - 1,
+                    },
+                }
+            )
+            older = tuple(
+                candle
+                for candle in parse_candles(payload)
+                if candle.t < before_ms
+            )
+            self.older_candles.emit(CandleSeries(coin, interval, older))
+        except Exception as exc:
+            self.error.emit(f"history: {type(exc).__name__}: {exc}")
+            self.history_failed.emit(coin, interval)
+        finally:
+            with self._lock:
+                self._history_pending.discard(key)
 
     @staticmethod
     async def _send(ws: Any, method: str, subscription: dict[str, Any]) -> None:

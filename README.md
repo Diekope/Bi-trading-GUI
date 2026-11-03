@@ -25,9 +25,13 @@ not an HTTP timer, so it reflects what order flow would experience.
 **Market cards** (right side)
 
 - Main card opens on `HYPE` (`DEFAULT_MARKET`); click its name to change it.
-- Candlestick chart, 1m by default, switchable to 3m / 5m / 15m / 30m / 1h.
-  Bars are pushed by the venue's `candle` stream as trades print, so the last
-  bar updates sub-second; 300 candles of history are kept for panning.
+- Candlestick chart, 1m by default, switchable to 3m / 5m / 15m / 30m / 1h —
+  by pill or with the `1`-`6` keys. Bars are pushed by the venue's `candle`
+  stream as trades print, so the last bar updates sub-second.
+- 300 bars of history arrive with the card; panning to the left edge asks the
+  venue for the next 300 and appends them. The viewport does not jump when a
+  page lands — the new bars sit off-screen to the left, ready for the next
+  drag. When the venue returns nothing older, the chart stops asking.
 - Live mid price in the card header, refreshed from `allMids`.
 - **+** sits on the newest card; **⌘T** does the same. Up to 3 tiles
   (`MAX_TILES`), each with its own market and timeframe.
@@ -71,8 +75,9 @@ squeezing the candles.
 | Drag | pan, 0.75 candles per candle-width |
 | ← / → | pan one candle (Shift: ten) |
 | ↑ / ↓ | zoom the time range |
-| Home | jump to the oldest candle |
+| Home | jump to the oldest candle, loading a page if needed |
 | End, `0`, double-click | reset: live edge, default range, 1.0 price zoom |
+| `1` … `6` | switch timeframe (1m, 3m, 5m, 15m, 30m, 1h) |
 
 The two axes are separate. The price gutter on the right changes only the
 vertical scale — how far apart prices sit — and leaves the number of candles
@@ -82,9 +87,23 @@ cursor over the price gutter and a horizontal one over the time axis, so it is
 clear which wheel you are about to use.
 
 The vertical scale pivots on the centre of the natural price range, so zooming
-does not make the chart jump. Scrolling back freezes the viewport and shows
-`N back · double-click for live`; the viewport is pinned to the newest candle
-until then.
+does not make the chart jump. Scrolling back freezes the viewport — new bars no
+longer drag the view forward — and shows `N back · double-click for live`. Until
+then it is pinned to the newest candle.
+
+**Deeper history.** The first 300 bars cover roughly 5 hours at 1m. Reaching
+the left edge (drag, wheel, `Home`, or the panning keys) fires one REST
+`candleSnapshot` request for the 300 bars before the oldest one held. Requests
+are serialised per (coin, interval) and a burst of drag events collapses into
+one, because the venue answers bursts with HTTP 429. A page that comes back
+empty means the market has no older data and the chart stops asking; a page
+that fails leaves the chart free to retry on the next pan. A landing page never
+moves the viewport: the new bars sit off-screen to the left, and the next drag
+walks into them.
+
+Digits `1`-`6` switch the timeframe on whichever card has focus; the chart
+takes focus when you click it. Inside the search box they type normally — the
+window-level fallback only sees keys the focused widget already declined.
 
 **Search** covers 377 markets: 235 main perps plus 142 HIP-3 markets on the
 `xyz` dex, which is where commodities and equities live. Results render as a
@@ -130,8 +149,8 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             91 tests: parsing/search/aliases, feed routing, candle stream,
-                   chart pan/zoom, axis wheel zoom, overlays, inline search
+tests/             110 tests: parsing/search/aliases, feed routing, candle stream,
+                   chart pan/zoom, axis zoom, backfill paging, shortcuts, overlays
 ```
 
 ## Window layout

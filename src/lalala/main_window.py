@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QCheckBox,
     QLabel,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
-from lalala.market_data import DEFAULT_MARKET, CandleSeries, Market
+from lalala.market_data import DEFAULT_MARKET, TIMEFRAMES, CandleSeries, Market
 from lalala.panels import MAX_TILES, VenuePanel
 from lalala.theme import CANVAS, CARD_GAP
 
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
+        self.installEventFilter(self)
 
         self.cards: list[MarketCard] = []
         self.main_card = self._new_card(DEFAULT_MARKET, closable=False)
@@ -130,6 +132,8 @@ class MainWindow(QMainWindow):
         self.feed.universe_ready.connect(self._on_universe)
         self.feed.mids_updated.connect(self._on_mids)
         self.feed.candles_updated.connect(self._on_candles)
+        self.feed.older_candles.connect(self._on_older_candles)
+        self.feed.history_failed.connect(self._on_history_failed)
         self.feed.latency.connect(self._on_latency)
         self.feed.connected.connect(self._on_connected)
         self.feed.error.connect(self._on_error)
@@ -149,6 +153,7 @@ class MainWindow(QMainWindow):
             lambda chosen, c=card: self._on_market_chosen(c, chosen)
         )
         card.interval_changed.connect(lambda _iv, c=card: self._on_interval_changed(c))
+        card.history_requested.connect(self._on_card_history)
         card.add_requested.connect(self.add_tile)
         card.close_requested.connect(lambda c=card: self.remove_card(c))
         return card
@@ -267,6 +272,21 @@ class MainWindow(QMainWindow):
         for card in self.cards:
             card.apply_candles(series)
 
+    def _on_card_history(self, coin: str, interval: str, before_ms: int) -> None:
+        # The main card exists before the feed, so this indirection keeps the
+        # wiring order irrelevant.
+        feed = getattr(self, "feed", None)
+        if feed is not None:
+            feed.request_older(coin, interval, before_ms)
+
+    def _on_older_candles(self, series: CandleSeries) -> None:
+        for card in self.cards:
+            card.apply_history(series)
+
+    def _on_history_failed(self, coin: str, interval: str) -> None:
+        for card in self.cards:
+            card.apply_history_failure(coin, interval)
+
     def _on_latency(self, milliseconds: float) -> None:
         if milliseconds <= FAST_MS:
             color = "#3ddc84"
@@ -291,6 +311,30 @@ class MainWindow(QMainWindow):
         log.warning("feed: %s", message)
 
     # -- window ------------------------------------------------------------
+
+    def _focused_card(self) -> MarketCard:
+        widget: QWidget | None = QApplication.focusWidget()
+        while widget is not None:
+            if isinstance(widget, MarketCard):
+                return widget
+            widget = widget.parentWidget()
+        return self.main_card
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        """Digits 1-6 switch the focused card's timeframe.
+
+        The chart handles them itself while it has focus. Anything that
+        reaches the window was already declined by the focus widget, so this
+        never steals a digit from the search box.
+        """
+        if event.type() == QEvent.Type.KeyPress and not event.modifiers():
+            key = event.key()
+            if Qt.Key.Key_1 <= key <= Qt.Key.Key_6:
+                index = key - Qt.Key.Key_1
+                if index < len(TIMEFRAMES):
+                    self._focused_card().set_interval(TIMEFRAMES[index])
+                    return True
+        return super().eventFilter(watched, event)
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
