@@ -134,33 +134,41 @@ up/down window that is open right now.
   panel derives the slug from the clock and rolls to the next window by itself.
   Nothing to configure; the countdown and question change on the boundary.
 - **Outcome tiles** — UP and DOWN in cents, with a probability bar and the best
-  bid/ask on each. Click a tile to emphasize that outcome on the chart.
+  bid/ask on each. Click a tile to make its book the one the spread and depth
+  stats describe.
 - **Clock** — the window in UTC and a live countdown; white, amber inside a
   minute, red inside 30 seconds.
 - **Stats** — spread, Gamma liquidity, top-of-book depth (the price × size of
-  the best eight levels on each side), tick size, and the Hyperliquid BTC perp
-  mid with its move since this window opened.
-- **Evolution** — both outcomes' implied probability across the five-minute
-  window, one sample per second from the live mids, backfilled once with the
-  venue's own minute-resolution history so the line starts before the app did.
-  The x-axis is the whole window; the y-axis widens as the range grows and never
-  shrinks mid-window, so the lines do not jump. A dotted line marks 50¢ when it
-  is in range, and the selected outcome is drawn brighter over the other.
+  the best eight levels on each side), the window-open **target**, the live
+  Hyperliquid BTC perp mid, and the signed percent from the target to it.
+  Above-target reads green, below reads red.
+- **BTC chart** — the underlying price across the five-minute window, with the
+  target as a dashed line. The gap between the line and the target is shaded
+  green above and red below, so the market's "up or down?" question is legible
+  at a glance. The x-axis is always the whole window; the y-axis widens as the
+  range grows and never shrinks mid-window, so the line does not jump.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
 Sources: Gamma for the market and its tokens, CLOB `/book` for the initial
-snapshot, CLOB `/prices-history` for the pre-launch part of the evolution line,
-then one WebSocket subscription to both tokens (`book`, `price_change`,
-`last_trade_price`). Books, samples and the tape are cleared when the window
-rolls; the socket reconnects within the same window on a drop. Order placement
-is deliberately not wired — the column is read-only.
+snapshot, then one WebSocket subscription to both tokens (`book`,
+`price_change`, `last_trade_price`). Separately, one Hyperliquid `1m`
+`candleSnapshot` per window seeds the target and backfills the pre-launch part
+of the price line; live BTC quotes come from the `bbo` channel, because
+`allMids` can be several seconds apart on a quiet book. Books, price samples and
+the tape are cleared when the window rolls; the socket reconnects within the
+same window on a drop. Order placement is deliberately not wired — the column
+is read-only.
+
+The target is the open of the Hyperliquid bar at the window start. Polymarket
+resolves on Chainlink's BTC/USD TWAP, not on Hyperliquid, so within a few
+dollars of the line the venue can disagree with the chart; the level is a
+reference, not the settlement print.
 
 The wire is fast: a busy five-minute market pushes several hundred book frames
 a second. All of them are folded into the held books and the tiles, but the
-evolution chart is sampled once a second and only repaints on that sample, so a
-live column costs roughly the same as the candle feed instead of pinning a
-core.
+price chart is painted from the `bbo` stream at its own pace, so a live column
+costs roughly the same as the candle feed instead of pinning a core.
 
 ## Why Python here
 
@@ -188,13 +196,13 @@ src/lalala/
   feed.py          Hyperliquid streams, latency probe (QObject + asyncio)
   polymarket_data.py   slugs, Gamma/CLOB/WS parsing, formatting (no Qt)
   polymarket_feed.py   one 5m market: resolve, snapshot, stream, roll over
-  polymarket_panel.py  outcome tiles, countdown, evolution chart, tape (QPainter)
+  polymarket_panel.py  outcome tiles, countdown, BTC/target chart, tape (QPainter)
   venues/
     base.py         Venue protocol for order placement (not used by the UI yet)
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             164 tests: parsing/search/aliases, slug math, candle + book
+tests/             171 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
@@ -212,7 +220,7 @@ tests/             164 tests: parsing/search/aliases, slug math, candle + book
 |        Polymarket       +-----------------------------------+
 |  UP 64.5¢  DOWN 35.5¢   |  xyz:CL  [XYZ]               96.7 +|
 |  19:35–19:40  closes…   |  1m 3m 5m 15m 30m 1h              |
-|  evolution + tape       |  |╿╽│╿╽ ...                       |
+|  BTC chart + tape       |  |╿╽│╿╽ ...                       |
 +-------------------------+-----------------------------------+
 ```
 
@@ -231,12 +239,16 @@ Palette (`theme.py`):
 Public endpoints only, no key, no signing:
 
 - `POST /info {"type":"meta"}` and `{"type":"meta","dex":"xyz"}` — universe
-- `wss://api.hyperliquid.xyz/ws` — `allMids` (main + `xyz`) and WS ping/pong
+- `wss://api.hyperliquid.xyz/ws` — `allMids` (main + `xyz`) and WS ping/pong.
+  A `bbo` subscription for BTC feeds the Polymarket panel's live price; it
+  moves far more often than `allMids` on a quiet market.
 - `wss://api.hyperliquid.xyz/ws` `candle` — one subscription per (coin,
   interval) on screen, pushed on every trade. No polling.
 - `POST /info {"type":"candleSnapshot", ...}` — initial history for a newly
   watched (coin, interval) pair, plus a 60s reconcile. Polling this every second
-  drew HTTP 429s, which is why the stream carries the live updates.
+  drew HTTP 429s, which is why the stream carries the live updates. The same
+  endpoint, with `interval: "1m"`, seeds the Polymarket window's target and
+  price backfill once per five-minute rollover.
 
 Reconnects with exponential backoff (1s → 10s) and re-subscribes on reconnect.
 
@@ -247,10 +259,6 @@ Polymarket, also public:
   liquidity, tick size, close time.
 - `GET https://clob.polymarket.com/book?token_id=…` — a full book for each
   outcome token, before the stream starts.
-- `GET https://clob.polymarket.com/prices-history?market=…&startTs=…&endTs=…&fidelity=1`
-  — the part of the current window that happened before launch, so the
-  evolution line starts full instead of at the left edge. Samples are sparse
-  (about one a minute); live sampling takes over from there.
 - `wss://ws-subscriptions-clob.polymarket.com/ws/market` — one subscription to
   both tokens; `book`, `price_change` and `last_trade_price` frames. The socket
   is dropped at the window boundary and reopened on the next slug.

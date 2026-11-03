@@ -31,7 +31,6 @@ from PySide6.QtCore import QObject, Signal
 
 from lalala.polymarket_data import (
     PolymarketMarket,
-    PricePoint,
     TokenBook,
     Trade,
     apply_price_change,
@@ -40,7 +39,6 @@ from lalala.polymarket_data import (
     parse_last_trade,
     parse_market,
     parse_price_changes,
-    parse_price_history,
 )
 from lalala.venues.runner import AsyncRunner
 
@@ -60,7 +58,6 @@ class PolymarketFeed(QObject):
     market_ready = Signal(object)  # PolymarketMarket
     book_updated = Signal(object)  # TokenBook
     trade = Signal(object)         # Trade
-    history = Signal(object)       # dict[token_id, tuple[PricePoint, ...]]
     latency = Signal(int)          # websocket ping/pong round trip, milliseconds
     status = Signal(str)           # waiting / snapshot / live / reconnecting / closed
     error = Signal(str)
@@ -128,68 +125,27 @@ class PolymarketFeed(QObject):
 
         await self._snapshot(http, tokens)
 
-        # The chart wants the part of the window that predates the app launch.
-        # Fetch it alongside the socket instead of delaying the live feed.
-        history_task = asyncio.create_task(self._history(http, market))
-        try:
-            backoff = 1.0
-            while not self._stopping and time.time() < deadline:
-                try:
-                    await self._session(tokens, deadline)
-                    backoff = 1.0
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    # The venue closes the socket at resolution; that is expected,
-                    # not an error worth printing every five minutes.
-                    if time.time() < market.end_ms / 1000 - 1.0:
-                        self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
-                # Do not reconnect in the last seconds of a window: the market is
-                # about to close and the next slug is a fresh session anyway.
-                if self._stopping or time.time() >= deadline - 2.0:
-                    break
-                self.status.emit("reconnecting")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
-
-            self.status.emit("closed")
-        finally:
-            history_task.cancel()
-            await asyncio.gather(history_task, return_exceptions=True)
-
-    async def _history(
-        self, http: httpx.AsyncClient, market: PolymarketMarket
-    ) -> None:
-        """Backfill the evolution line from before the app opened the window."""
-        if market.start_ms <= 0:
-            return
-        start = market.start_ms // 1000
-        end = int(time.time())
-        if end <= start:
-            return
-
-        series: dict[str, tuple[PricePoint, ...]] = {}
-        for outcome in market.outcomes:
+        backoff = 1.0
+        while not self._stopping and time.time() < deadline:
             try:
-                response = await http.get(
-                    f"{CLOB_URL}/prices-history",
-                    params={
-                        "market": outcome.token_id,
-                        "startTs": start,
-                        "endTs": end,
-                        "fidelity": 1,
-                    },
-                )
-                response.raise_for_status()
-                points = parse_price_history(response.json())
+                await self._session(tokens, deadline)
+                backoff = 1.0
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
-                self.error.emit(f"history: {type(exc).__name__}: {exc}")
-                continue
-            if points:
-                series[outcome.token_id] = points
+                # The venue closes the socket at resolution; that is expected,
+                # not an error worth printing every five minutes.
+                if time.time() < market.end_ms / 1000 - 1.0:
+                    self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
+            # Do not reconnect in the last seconds of a window: the market is
+            # about to close and the next slug is a fresh session anyway.
+            if self._stopping or time.time() >= deadline - 2.0:
+                break
+            self.status.emit("reconnecting")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, MAX_BACKOFF)
 
-        if series and not self._stopping:
-            self.history.emit(series)
+        self.status.emit("closed")
 
     async def _snapshot(self, http: httpx.AsyncClient, tokens: list[str]) -> None:
         """The stream sends a full book on connect, but REST lands sooner."""

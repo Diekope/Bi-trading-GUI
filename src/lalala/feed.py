@@ -39,6 +39,7 @@ from lalala.market_data import (
     Market,
     candle_window_ms,
     parse_all_mids,
+    parse_bbo,
     parse_book,
     parse_candles,
     parse_universe,
@@ -64,9 +65,11 @@ class MarketFeed(QObject):
     latency = Signal(float)           # websocket round trip, ms
     universe_ready = Signal(object)   # list[Market]
     mids_updated = Signal(object)     # dict[str, float]
+    bbo_updated = Signal(str, float)  # (coin, best-bid/ask mid)
     book_updated = Signal(object)     # Book
     candles_updated = Signal(object)  # CandleSeries
     older_candles = Signal(object)    # CandleSeries: a backfilled older page
+    window_candles = Signal(object)   # CandleSeries: 1m bars of a Polymarket window
     history_failed = Signal(str, str)  # (coin, interval): ask again later
     error = Signal(str)
 
@@ -75,6 +78,7 @@ class MarketFeed(QObject):
         self._runner = AsyncRunner("hl-feed")
         self._lock = threading.Lock()
         self._books: set[str] = set()
+        self._bbo: set[str] = set()
         # (method, subscription) exactly as it goes on the wire.
         self._pending: list[tuple[str, dict[str, Any]]] = []
         self._watches: set[tuple[str, str]] = set()
@@ -119,6 +123,14 @@ class MarketFeed(QObject):
             self._pending.append(
                 ("unsubscribe", {"type": "l2Book", "coin": coin})
             )
+
+    def watch_bbo(self, coin: str) -> None:
+        """Subscribe to best bid/offer, the fastest quiet-market price."""
+        with self._lock:
+            if coin in self._bbo:
+                return
+            self._bbo.add(coin)
+            self._pending.append(("subscribe", {"type": "bbo", "coin": coin}))
 
     def watch_candles(self, coin: str, interval: str) -> None:
         with self._lock:
@@ -175,6 +187,17 @@ class MarketFeed(QObject):
             return
 
         self._runner.submit(self._fetch_older(coin, interval, before_ms, count))
+
+    def request_window(self, coin: str, start_ms: int, end_ms: int) -> None:
+        """Ask for the 1m bars covering one Polymarket window.
+
+        Used to seed the reference chart: the open of the bar at the window
+        start is the target price, and the bars before now backfill the line.
+        One request per five-minute rollover.
+        """
+        if not self._started:
+            return
+        self._runner.submit(self._fetch_window(coin, start_ms, end_ms))
 
     # -- asyncio side ------------------------------------------------------
 
@@ -255,12 +278,17 @@ class MarketFeed(QObject):
 
             with self._lock:
                 books = sorted(self._books)
+                bbo = sorted(self._bbo)
                 candle_watches = sorted(self._watches)
                 self._pending.clear()
 
             for coin in books:
                 await self._send(
                     ws, "subscribe", {"type": "l2Book", "coin": coin}
+                )
+            for coin in bbo:
+                await self._send(
+                    ws, "subscribe", {"type": "bbo", "coin": coin}
                 )
             for coin, interval in candle_watches:
                 await self._send(
@@ -347,6 +375,35 @@ class MarketFeed(QObject):
         )
         return CandleSeries(coin, interval, parse_candles(payload))
 
+    async def _fetch_window(self, coin: str, start_ms: int, end_ms: int) -> None:
+        """The bars around a Polymarket window, for its target and backfill."""
+        try:
+            # The Polymarket market can resolve before the Hyperliquid client
+            # exists; wait for it rather than losing the target for the window.
+            for _ in range(10):
+                if self._http is not None:
+                    break
+                await asyncio.sleep(0.2)
+            if self._http is None:
+                return
+            now = int(time.time() * 1000)
+            payload = await self._post(
+                {
+                    "type": "candleSnapshot",
+                    "req": {
+                        "coin": coin,
+                        "interval": "1m",
+                        "startTime": start_ms,
+                        "endTime": min(now, end_ms),
+                    },
+                }
+            )
+            self.window_candles.emit(
+                CandleSeries(coin, "1m", parse_candles(payload))
+            )
+        except Exception as exc:
+            self.error.emit(f"window: {type(exc).__name__}: {exc}")
+
     async def _fetch_older(
         self, coin: str, interval: str, before_ms: int, count: int
     ) -> None:
@@ -404,6 +461,10 @@ class MarketFeed(QObject):
 
         if channel == "allMids" and isinstance(data, dict):
             self.mids_updated.emit(parse_all_mids(data))
+        elif channel == "bbo" and isinstance(data, dict):
+            update = parse_bbo(data)
+            if update is not None:
+                self.bbo_updated.emit(*update)
         elif channel == "l2Book" and isinstance(data, dict):
             book: Book = parse_book(data)
             if book.coin:

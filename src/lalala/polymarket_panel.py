@@ -1,16 +1,16 @@
 """The Polymarket column: one five-minute BTC up/down market, at a glance.
 
-Not a candlestick chart — a binary market has no OHLC. The useful information
-is the probability of each side, how long is left, how much is resting near the
-touch, and what has traded. So the panel paints four things:
+The useful information is where BTC is relative to the window's open, how long
+is left, how the book and tape look, and what the market implies. So the panel
+paints four things:
 
     outcome tiles   UP / DOWN in cents, with a probability bar
     clock           the window and a live countdown to the close
-    evolution       both probabilities across the five-minute window
+    price chart     BTC across the window, against the opening target
     tape            the last trades, newest first
 
-The tiles choose which line the chart emphasizes. Books, samples and trades are
-kept per window and cleared when the feed rolls to the next five-minute slug.
+Books, price samples and trades are kept per window and cleared when the feed
+rolls to the next five-minute slug.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
-SAMPLE_EVERY_MS = 1_000    # evolution line resolution; the wire is much faster
+SAMPLE_EVERY_MS = 1_000    # price-chart resolution; the wire is much faster
 MAX_POINTS = 1_200         # a 5m window at 1 Hz is 300; leave room for backfill
 
 
@@ -162,21 +162,20 @@ class OutcomeTile(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class EvolutionChart(QWidget):
-    """Both outcomes' probability, sampled across the five-minute window.
+class PriceChart(QWidget):
+    """BTC through the five-minute window, against the target (open) price.
 
-    A binary market has no OHLC; what matters is how the implied probability
-    moved. The chart keeps the full window as its x-axis even when only part of
-    it has data, so the line visibly fills in as the window runs.
+    The binary market's question is whether BTC ends above where it started, so
+    the useful line is the underlying price, not the implied probability. The
+    chart keeps the full window as its x-axis even when only part of it has
+    data, so the line visibly fills in as the window runs.
     """
-
-    MIN_SPAN = 0.10          # never zoom the y-axis tighter than 10 cents
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.market: PolymarketMarket | None = None
-        self.series: dict[str, list[PricePoint]] = {}
-        self.selected = 0
+        self.points: list[PricePoint] = []
+        self.target: float | None = None
         self._lo: float | None = None
         self._hi: float | None = None
         self.setMinimumHeight(92)
@@ -185,30 +184,23 @@ class EvolutionChart(QWidget):
     def set_market(
         self,
         market: PolymarketMarket,
-        series: dict[str, list[PricePoint]],
-        selected: int = 0,
+        points: list[PricePoint],
+        target: float | None,
     ) -> None:
         if self.market is None or self.market.slug != market.slug:
             # New window, new scale. Within a window the range only widens,
-            # so the lines do not jump as the probability wanders.
+            # so the line does not jump as BTC moves.
             self._lo = None
             self._hi = None
         self.market = market
-        self.series = series
-        self.selected = selected
+        self.points = points
+        self.target = target
         self.update()
 
-    def set_series(
-        self, series: dict[str, list[PricePoint]], selected: int
-    ) -> None:
-        self.series = series
-        self.selected = selected
+    def set_data(self, points: list[PricePoint], target: float | None) -> None:
+        self.points = points
+        self.target = target
         self.update()
-
-    def set_selected(self, selected: int) -> None:
-        if selected != self.selected:
-            self.selected = selected
-            self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -221,7 +213,7 @@ class EvolutionChart(QWidget):
         painter.drawText(
             QRectF(0, 0, width, 14),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "PROBABILITY",
+            "BTC / USD",
         )
 
         market = self.market
@@ -233,30 +225,29 @@ class EvolutionChart(QWidget):
         end = market.end_ms
         if end <= start:
             end = start + 1
+        span = end - start
 
-        rows = []
-        for index, outcome in enumerate(market.outcomes[:2]):
-            points = [
-                point
-                for point in self.series.get(outcome.token_id, ())
-                if start <= point.timestamp_ms <= end
-            ]
-            rows.append((index, points))
-        if not any(points for _, points in rows):
+        points = [
+            point
+            for point in self.points
+            if start <= point.timestamp_ms <= end
+        ]
+        target = self.target
+        if not points or target is None:
             self._message(painter, "collecting…")
             return
 
-        prices = [point.price for _, points in rows for point in points]
-        lo, hi = self._range(prices)
+        values = [point.price for point in points] + [target]
+        lo, hi = self._range(values, target)
 
-        left = 34.0
+        left = 46.0
         right = width - 8.0
         top = 18.0
         bottom = height - 16.0
         if right - left < 20 or bottom - top < 20:
             return
 
-        # Horizontal grid, labelled in cents.
+        # Horizontal grid, labelled as whole dollars.
         painter.setFont(mono_font(7))
         for step in range(3):
             value = lo + (hi - lo) * step / 2.0
@@ -267,14 +258,8 @@ class EvolutionChart(QWidget):
             painter.drawText(
                 QRectF(0, y - 7, left - 4, 14),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                format_cents(value),
+                f"{value:,.0f}",
             )
-
-        # The coin-flip line, when the window traded around it.
-        if lo < 0.5 < hi:
-            y = bottom - (0.5 - lo) / (hi - lo) * (bottom - top)
-            painter.setPen(QPen(QColor(TEXT_FAINT), 1, Qt.PenStyle.DashLine))
-            painter.drawLine(left, y, right, y)
 
         # Window bounds on the time axis.
         start_at = datetime.fromtimestamp(start / 1000, tz=timezone.utc)
@@ -292,53 +277,94 @@ class EvolutionChart(QWidget):
             f"{end_at:%H:%M}",
         )
 
-        # Non-selected first so the emphasized line sits on top.
-        span = end - start
-        for index, points in sorted(rows, key=lambda row: row[0] == self.selected):
-            if not points:
-                continue
-            color = UP if index == 0 else DOWN
-            active = index == self.selected
-            pen = QPen(_alpha(color, 255 if active else 110), 1.8 if active else 1.1)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-
-            path = QPainterPath()
-            for point in points:
-                x = left + min(
-                    1.0, max(0.0, (point.timestamp_ms - start) / span)
-                ) * (right - left)
-                y = bottom - (point.price - lo) / (hi - lo) * (bottom - top)
-                if path.elementCount() == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-            painter.drawPath(path)
-
-            tip = points[-1]
-            x = left + min(
-                1.0, max(0.0, (tip.timestamp_ms - start) / span)
+        def x_of(point: PricePoint) -> float:
+            return left + min(
+                1.0, max(0.0, (point.timestamp_ms - start) / span)
             ) * (right - left)
-            y = bottom - (tip.price - lo) / (hi - lo) * (bottom - top)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(color))
-            painter.drawEllipse(QPointF(x, y), 2.4, 2.4)
 
-    def _range(self, prices: list[float]) -> tuple[float, float]:
+        def y_of(price: float) -> float:
+            return bottom - (price - lo) / (hi - lo) * (bottom - top)
+
+        target_y = y_of(target)
+        last = points[-1]
+        above = last.price >= target
+        color = UP if above else DOWN
+
+        path = QPainterPath()
+        for point in points:
+            if path.elementCount() == 0:
+                path.moveTo(x_of(point), y_of(point.price))
+            else:
+                path.lineTo(x_of(point), y_of(point.price))
+
+        # Shade the gap to the target, green above and red below, so the side
+        # of the line reads even when the move is only a few dollars.
+        fill = QPainterPath(path)
+        fill.lineTo(x_of(last), target_y)
+        fill.lineTo(x_of(points[0]), target_y)
+        fill.closeSubpath()
+        painter.save()
+        painter.setClipRect(
+            QRectF(left, top, right - left, max(0.0, target_y - top))
+        )
+        painter.fillPath(fill, _alpha(UP, 30))
+        painter.restore()
+        painter.save()
+        painter.setClipRect(
+            QRectF(left, target_y, right - left, max(0.0, bottom - target_y))
+        )
+        painter.fillPath(fill, _alpha(DOWN, 30))
+        painter.restore()
+
+        # The target: the window-open price the outcome is measured against.
+        painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(left, target_y, right, target_y)
+        painter.setFont(mono_font(7))
+        painter.setPen(QColor(AMBER))
+        painter.drawText(
+            QRectF(left + 2, target_y - 13, right - left - 4, 12),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            f"open {target:,.1f}",
+        )
+
+        pen = QPen(QColor(color), 1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(
+            QPointF(x_of(last), y_of(last.price)), 2.6, 2.6
+        )
+
+        # The side and the gap in the header: the answer to the market's
+        # question, not just the price.
+        delta = (last.price - target) / target * 100.0 if target else 0.0
+        painter.setFont(mono_font(8, bold=True))
+        painter.setPen(QColor(color))
+        painter.drawText(
+            QRectF(left, 0, right - left, 14),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            f"{'ABOVE' if above else 'BELOW'} {delta:+.2f}%",
+        )
+
+    def _range(self, values: list[float], target: float) -> tuple[float, float]:
         """The y-range, sticky within a window: widen, never shrink."""
-        lo = max(0.0, min(prices) - 0.03)
-        hi = min(1.0, max(prices) + 0.03)
-        if hi - lo < self.MIN_SPAN:
-            middle = (lo + hi) / 2
-            lo = max(0.0, middle - self.MIN_SPAN / 2)
-            hi = min(1.0, middle + self.MIN_SPAN / 2)
+        low = min(values)
+        high = max(values)
+        # Keep the target's line away from the edges, and give a quiet window
+        # enough resolution to see a $10 move on a $78,000 price.
+        pad = max((high - low) * 0.18, abs(target) * 0.00025, 1.0)
+        lo = low - pad
+        hi = high + pad
         if self._lo is None:
             self._lo, self._hi = lo, hi
         else:
-            self._lo = max(0.0, min(self._lo, lo))
-            self._hi = min(1.0, max(self._hi, hi))
+            self._lo = min(self._lo, lo)
+            self._hi = max(self._hi, hi)
         return self._lo, self._hi
 
     def _message(self, painter: QPainter, text: str) -> None:
@@ -451,10 +477,11 @@ class PolymarketPanel(Card):
         super().__init__(parent)
         self.market: PolymarketMarket | None = None
         self.books: dict[str, TokenBook] = {}
-        self.series: dict[str, list[PricePoint]] = {}
+        self.points: list[PricePoint] = []
+        self.target: float | None = None
+        self._btc: float | None = None
         self._selected = 0
         self._last_sample = 0
-        self._btc_open: float | None = None
         self._status = STATUS["waiting"]
         # Below this the chart labels and the tape overlap; the Hyperliquid
         # column still gets the rest of a 620px-minimum window.
@@ -548,14 +575,20 @@ class PolymarketPanel(Card):
         self.spread_value = self._stat(stats, 0, 0, "SPREAD")
         self.liquidity_value = self._stat(stats, 0, 1, "LIQUIDITY")
         self.depth_value = self._stat(stats, 1, 0, "DEPTH")
-        self.tick_value = self._stat(stats, 1, 1, "TICK")
+        self.target_value = self._stat(stats, 1, 1, "TARGET")
         self.btc_value = self._stat(stats, 2, 0, "BTC")
-        self.move_value = self._stat(stats, 2, 1, "MOVE")
+        self.move_value = self._stat(stats, 2, 1, "Δ OPEN")
+        self.target_value.setToolTip(
+            "Window-open BTC price the outcome is measured against. "
+            "Polymarket resolves on Chainlink's BTC/USD TWAP; this reference "
+            "is Hyperliquid's BTC open at the same moment."
+        )
+        self.move_value.setToolTip("BTC now versus the window-open target.")
         stats.setColumnStretch(1, 1)
         stats.setColumnStretch(3, 1)
 
-        # -- evolution + tape --
-        self.evolution = EvolutionChart()
+        # -- price chart + tape --
+        self.price_chart = PriceChart()
         self.tape = TradeTape()
 
         self.body.addLayout(header)
@@ -564,7 +597,7 @@ class PolymarketPanel(Card):
         self.body.addLayout(tiles)
         self.body.addLayout(stats)
         self.body.addSpacing(2)
-        self.body.addWidget(self.evolution, 1)
+        self.body.addWidget(self.price_chart, 1)
         self.body.addWidget(self.tape, 0)
 
         self._clock = QTimer(self)
@@ -596,22 +629,29 @@ class PolymarketPanel(Card):
 
         if rolled:
             self.books.clear()
-            self.series = {outcome.token_id: [] for outcome in market.outcomes}
+            self.points = []
+            self.target = None
             self._selected = 0
             self._last_sample = 0
-            self._btc_open = None
             self.tape.clear()
-            self.evolution.set_market(market, self.series, self._selected)
+            self.price_chart.set_market(market, self.points, self.target)
             self.depth_value.setText("—")
+            self.target_value.setText("—")
+            self.move_value.setText("—")
+            self.move_value.setStyleSheet(
+                f"color: {TEXT}; background: transparent;"
+            )
+            self.btc_value.setStyleSheet(
+                f"color: {TEXT}; background: transparent;"
+            )
             self.spread_value.setText(
                 format_cents(market.spread) if market.spread > 0 else "—"
             )
         else:
-            self.evolution.set_market(market, self.series, self._selected)
+            self.price_chart.set_market(market, self.points, self.target)
 
         self.question.setText(market.question)
         self.window_label.setText(self._window_text(market))
-        self.tick_value.setText(format_cents(market.tick_size))
         self.liquidity_value.setText(format_compact(market.liquidity))
         self.status_text.setToolTip(market.slug)
 
@@ -652,57 +692,59 @@ class PolymarketPanel(Card):
                 )
             ),
         )
-        self._sample()
 
-    def set_history(self, history: object) -> None:
-        """Merge the pre-launch part of the window into the live samples."""
-        if self.market is None or not isinstance(history, dict):
+    def set_window_prices(
+        self, target: float | None, points: object
+    ) -> None:
+        """Seed the target and the pre-launch part of the price chart."""
+        if self.market is None or target is None or target <= 0:
             return
-        changed = False
-        for token_id, points in history.items():
-            if token_id not in self.series:
-                continue
-            merged: dict[int, PricePoint] = {
-                point.timestamp_ms: point for point in self.series[token_id]
-            }
-            for point in points:
-                if isinstance(point, PricePoint):
-                    merged[point.timestamp_ms] = point
-            ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
-            del ordered[:-MAX_POINTS]
-            self.series[token_id] = ordered
-            changed = True
-        if changed:
-            self.evolution.set_series(self.series, self._selected)
+        self.target = float(target)
+        self._set_text(self.target_value, f"{self.target:,.1f}")
 
-    def _sample(self) -> None:
-        """Record the current mids once a second for the evolution line."""
-        market = self.market
-        if market is None or len(market.outcomes) < 2:
+        merged: dict[int, PricePoint] = {}
+        for point in points if isinstance(points, (list, tuple)) else ():
+            if isinstance(point, PricePoint):
+                merged[point.timestamp_ms] = point
+        for point in self.points:
+            merged[point.timestamp_ms] = point
+        ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
+        del ordered[:-MAX_POINTS]
+        self.points = ordered
+        self.price_chart.set_data(self.points, self.target)
+        if self._btc is not None:
+            self._update_delta(self._btc)
+
+    def _sample_price(self, price: float) -> None:
+        """Record BTC once a second for the reference chart."""
+        if self.market is None:
             return
         now_ms = int(time.time() * 1000)
         if now_ms - self._last_sample < SAMPLE_EVERY_MS:
             return
-
-        up_token = market.outcomes[0].token_id
-        down_token = market.outcomes[1].token_id
-        up_book = self.books.get(up_token)
-        down_book = self.books.get(down_token)
-        up = up_book.mid if up_book is not None else None
-        down = down_book.mid if down_book is not None else None
-        if up is None and down is None:
-            return
-        if up is None:
-            up = 1.0 - down
-        if down is None:
-            down = 1.0 - up
-
         self._last_sample = now_ms
-        for token_id, price in ((up_token, up), (down_token, down)):
-            points = self.series.setdefault(token_id, [])
-            points.append(PricePoint(now_ms, price))
-            del points[:-MAX_POINTS]
-        self.evolution.set_series(self.series, self._selected)
+        self.points.append(PricePoint(now_ms, float(price)))
+        del self.points[:-MAX_POINTS]
+        self.price_chart.set_data(self.points, self.target)
+
+    def _update_delta(self, price: float) -> None:
+        """Above/below the target, in percent, for the header readouts."""
+        target = self.target
+        if target is None or target <= 0:
+            return
+        delta = (price - target) / target * 100.0
+        color = UP if delta >= 0 else DOWN
+        self._set_text(self.move_value, f"{delta:+.2f}%")
+        self.move_value.setStyleSheet(
+            f"color: {color}; background: transparent;"
+        )
+        self.btc_value.setStyleSheet(
+            f"color: {color}; background: transparent;"
+        )
+        self.move_value.setToolTip(
+            f"{'Above' if delta >= 0 else 'Below'} target by "
+            f"{abs(price - target):,.1f} ({abs(delta):.2f}%)"
+        )
 
     @staticmethod
     def _set_text(label: QLabel, text: str) -> None:
@@ -719,15 +761,10 @@ class PolymarketPanel(Card):
 
     def set_btc(self, price: float) -> None:
         """Reference BTC mid, forwarded from the Hyperliquid feed."""
-        if self._btc_open is None:
-            self._btc_open = price
-        self.btc_value.setText(f"{price:,.1f}")
-        if self._btc_open and self._btc_open > 0:
-            move = (price - self._btc_open) / self._btc_open * 100.0
-            self.move_value.setText(f"{move:+.2f}%")
-            self.move_value.setStyleSheet(
-                f"color: {UP if move >= 0 else DOWN}; background: transparent;"
-            )
+        self._btc = float(price)
+        self._set_text(self.btc_value, f"{price:,.1f}")
+        self._update_delta(price)
+        self._sample_price(price)
 
     def set_status(self, status: str) -> None:
         looked_up = STATUS.get(status)
@@ -771,7 +808,6 @@ class PolymarketPanel(Card):
     def _refresh_selection(self) -> None:
         self.up_tile.set_selected(self._selected == 0)
         self.down_tile.set_selected(self._selected == 1)
-        self.evolution.set_selected(self._selected)
 
     @staticmethod
     def _window_text(market: PolymarketMarket) -> str:

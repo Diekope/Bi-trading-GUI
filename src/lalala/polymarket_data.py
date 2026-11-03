@@ -25,7 +25,7 @@ import json
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterable
 
 SLUG_PREFIX = "btc-updown-5m"
 WINDOW_SECONDS = 300
@@ -255,34 +255,58 @@ class Trade:
 
 @dataclass(frozen=True)
 class PricePoint:
-    """One sample of an outcome's probability, for the evolution line."""
+    """One sample of a price, for the reference chart."""
 
     timestamp_ms: int
     price: float
 
 
-def parse_price_history(payload: Any) -> tuple[PricePoint, ...]:
-    """Parse a CLOB `/prices-history` response.
+BAR_MS = 60_000
 
-    The venue answers `{"history": [{"t": <unix s>, "p": <0..1>}, ...]}`.
-    Samples are sparse (one per minute at `fidelity=1`), so they seed the line
-    and the live feed fills the rest in at one sample per second.
+
+def window_price_points(
+    candles: Iterable[Any],
+    start_ms: int,
+    end_ms: int,
+    now_ms: int | None = None,
+) -> tuple[float | None, tuple[PricePoint, ...]]:
+    """Turn 1m BTC candles into the reference line for one window.
+
+    Returns `(target, points)`. The target is the open of the bar containing
+    the window start — the price the binary market compares its close against.
+    Each completed bar's close becomes a point stamped at the end of its
+    minute, and the window start itself is seeded with the target so the line
+    begins at the left edge. The bar still forming is left to the live
+    sampler, which stamps points at the actual time rather than in the future.
+    A response entirely older than the window yields `(None, ())`, so a late
+    fetch cannot leak into the next window.
     """
-    if not isinstance(payload, dict):
-        return ()
-    points: list[PricePoint] = []
-    for item in payload.get("history") or ():
-        if not isinstance(item, dict):
+    if now_ms is None:
+        now_ms = end_ms
+    bars = sorted(
+        (bar for bar in candles if getattr(bar, "t", None) is not None),
+        key=lambda bar: bar.t,
+    )
+    target: float | None = None
+    for bar in bars:
+        if bar.t <= start_ms < bar.t + BAR_MS:
+            target = float(bar.o)
+            break
+    if target is None and bars and bars[0].t >= start_ms:
+        # The venue usually starts exactly on the window; tolerate a minute
+        # of slack rather than leaving the target blank.
+        target = float(bars[0].o)
+    if target is None:
+        return None, ()
+
+    points = [PricePoint(start_ms, target)]
+    for bar in bars:
+        stamp = bar.t + BAR_MS
+        if stamp > now_ms or stamp <= start_ms:
             continue
-        stamp = _number(item.get("t"))
-        price = _number(item.get("p"))
-        if stamp is None or price is None:
-            continue
-        points.append(
-            PricePoint(int(stamp * 1000), max(0.0, min(1.0, price)))
-        )
+        points.append(PricePoint(min(stamp, end_ms), float(bar.c)))
     points.sort(key=lambda point: point.timestamp_ms)
-    return tuple(points)
+    return target, tuple(points)
 
 
 def _levels(raw: Any, *, descending: bool) -> tuple[Level, ...]:

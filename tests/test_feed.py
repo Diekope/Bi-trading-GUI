@@ -25,6 +25,47 @@ def test_all_mids_frame_becomes_float_map() -> None:
     assert seen == [{"HYPE": 84.4945}]
 
 
+def test_bbo_frame_becomes_coin_and_mid() -> None:
+    feed = _feed()
+    seen: list[tuple[str, float]] = []
+    feed.bbo_updated.connect(lambda coin, mid: seen.append((coin, mid)))
+
+    feed.dispatch(
+        json.dumps(
+            {
+                "channel": "bbo",
+                "data": {
+                    "coin": "BTC",
+                    "time": 1_793_739_344_693,
+                    "bbo": [
+                        {"px": "77839.0", "sz": "0.03", "n": 4},
+                        {"px": "77840.0", "sz": "15.7", "n": 65},
+                    ],
+                },
+            }
+        )
+    )
+
+    assert seen == [("BTC", 77_839.5)]
+
+
+def test_malformed_bbo_frames_are_ignored() -> None:
+    feed = _feed()
+    seen: list[tuple[str, float]] = []
+    feed.bbo_updated.connect(lambda coin, mid: seen.append((coin, mid)))
+
+    for data in (
+        {},
+        {"coin": "BTC"},
+        {"coin": "BTC", "bbo": [{"px": "1"}]},
+        {"coin": "BTC", "bbo": [{"px": "nope"}, {"px": "2"}]},
+        {"coin": "BTC", "bbo": [{"px": "0"}, {"px": "2"}]},
+    ):
+        feed.dispatch(json.dumps({"channel": "bbo", "data": data}))
+
+    assert seen == []
+
+
 def test_hip3_book_frame_becomes_book() -> None:
     feed = _feed()
     seen: list[Book] = []

@@ -12,6 +12,7 @@ card, and each card collapses its search row once a market is loaded.
 from __future__ import annotations
 
 import logging
+import time
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -30,6 +31,7 @@ from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
 from lalala.market_data import DEFAULT_MARKET, TIMEFRAMES, CandleSeries, Market
 from lalala.panels import MAX_TILES
+from lalala.polymarket_data import PolymarketMarket, window_price_points
 from lalala.polymarket_feed import PolymarketFeed
 from lalala.polymarket_panel import PolymarketPanel
 from lalala.theme import CANVAS, CARD_GAP
@@ -142,9 +144,14 @@ class MainWindow(QMainWindow):
         self.feed = MarketFeed(self)
         self.feed.universe_ready.connect(self._on_universe)
         self.feed.mids_updated.connect(self._on_mids)
+        self.feed.bbo_updated.connect(self._on_bbo)
+        # The Polymarket panel tracks BTC continuously, so its BBO subscription
+        # does not depend on which cards are open.
+        self.feed.watch_bbo("BTC")
         self.feed.candles_updated.connect(self._on_candles)
         self.feed.older_candles.connect(self._on_older_candles)
         self.feed.history_failed.connect(self._on_history_failed)
+        self.feed.window_candles.connect(self._on_window_candles)
         self.feed.latency.connect(self._on_latency)
         self.feed.connected.connect(self._on_connected)
         self.feed.error.connect(self._on_error)
@@ -155,11 +162,10 @@ class MainWindow(QMainWindow):
 
         # -- polymarket feed (one five-minute BTC up/down market) --
         self.polymarket_feed = PolymarketFeed(self)
-        self.polymarket_feed.market_ready.connect(self.polymarket.set_market)
+        self.polymarket_feed.market_ready.connect(self._on_polymarket_market)
         self.polymarket_feed.book_updated.connect(self.polymarket.apply_book)
         self.polymarket_feed.trade.connect(self.polymarket.apply_trade)
         self.polymarket_feed.status.connect(self.polymarket.set_status)
-        self.polymarket_feed.history.connect(self.polymarket.set_history)
         self.polymarket_feed.latency.connect(self._on_pm_latency)
         self.polymarket_feed.error.connect(self._on_polymarket_error)
         if autostart:
@@ -293,6 +299,28 @@ class MainWindow(QMainWindow):
         btc = mids.get("BTC")
         if btc is not None:
             self.polymarket.set_btc(btc)
+
+    def _on_bbo(self, coin: str, mid: float) -> None:
+        if coin == "BTC":
+            self.polymarket.set_btc(mid)
+
+    def _on_polymarket_market(self, market: PolymarketMarket) -> None:
+        self.polymarket.set_market(market)
+        # The window's bars give the chart its target (the open) and backfill.
+        self.feed.request_window("BTC", market.start_ms, market.end_ms)
+
+    def _on_window_candles(self, series: CandleSeries) -> None:
+        market = self.polymarket.market
+        if market is None:
+            return
+        target, points = window_price_points(
+            series.candles,
+            market.start_ms,
+            market.end_ms,
+            int(time.time() * 1000),
+        )
+        if target is not None:
+            self.polymarket.set_window_prices(target, points)
 
     def _on_candles(self, series: CandleSeries) -> None:
         for card in self.cards:
