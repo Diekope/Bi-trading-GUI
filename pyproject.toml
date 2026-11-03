@@ -1,0 +1,35 @@
+[project]
+name = "lalala"
+version = "0.1.0"
+description = "Trading terminal shell for Hyperliquid and Polymarket"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7",
+    "httpx>=0.27",
+    "websockets>=12",
+]
+
+[project.optional-dependencies]
+# Venue SDKs are kept out of the default install: the GUI must start without
+# credentials, network access, or wallet keys present. Market data (above) uses
+# the public endpoints and needs no SDK.
+venues = [
+    "hyperliquid-python-sdk>=0.9",
+    "py-clob-client>=0.17",
+    "eth-account>=0.11",
+]
+
+[project.scripts]
+lalala = "lalala.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lalala"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
