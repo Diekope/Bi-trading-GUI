@@ -18,9 +18,11 @@ uv run pytest -q
 
 ## What works now
 
-**Top bar** — WebSocket ping/pong round-trip to `api.hyperliquid.xyz`, refreshed
-every 2s. Green ≤120ms, amber ≤300ms, red above. It is the real socket path,
-not an HTTP timer, so it reflects what order flow would experience.
+**Top bar** — two WebSocket ping/pong round-trips, both the real socket path
+rather than an HTTP timer, so they reflect what order flow would experience.
+`HL` is the link to `api.hyperliquid.xyz`, refreshed every 2s; `PM` is the link
+to `ws-subscriptions-clob.polymarket.com`, refreshed every 5s while a market is
+open. Green ≤120ms, amber ≤300ms, red above.
 
 **Market cards** (right side)
 
@@ -132,28 +134,33 @@ up/down window that is open right now.
   panel derives the slug from the clock and rolls to the next window by itself.
   Nothing to configure; the countdown and question change on the boundary.
 - **Outcome tiles** — UP and DOWN in cents, with a probability bar and the best
-  bid/ask on each. Click a tile to switch the ladder to that token.
+  bid/ask on each. Click a tile to emphasize that outcome on the chart.
 - **Clock** — the window in UTC and a live countdown; white, amber inside a
   minute, red inside 30 seconds.
 - **Stats** — spread, Gamma liquidity, top-of-book depth (the price × size of
   the best eight levels on each side), tick size, and the Hyperliquid BTC perp
   mid with its move since this window opened.
-- **Ladder** — the selected token's asks and bids around the mid, with depth
-  bars and a spread strip. Updates arrive incrementally on the market socket.
+- **Evolution** — both outcomes' implied probability across the five-minute
+  window, one sample per second from the live mids, backfilled once with the
+  venue's own minute-resolution history so the line starts before the app did.
+  The x-axis is the whole window; the y-axis widens as the range grows and never
+  shrinks mid-window, so the lines do not jump. A dotted line marks 50¢ when it
+  is in range, and the selected outcome is drawn brighter over the other.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
 Sources: Gamma for the market and its tokens, CLOB `/book` for the initial
-snapshot, then one WebSocket subscription to both tokens (`book`,
-`price_change`, `last_trade_price`). Books and the tape are cleared when the
-window rolls; the socket reconnects within the same window on a drop. Order
-placement is deliberately not wired — the column is read-only.
+snapshot, CLOB `/prices-history` for the pre-launch part of the evolution line,
+then one WebSocket subscription to both tokens (`book`, `price_change`,
+`last_trade_price`). Books, samples and the tape are cleared when the window
+rolls; the socket reconnects within the same window on a drop. Order placement
+is deliberately not wired — the column is read-only.
 
 The wire is fast: a busy five-minute market pushes several hundred book frames
-a second. All of them are folded into the held books, but the panel is only told
-about the result 10 times a second, and the ladder skips the repaint when its
-visible top eight levels did not move. That keeps a live column at roughly the
-cost of the candle feed instead of pinning a core.
+a second. All of them are folded into the held books and the tiles, but the
+evolution chart is sampled once a second and only repaints on that sample, so a
+live column costs roughly the same as the candle feed instead of pinning a
+core.
 
 ## Why Python here
 
@@ -181,13 +188,13 @@ src/lalala/
   feed.py          Hyperliquid streams, latency probe (QObject + asyncio)
   polymarket_data.py   slugs, Gamma/CLOB/WS parsing, formatting (no Qt)
   polymarket_feed.py   one 5m market: resolve, snapshot, stream, roll over
-  polymarket_panel.py  outcome tiles, countdown, ladder, tape (QPainter)
+  polymarket_panel.py  outcome tiles, countdown, evolution chart, tape (QPainter)
   venues/
     base.py         Venue protocol for order placement (not used by the UI yet)
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             158 tests: parsing/search/aliases, slug math, candle + book
+tests/             164 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
@@ -195,18 +202,18 @@ tests/             158 tests: parsing/search/aliases, slug math, candle + book
 ## Window layout
 
 ```
-+-----------------------------------------------------------+
-|                          Volume  Bollinger     ● 210 ms     |
-+-------------------------+---------------------------------+
-|                         |  HYPE                     84.6  |
-|                         |  1m 3m 5m 15m 30m 1h            |
-|                         |  |╿╽│╿╽ ...            │ 85.3   |
-|                         |  |╿╽│╿╽                │        |
-|       Polymarket        +---------------------------------+
-|   UP 64.5¢  DOWN 35.5¢  |  xyz:CL  [XYZ]             96.7 +|
-|   19:35–19:40  closes…  |  1m 3m 5m 15m 30m 1h            |
-|   ladder + tape         |  |╿╽│╿╽ ...                      |
-+-------------------------+---------------------------------+
++-------------------------------------------------------------+
+|        Volume  Bollinger            HL ● 210 ms   PM ● 26 ms|
++-------------------------+-----------------------------------+
+|                         |  HYPE                       84.6  |
+|                         |  1m 3m 5m 15m 30m 1h              |
+|                         |  |╿╽│╿╽ ...              │ 85.3   |
+|                         |  |╿╽│╿╽                  │        |
+|        Polymarket       +-----------------------------------+
+|  UP 64.5¢  DOWN 35.5¢   |  xyz:CL  [XYZ]               96.7 +|
+|  19:35–19:40  closes…   |  1m 3m 5m 15m 30m 1h              |
+|  evolution + tape       |  |╿╽│╿╽ ...                       |
++-------------------------+-----------------------------------+
 ```
 
 Palette (`theme.py`):
@@ -240,6 +247,10 @@ Polymarket, also public:
   liquidity, tick size, close time.
 - `GET https://clob.polymarket.com/book?token_id=…` — a full book for each
   outcome token, before the stream starts.
+- `GET https://clob.polymarket.com/prices-history?market=…&startTs=…&endTs=…&fidelity=1`
+  — the part of the current window that happened before launch, so the
+  evolution line starts full instead of at the left edge. Samples are sparse
+  (about one a minute); live sampling takes over from there.
 - `wss://ws-subscriptions-clob.polymarket.com/ws/market` — one subscription to
   both tokens; `book`, `price_change` and `last_trade_price` frames. The socket
   is dropped at the window boundary and reopened on the next slug.

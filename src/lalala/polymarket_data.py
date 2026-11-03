@@ -253,6 +253,38 @@ class Trade:
     timestamp_ms: int = 0
 
 
+@dataclass(frozen=True)
+class PricePoint:
+    """One sample of an outcome's probability, for the evolution line."""
+
+    timestamp_ms: int
+    price: float
+
+
+def parse_price_history(payload: Any) -> tuple[PricePoint, ...]:
+    """Parse a CLOB `/prices-history` response.
+
+    The venue answers `{"history": [{"t": <unix s>, "p": <0..1>}, ...]}`.
+    Samples are sparse (one per minute at `fidelity=1`), so they seed the line
+    and the live feed fills the rest in at one sample per second.
+    """
+    if not isinstance(payload, dict):
+        return ()
+    points: list[PricePoint] = []
+    for item in payload.get("history") or ():
+        if not isinstance(item, dict):
+            continue
+        stamp = _number(item.get("t"))
+        price = _number(item.get("p"))
+        if stamp is None or price is None:
+            continue
+        points.append(
+            PricePoint(int(stamp * 1000), max(0.0, min(1.0, price)))
+        )
+    points.sort(key=lambda point: point.timestamp_ms)
+    return tuple(points)
+
+
 def _levels(raw: Any, *, descending: bool) -> tuple[Level, ...]:
     levels: list[Level] = []
     for item in raw or ():

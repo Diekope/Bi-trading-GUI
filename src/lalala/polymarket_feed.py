@@ -31,6 +31,7 @@ from PySide6.QtCore import QObject, Signal
 
 from lalala.polymarket_data import (
     PolymarketMarket,
+    PricePoint,
     TokenBook,
     Trade,
     apply_price_change,
@@ -39,6 +40,7 @@ from lalala.polymarket_data import (
     parse_last_trade,
     parse_market,
     parse_price_changes,
+    parse_price_history,
 )
 from lalala.venues.runner import AsyncRunner
 
@@ -51,12 +53,15 @@ CLOSE_GRACE = 3.0       # keep the socket a moment past the close, for late prin
 MAX_BACKOFF = 8.0
 FLUSH_EVERY = 0.1       # UI books refresh at most 10x/s; the wire is much faster
 CLOCK_POLL = 0.5        # how often the socket watchdog re-reads the clock
+LATENCY_EVERY = 5.0     # websocket ping/pong round trip, seconds between probes
 
 
 class PolymarketFeed(QObject):
     market_ready = Signal(object)  # PolymarketMarket
     book_updated = Signal(object)  # TokenBook
     trade = Signal(object)         # Trade
+    history = Signal(object)       # dict[token_id, tuple[PricePoint, ...]]
+    latency = Signal(int)          # websocket ping/pong round trip, milliseconds
     status = Signal(str)           # waiting / snapshot / live / reconnecting / closed
     error = Signal(str)
 
@@ -123,27 +128,68 @@ class PolymarketFeed(QObject):
 
         await self._snapshot(http, tokens)
 
-        backoff = 1.0
-        while not self._stopping and time.time() < deadline:
-            try:
-                await self._session(tokens, deadline)
-                backoff = 1.0
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                # The venue closes the socket at resolution; that is expected,
-                # not an error worth printing every five minutes.
-                if time.time() < market.end_ms / 1000 - 1.0:
-                    self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
-            # Do not reconnect in the last seconds of a window: the market is
-            # about to close and the next slug is a fresh session anyway.
-            if self._stopping or time.time() >= deadline - 2.0:
-                break
-            self.status.emit("reconnecting")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, MAX_BACKOFF)
+        # The chart wants the part of the window that predates the app launch.
+        # Fetch it alongside the socket instead of delaying the live feed.
+        history_task = asyncio.create_task(self._history(http, market))
+        try:
+            backoff = 1.0
+            while not self._stopping and time.time() < deadline:
+                try:
+                    await self._session(tokens, deadline)
+                    backoff = 1.0
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    # The venue closes the socket at resolution; that is expected,
+                    # not an error worth printing every five minutes.
+                    if time.time() < market.end_ms / 1000 - 1.0:
+                        self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
+                # Do not reconnect in the last seconds of a window: the market is
+                # about to close and the next slug is a fresh session anyway.
+                if self._stopping or time.time() >= deadline - 2.0:
+                    break
+                self.status.emit("reconnecting")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
 
-        self.status.emit("closed")
+            self.status.emit("closed")
+        finally:
+            history_task.cancel()
+            await asyncio.gather(history_task, return_exceptions=True)
+
+    async def _history(
+        self, http: httpx.AsyncClient, market: PolymarketMarket
+    ) -> None:
+        """Backfill the evolution line from before the app opened the window."""
+        if market.start_ms <= 0:
+            return
+        start = market.start_ms // 1000
+        end = int(time.time())
+        if end <= start:
+            return
+
+        series: dict[str, tuple[PricePoint, ...]] = {}
+        for outcome in market.outcomes:
+            try:
+                response = await http.get(
+                    f"{CLOB_URL}/prices-history",
+                    params={
+                        "market": outcome.token_id,
+                        "startTs": start,
+                        "endTs": end,
+                        "fidelity": 1,
+                    },
+                )
+                response.raise_for_status()
+                points = parse_price_history(response.json())
+            except Exception as exc:
+                self.error.emit(f"history: {type(exc).__name__}: {exc}")
+                continue
+            if points:
+                series[outcome.token_id] = points
+
+        if series and not self._stopping:
+            self.history.emit(series)
 
     async def _snapshot(self, http: httpx.AsyncClient, tokens: list[str]) -> None:
         """The stream sends a full book on connect, but REST lands sooner."""
@@ -175,14 +221,34 @@ class PolymarketFeed(QObject):
             # frames/s, and a timeout wrapper per recv costs more than the
             # routing itself.
             watchdog = asyncio.create_task(self._close_at(ws, deadline))
+            pinger = asyncio.create_task(self._measure_latency(ws))
             try:
                 async for raw in ws:
                     self.dispatch(raw)
                     if self._stopping:
                         break
             finally:
-                watchdog.cancel()
-                await asyncio.gather(watchdog, return_exceptions=True)
+                for task in (watchdog, pinger):
+                    task.cancel()
+                await asyncio.gather(watchdog, pinger, return_exceptions=True)
+
+    async def _measure_latency(self, ws: Any) -> None:
+        """Ping the market socket and report the real round trip.
+
+        Polymarket does not publish a latency number, so this is the same
+        signal the Hyperliquid header uses: a protocol ping and its pong.
+        """
+        while not self._stopping:
+            try:
+                pong = await ws.ping()
+                seconds = await asyncio.wait_for(pong, timeout=5.0)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return
+            if not self._stopping:
+                self.latency.emit(int(round(seconds * 1000)))
+            await asyncio.sleep(LATENCY_EVERY)
 
     async def _close_at(self, ws: Any, deadline: float) -> None:
         """Close the socket when the window ends or the app asks to stop."""

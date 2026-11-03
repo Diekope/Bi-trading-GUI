@@ -87,12 +87,21 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.bollinger_toggle)
         top_layout.addSpacing(4)
 
-        self.latency_label = QLabel("● connecting…")
+        self.latency_label = QLabel("HL ● connecting…")
         self.latency_label.setObjectName("latencyLabel")
         self.latency_label.setToolTip(
             "WebSocket round-trip to api.hyperliquid.xyz"
         )
         top_layout.addWidget(self.latency_label)
+
+        self.pm_latency_label = QLabel("PM —")
+        self.pm_latency_label.setStyleSheet(
+            "color: #6f6f76; font-size: 10px; background: transparent;"
+        )
+        self.pm_latency_label.setToolTip(
+            "WebSocket round-trip to ws-subscriptions-clob.polymarket.com"
+        )
+        top_layout.addWidget(self.pm_latency_label)
         layout.addWidget(top_bar)
 
         # -- content --
@@ -150,6 +159,8 @@ class MainWindow(QMainWindow):
         self.polymarket_feed.book_updated.connect(self.polymarket.apply_book)
         self.polymarket_feed.trade.connect(self.polymarket.apply_trade)
         self.polymarket_feed.status.connect(self.polymarket.set_status)
+        self.polymarket_feed.history.connect(self.polymarket.set_history)
+        self.polymarket_feed.latency.connect(self._on_pm_latency)
         self.polymarket_feed.error.connect(self._on_polymarket_error)
         if autostart:
             self.polymarket_feed.start()
@@ -312,14 +323,26 @@ class MainWindow(QMainWindow):
         self.latency_label.setStyleSheet(
             f"#latencyLabel {{ color: {color}; font-size: 10px; }}"
         )
-        self.latency_label.setText(f"● {milliseconds:.0f} ms")
+        self.latency_label.setText(f"HL ● {milliseconds:.0f} ms")
+
+    def _on_pm_latency(self, milliseconds: float) -> None:
+        if milliseconds <= FAST_MS:
+            color = "#3ddc84"
+        elif milliseconds <= OK_MS:
+            color = "#e0b341"
+        else:
+            color = "#ff5c5c"
+        self.pm_latency_label.setStyleSheet(
+            f"color: {color}; font-size: 10px; background: transparent;"
+        )
+        self.pm_latency_label.setText(f"PM ● {milliseconds:.0f} ms")
 
     def _on_connected(self, is_connected: bool) -> None:
         if not is_connected:
             self.latency_label.setStyleSheet(
                 "#latencyLabel { color: #6f6f76; font-size: 10px; }"
             )
-            self.latency_label.setText("● reconnecting…")
+            self.latency_label.setText("HL ● reconnecting…")
 
     @staticmethod
     def _on_error(message: str) -> None:

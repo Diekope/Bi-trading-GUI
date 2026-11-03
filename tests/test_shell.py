@@ -224,7 +224,7 @@ def test_interval_change_rewatches_candles(app: QApplication, window: MainWindow
 
 def test_latency_shows_milliseconds_and_colours(app: QApplication, window: MainWindow) -> None:
     window._on_latency(42.0)
-    assert window.latency_label.text() == "● 42 ms"
+    assert window.latency_label.text() == "HL ● 42 ms"
     assert "#3ddc84" in window.latency_label.styleSheet()
 
     window._on_latency(250.0)
@@ -236,7 +236,7 @@ def test_latency_shows_milliseconds_and_colours(app: QApplication, window: MainW
 
 def test_disconnect_replaces_the_latency_readout(window: MainWindow) -> None:
     window._on_connected(False)
-    assert window.latency_label.text() == "● reconnecting…"
+    assert window.latency_label.text() == "HL ● reconnecting…"
 
 
 def test_shortcut_is_registered(window: MainWindow) -> None:

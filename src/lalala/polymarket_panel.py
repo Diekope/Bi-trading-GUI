@@ -1,16 +1,16 @@
 """The Polymarket column: one five-minute BTC up/down market, at a glance.
 
 Not a candlestick chart — a binary market has no OHLC. The useful information
-is the probability of each side, how long is left, how deep the book is, and
-what has traded. So the panel paints four things:
+is the probability of each side, how long is left, how much is resting near the
+touch, and what has traded. So the panel paints four things:
 
     outcome tiles   UP / DOWN in cents, with a probability bar
     clock           the window and a live countdown to the close
-    ladder          the selected token's book, with depth bars
+    evolution       both probabilities across the five-minute window
     tape            the last trades, newest first
 
-The tiles switch the ladder between the two tokens. Books and trades are kept
-per window and cleared when the feed rolls to the next five-minute slug.
+The tiles choose which line the chart emphasizes. Books, samples and trades are
+kept per window and cleared when the feed rolls to the next five-minute slug.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -33,6 +33,7 @@ from lalala.cards import mono_font
 from lalala.panels import Card
 from lalala.polymarket_data import (
     PolymarketMarket,
+    PricePoint,
     TokenBook,
     Trade,
     format_cents,
@@ -53,6 +54,8 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
+SAMPLE_EVERY_MS = 1_000    # evolution line resolution; the wire is much faster
+MAX_POINTS = 1_200         # a 5m window at 1 Hz is 300; leave room for backfill
 
 
 def _alpha(color: str, alpha: int) -> QColor:
@@ -77,7 +80,7 @@ class OutcomeTile(QWidget):
         self.setMinimumHeight(66)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Click to show this token's order book")
+        self.setToolTip("Click to highlight this outcome on the chart")
 
     def set_quote(
         self, price: float | None, bid: float | None, ask: float | None
@@ -159,42 +162,53 @@ class OutcomeTile(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class DepthLadder(QWidget):
-    """The selected token's book, painted as a compact ladder with depth bars."""
+class EvolutionChart(QWidget):
+    """Both outcomes' probability, sampled across the five-minute window.
 
-    ROW = 15
-    MAX_LEVELS = 8
+    A binary market has no OHLC; what matters is how the implied probability
+    moved. The chart keeps the full window as its x-axis even when only part of
+    it has data, so the line visibly fills in as the window runs.
+    """
+
+    MIN_SPAN = 0.10          # never zoom the y-axis tighter than 10 cents
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.book: TokenBook | None = None
-        self.title = ""
-        self._shown: tuple | None = None
+        self.market: PolymarketMarket | None = None
+        self.series: dict[str, list[PricePoint]] = {}
+        self.selected = 0
+        self._lo: float | None = None
+        self._hi: float | None = None
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def set_book(self, book: TokenBook | None, title: str) -> None:
-        # The wire moves levels well below the visible slice far more often
-        # than it moves the top of the book. Repainting on those would burn
-        # most of the CPU for pixels nobody can see.
-        shown = (title, self._signature(book))
-        if shown == self._shown:
-            return
-        self._shown = shown
-        self.book = book
-        self.title = title
+    def set_market(
+        self,
+        market: PolymarketMarket,
+        series: dict[str, list[PricePoint]],
+        selected: int = 0,
+    ) -> None:
+        if self.market is None or self.market.slug != market.slug:
+            # New window, new scale. Within a window the range only widens,
+            # so the lines do not jump as the probability wanders.
+            self._lo = None
+            self._hi = None
+        self.market = market
+        self.series = series
+        self.selected = selected
         self.update()
 
-    @staticmethod
-    def _signature(book: TokenBook | None) -> tuple:
-        if book is None:
-            return ()
-        depth = DepthLadder.MAX_LEVELS
-        return (
-            book.token_id,
-            tuple((level.price, level.size) for level in book.asks[:depth]),
-            tuple((level.price, level.size) for level in book.bids[:depth]),
-        )
+    def set_series(
+        self, series: dict[str, list[PricePoint]], selected: int
+    ) -> None:
+        self.series = series
+        self.selected = selected
+        self.update()
+
+    def set_selected(self, selected: int) -> None:
+        if selected != self.selected:
+            self.selected = selected
+            self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -204,89 +218,137 @@ class DepthLadder(QWidget):
 
         painter.setFont(mono_font(8, bold=True))
         painter.setPen(QColor(TEXT_FAINT))
-        heading = f"{self.title.upper()} BOOK" if self.title else "ORDER BOOK"
         painter.drawText(
             QRectF(0, 0, width, 14),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            heading,
+            "PROBABILITY",
         )
-        book = self.book
-        if book is not None and book.mid is not None:
-            painter.setPen(QColor(ACCENT))
-            painter.drawText(
-                QRectF(0, 0, width, 14),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                f"mid {format_cents(book.mid)}",
-            )
 
-        if book is None or (not book.bids and not book.asks):
-            painter.setFont(mono_font(9))
-            painter.setPen(QColor(TEXT_FAINT))
-            painter.drawText(
-                QRectF(0, 16, width, height - 16),
-                Qt.AlignmentFlag.AlignCenter,
-                "waiting for the book…",
-            )
+        market = self.market
+        if market is None:
+            self._message(painter, "waiting for the market…")
             return
 
+        start = market.start_ms
+        end = market.end_ms
+        if end <= start:
+            end = start + 1
+
+        rows = []
+        for index, outcome in enumerate(market.outcomes[:2]):
+            points = [
+                point
+                for point in self.series.get(outcome.token_id, ())
+                if start <= point.timestamp_ms <= end
+            ]
+            rows.append((index, points))
+        if not any(points for _, points in rows):
+            self._message(painter, "collecting…")
+            return
+
+        prices = [point.price for _, points in rows for point in points]
+        lo, hi = self._range(prices)
+
+        left = 34.0
+        right = width - 8.0
         top = 18.0
-        mid_height = 16.0
-        usable = max(2 * self.ROW, height - top - mid_height)
-        levels = max(1, min(self.MAX_LEVELS, int(usable / (2 * self.ROW))))
-        row_h = usable / (2 * levels)
+        bottom = height - 16.0
+        if right - left < 20 or bottom - top < 20:
+            return
 
-        asks = book.asks[:levels]
-        bids = book.bids[:levels]
-        peak = max([level.size for level in asks + bids] + [1.0])
-
-        def row(y: float, price: float, size: float, color: str) -> None:
-            bar = (width - 2) * (size / peak)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(_alpha(color, 34))
-            painter.fillRect(
-                QRectF(width - bar, y + 1, bar, max(1.0, row_h - 2)), _alpha(color, 34)
-            )
-            painter.setPen(QColor(color))
-            painter.setFont(mono_font(8, bold=True))
+        # Horizontal grid, labelled in cents.
+        painter.setFont(mono_font(7))
+        for step in range(3):
+            value = lo + (hi - lo) * step / 2.0
+            y = bottom - (value - lo) / (hi - lo) * (bottom - top)
+            painter.setPen(QPen(QColor(BORDER), 1))
+            painter.drawLine(left, y, right, y)
+            painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
-                QRectF(0, y, 52, row_h),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                format_cents(price),
-            )
-            painter.setPen(QColor(TEXT_MUTED))
-            painter.setFont(mono_font(8))
-            size_width = min(96.0, max(52.0, width * 0.40))
-            painter.drawText(
-                QRectF(width - size_width, y, size_width, row_h),
+                QRectF(0, y - 7, left - 4, 14),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                f"{format_shares(size)}",
+                format_cents(value),
             )
 
-        # Asks descend toward the mid: the best ask sits on the mid line.
-        y = top
-        for level in reversed(asks):
-            row(y, level.price, level.size, DOWN)
-            y += row_h
+        # The coin-flip line, when the window traded around it.
+        if lo < 0.5 < hi:
+            y = bottom - (0.5 - lo) / (hi - lo) * (bottom - top)
+            painter.setPen(QPen(QColor(TEXT_FAINT), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(left, y, right, y)
 
-        mid_y = top + levels * row_h
-        painter.setPen(QPen(QColor(BORDER), 1))
-        painter.drawLine(
-            0, int(mid_y), int(width), int(mid_y)
-        )
-        painter.setFont(mono_font(8))
-        painter.setPen(QColor(ACCENT))
-        spread = book.spread
-        caption = "spread —" if spread is None else f"spread {format_cents(spread)}"
+        # Window bounds on the time axis.
+        start_at = datetime.fromtimestamp(start / 1000, tz=timezone.utc)
+        end_at = datetime.fromtimestamp(end / 1000, tz=timezone.utc)
+        painter.setFont(mono_font(7))
+        painter.setPen(QColor(TEXT_FAINT))
         painter.drawText(
-            QRectF(0, mid_y, width, mid_height),
-            Qt.AlignmentFlag.AlignCenter,
-            caption,
+            QRectF(left, bottom + 1, 60, 13),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            f"{start_at:%H:%M}",
+        )
+        painter.drawText(
+            QRectF(right - 60, bottom + 1, 60, 13),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            f"{end_at:%H:%M}",
         )
 
-        y = mid_y + mid_height
-        for level in bids:
-            row(y, level.price, level.size, UP)
-            y += row_h
+        # Non-selected first so the emphasized line sits on top.
+        span = end - start
+        for index, points in sorted(rows, key=lambda row: row[0] == self.selected):
+            if not points:
+                continue
+            color = UP if index == 0 else DOWN
+            active = index == self.selected
+            pen = QPen(_alpha(color, 255 if active else 110), 1.8 if active else 1.1)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            path = QPainterPath()
+            for point in points:
+                x = left + min(
+                    1.0, max(0.0, (point.timestamp_ms - start) / span)
+                ) * (right - left)
+                y = bottom - (point.price - lo) / (hi - lo) * (bottom - top)
+                if path.elementCount() == 0:
+                    path.moveTo(x, y)
+                else:
+                    path.lineTo(x, y)
+            painter.drawPath(path)
+
+            tip = points[-1]
+            x = left + min(
+                1.0, max(0.0, (tip.timestamp_ms - start) / span)
+            ) * (right - left)
+            y = bottom - (tip.price - lo) / (hi - lo) * (bottom - top)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(QPointF(x, y), 2.4, 2.4)
+
+    def _range(self, prices: list[float]) -> tuple[float, float]:
+        """The y-range, sticky within a window: widen, never shrink."""
+        lo = max(0.0, min(prices) - 0.03)
+        hi = min(1.0, max(prices) + 0.03)
+        if hi - lo < self.MIN_SPAN:
+            middle = (lo + hi) / 2
+            lo = max(0.0, middle - self.MIN_SPAN / 2)
+            hi = min(1.0, middle + self.MIN_SPAN / 2)
+        if self._lo is None:
+            self._lo, self._hi = lo, hi
+        else:
+            self._lo = max(0.0, min(self._lo, lo))
+            self._hi = min(1.0, max(self._hi, hi))
+        return self._lo, self._hi
+
+    def _message(self, painter: QPainter, text: str) -> None:
+        painter.setFont(mono_font(9))
+        painter.setPen(QColor(TEXT_FAINT))
+        painter.drawText(
+            QRectF(0, 16, self.width(), self.height() - 16),
+            Qt.AlignmentFlag.AlignCenter,
+            text,
+        )
 
 
 class TradeTape(QWidget):
@@ -300,6 +362,7 @@ class TradeTape(QWidget):
         self.setMinimumHeight(74)
         self.setMaximumHeight(190)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
     def add(self, trade: Trade, name: str) -> None:
         self.trades.insert(0, (trade, name))
         del self.trades[self.MAX_ROWS:]
@@ -388,10 +451,12 @@ class PolymarketPanel(Card):
         super().__init__(parent)
         self.market: PolymarketMarket | None = None
         self.books: dict[str, TokenBook] = {}
+        self.series: dict[str, list[PricePoint]] = {}
         self._selected = 0
+        self._last_sample = 0
         self._btc_open: float | None = None
         self._status = STATUS["waiting"]
-        # Below this the ladder columns and the tape overlap; the Hyperliquid
+        # Below this the chart labels and the tape overlap; the Hyperliquid
         # column still gets the rest of a 620px-minimum window.
         self.setMinimumWidth(300)
 
@@ -489,8 +554,8 @@ class PolymarketPanel(Card):
         stats.setColumnStretch(1, 1)
         stats.setColumnStretch(3, 1)
 
-        # -- book + tape --
-        self.ladder = DepthLadder()
+        # -- evolution + tape --
+        self.evolution = EvolutionChart()
         self.tape = TradeTape()
 
         self.body.addLayout(header)
@@ -499,7 +564,7 @@ class PolymarketPanel(Card):
         self.body.addLayout(tiles)
         self.body.addLayout(stats)
         self.body.addSpacing(2)
-        self.body.addWidget(self.ladder, 1)
+        self.body.addWidget(self.evolution, 1)
         self.body.addWidget(self.tape, 0)
 
         self._clock = QTimer(self)
@@ -531,14 +596,18 @@ class PolymarketPanel(Card):
 
         if rolled:
             self.books.clear()
+            self.series = {outcome.token_id: [] for outcome in market.outcomes}
             self._selected = 0
+            self._last_sample = 0
             self._btc_open = None
             self.tape.clear()
-            self.ladder.set_book(None, self._outcome_name(0))
+            self.evolution.set_market(market, self.series, self._selected)
             self.depth_value.setText("—")
             self.spread_value.setText(
                 format_cents(market.spread) if market.spread > 0 else "—"
             )
+        else:
+            self.evolution.set_market(market, self.series, self._selected)
 
         self.question.setText(market.question)
         self.window_label.setText(self._window_text(market))
@@ -571,7 +640,7 @@ class PolymarketPanel(Card):
         selected = self._selected_book()
         if selected is not None:
             self._set_text(self.spread_value, format_cents(selected.spread))
-        # Depth near the touch: the whole ladder is dominated by 1¢ lottery
+        # Depth near the touch: the whole book is dominated by 1¢ lottery
         # tickets far from the price, which says little about executable size.
         self._set_text(
             self.depth_value,
@@ -583,8 +652,57 @@ class PolymarketPanel(Card):
                 )
             ),
         )
-        if book.token_id == self._selected_token():
-            self.ladder.set_book(book, outcome.name)
+        self._sample()
+
+    def set_history(self, history: object) -> None:
+        """Merge the pre-launch part of the window into the live samples."""
+        if self.market is None or not isinstance(history, dict):
+            return
+        changed = False
+        for token_id, points in history.items():
+            if token_id not in self.series:
+                continue
+            merged: dict[int, PricePoint] = {
+                point.timestamp_ms: point for point in self.series[token_id]
+            }
+            for point in points:
+                if isinstance(point, PricePoint):
+                    merged[point.timestamp_ms] = point
+            ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
+            del ordered[:-MAX_POINTS]
+            self.series[token_id] = ordered
+            changed = True
+        if changed:
+            self.evolution.set_series(self.series, self._selected)
+
+    def _sample(self) -> None:
+        """Record the current mids once a second for the evolution line."""
+        market = self.market
+        if market is None or len(market.outcomes) < 2:
+            return
+        now_ms = int(time.time() * 1000)
+        if now_ms - self._last_sample < SAMPLE_EVERY_MS:
+            return
+
+        up_token = market.outcomes[0].token_id
+        down_token = market.outcomes[1].token_id
+        up_book = self.books.get(up_token)
+        down_book = self.books.get(down_token)
+        up = up_book.mid if up_book is not None else None
+        down = down_book.mid if down_book is not None else None
+        if up is None and down is None:
+            return
+        if up is None:
+            up = 1.0 - down
+        if down is None:
+            down = 1.0 - up
+
+        self._last_sample = now_ms
+        for token_id, price in ((up_token, up), (down_token, down)):
+            points = self.series.setdefault(token_id, [])
+            points.append(PricePoint(now_ms, price))
+            del points[:-MAX_POINTS]
+        self.evolution.set_series(self.series, self._selected)
 
     @staticmethod
     def _set_text(label: QLabel, text: str) -> None:
@@ -627,11 +745,6 @@ class PolymarketPanel(Card):
 
     # -- internals ---------------------------------------------------------
 
-    def _outcome_name(self, index: int) -> str:
-        if self.market is None or index >= len(self.market.outcomes):
-            return ""
-        return self.market.outcomes[index].name
-
     def _selected_token(self) -> str | None:
         if self.market is None or self._selected >= len(self.market.outcomes):
             return None
@@ -654,18 +767,11 @@ class PolymarketPanel(Card):
             return
         self._selected = index
         self._refresh_selection()
-        book = self._selected_book()
-        if book is not None:
-            self.ladder.set_book(book, self._outcome_name(index))
-        else:
-            self.ladder.set_book(None, self._outcome_name(index))
 
     def _refresh_selection(self) -> None:
         self.up_tile.set_selected(self._selected == 0)
         self.down_tile.set_selected(self._selected == 1)
-        token = self._selected_token()
-        book = self.books.get(token) if token else None
-        self.ladder.set_book(book, self._outcome_name(self._selected))
+        self.evolution.set_selected(self._selected)
 
     @staticmethod
     def _window_text(market: PolymarketMarket) -> str:

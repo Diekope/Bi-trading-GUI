@@ -22,6 +22,7 @@ from lalala.main_window import MainWindow  # noqa: E402
 from lalala.polymarket_data import (  # noqa: E402
     Level,
     PriceChange,
+    PricePoint,
     TokenBook,
     Trade,
     apply_price_change,
@@ -34,9 +35,11 @@ from lalala.polymarket_data import (  # noqa: E402
     parse_last_trade,
     parse_market,
     parse_price_changes,
+    parse_price_history,
     slug_window,
 )
 from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
+from lalala.polymarket_panel import SAMPLE_EVERY_MS  # noqa: E402
 from lalala.theme import apply_dark_theme  # noqa: E402
 
 TOKENS = (
@@ -215,6 +218,36 @@ def test_zero_size_levels_are_dropped() -> None:
 def test_a_book_without_a_token_is_ignored() -> None:
     assert parse_book({"bids": [], "asks": []}) is None
     assert parse_book(None) is None
+
+
+# -- price history ----------------------------------------------------------
+
+
+def test_price_history_parses_sorts_and_clamps() -> None:
+    points = parse_price_history(
+        {
+            "history": [
+                {"t": 1_793_734_282, "p": "0.62"},
+                {"t": 1_793_734_280, "p": 0.58},
+                {"t": None, "p": 0.5},
+                {"t": 1_793_734_283, "p": 1.4},
+            ]
+        }
+    )
+
+    assert [point.timestamp_ms for point in points] == [
+        1_793_734_280_000,
+        1_793_734_282_000,
+        1_793_734_283_000,
+    ]
+    assert points[0].price == pytest.approx(0.58)
+    assert points[-1].price == pytest.approx(1.0)
+
+
+def test_malformed_price_history_is_empty() -> None:
+    assert parse_price_history(None) == ()
+    assert parse_price_history({}) == ()
+    assert parse_price_history({"history": "nope"}) == ()
 
 
 # -- incremental changes ----------------------------------------------------
@@ -577,7 +610,7 @@ def test_the_countdown_is_live_and_formatted(window: MainWindow) -> None:
     assert panel.countdown.text() != "—"
 
 
-def test_a_book_updates_the_tile_ladder_and_depth(window: MainWindow) -> None:
+def test_a_book_updates_the_tile_depth_and_evolution(window: MainWindow) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
     book = parse_book(book_payload(UP_TOKEN))
@@ -587,13 +620,31 @@ def test_a_book_updates_the_tile_ladder_and_depth(window: MainWindow) -> None:
     assert panel.up_tile.bid == pytest.approx(0.66)
     assert panel.up_tile.ask == pytest.approx(0.68)
     assert panel.up_tile.price == pytest.approx(0.67)
-    assert panel.ladder.book is book
     assert panel.spread_value.text() == "2¢"
     assert panel.depth_value.text().startswith("$")
     assert panel.books[UP_TOKEN] is book
+    assert len(panel.series[UP_TOKEN]) == 1
+    assert panel.series[UP_TOKEN][0].price == pytest.approx(0.67)
+    assert panel.evolution.series is panel.series
+    assert panel.evolution.market is panel.market
 
 
-def test_clicking_down_switches_the_ladder(window: MainWindow) -> None:
+def test_clicking_down_emphasizes_the_other_line(window: MainWindow) -> None:
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+    panel.apply_book(parse_book(book_payload(UP_TOKEN)))
+    panel.apply_book(parse_book(book_payload(DOWN_TOKEN)))
+
+    panel._select_token(1)
+
+    assert panel.evolution.selected == 1
+    assert panel.down_tile.selected is True
+    assert panel.up_tile.selected is False
+
+
+def test_the_evolution_line_samples_at_most_once_a_second(
+    window: MainWindow,
+) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
     up = parse_book(book_payload(UP_TOKEN))
@@ -601,32 +652,90 @@ def test_clicking_down_switches_the_ladder(window: MainWindow) -> None:
     panel.apply_book(up)
     panel.apply_book(down)
 
-    panel._select_token(1)
+    assert len(panel.series[UP_TOKEN]) == 1
+    assert len(panel.series[DOWN_TOKEN]) == 1
 
-    assert panel.ladder.book.token_id == DOWN_TOKEN
-    assert panel.down_tile.selected is True
-    assert panel.up_tile.selected is False
+    # A second book inside the same second must not add a point.
+    panel.apply_book(replace(up, bids=(Level(0.67, 50.0),) + up.bids))
+    assert len(panel.series[UP_TOKEN]) == 1
+
+    # Move the clock back one sampling interval; the next book is recorded.
+    panel._last_sample -= SAMPLE_EVERY_MS
+    panel.apply_book(replace(up, bids=(Level(0.68, 50.0),) + up.bids))
+    assert len(panel.series[UP_TOKEN]) == 2
+    assert panel.series[UP_TOKEN][-1].price == pytest.approx(0.68)
 
 
-def test_the_ladder_only_repaints_when_a_visible_level_moves(
+def test_history_backfills_and_sorts_the_evolution_line(
     window: MainWindow,
 ) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
-    bids = tuple((0.66 - index * 0.01, 100.0) for index in range(10))
-    book = parse_book(book_payload(UP_TOKEN, bids=bids))
-    panel.apply_book(book)
-    shown = panel.ladder._shown
+    now_ms = int(time.time() * 1000)
 
-    # Replace the tenth bid: it is below the eight rows the ladder can show.
-    panel.apply_book(
-        replace(book, bids=book.bids[:9] + (Level(0.01, 9_999.0),))
+    panel.set_history(
+        {
+            UP_TOKEN: (
+                PricePoint(now_ms - 120_000, 0.40),
+                PricePoint(now_ms - 60_000, 0.45),
+            ),
+            DOWN_TOKEN: (PricePoint(now_ms - 120_000, 0.60),),
+        }
     )
-    assert panel.ladder._shown == shown
 
-    # A new best bid is visible, so the ladder schedules a repaint.
-    panel.apply_book(replace(book, bids=(Level(0.67, 500.0),) + book.bids))
-    assert panel.ladder._shown != shown
+    assert [point.price for point in panel.series[UP_TOKEN]] == [
+        pytest.approx(0.40),
+        pytest.approx(0.45),
+    ]
+    assert panel.evolution.series is panel.series
+
+    panel.apply_book(parse_book(book_payload(UP_TOKEN)))
+    stamps = [point.timestamp_ms for point in panel.series[UP_TOKEN]]
+    assert stamps == sorted(stamps)
+    assert panel.series[UP_TOKEN][-1].price == pytest.approx(0.67)
+
+
+def test_history_for_another_market_is_ignored(window: MainWindow) -> None:
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+
+    panel.set_history({"0xdead": (PricePoint(2, 0.5),)})
+    panel.set_history("nonsense")
+
+    assert panel.series[UP_TOKEN] == []
+    assert panel.series[DOWN_TOKEN] == []
+
+
+def test_the_evolution_y_range_is_sticky_within_a_window(
+    window: MainWindow,
+) -> None:
+    chart = window.polymarket.evolution
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+    panel.set_history(
+        {
+            UP_TOKEN: (
+                PricePoint(1_793_734_200_000, 0.20),
+                PricePoint(1_793_734_260_000, 0.80),
+            )
+        }
+    )
+
+    # A wide window pins the range…
+    assert chart._range([0.20, 0.80]) == (pytest.approx(0.17), pytest.approx(0.83))
+    # …and a later, narrower sample must not shrink it.
+    lo, hi = chart._range([0.60, 0.62])
+    assert lo == pytest.approx(0.17)
+    assert hi == pytest.approx(0.83)
+    # A wider sample still widens it.
+    lo, hi = chart._range([0.05, 0.62])
+    assert lo == pytest.approx(0.02)
+    assert hi == pytest.approx(0.83)
+
+    # A new five-minute window starts from a fresh scale.
+    panel.set_market(market_from_gamma(slug="btc-updown-5m-1793734500"))
+    assert chart._lo is None and chart._hi is None
+    assert chart._range([0.48, 0.52]) == (pytest.approx(0.45), pytest.approx(0.55))
 
 
 def test_trades_fill_the_tape_newest_first(window: MainWindow) -> None:
@@ -652,12 +761,15 @@ def test_the_tape_stops_at_a_screenful(window: MainWindow) -> None:
     assert panel.tape.trades[0][0].size == 40
 
 
-def test_a_new_window_clears_the_old_book_and_tape(window: MainWindow) -> None:
+def test_a_new_window_clears_the_old_book_series_and_tape(
+    window: MainWindow,
+) -> None:
     panel = window.polymarket
     first = market_from_gamma(slug="btc-updown-5m-1793734200")
     panel.set_market(first)
     panel.apply_book(parse_book(book_payload(UP_TOKEN)))
     panel.apply_trade(Trade(UP_TOKEN, 0.6, 10, "BUY", 1_793_734_280_000))
+    assert panel.series[UP_TOKEN]
 
     second = market_from_gamma(slug="btc-updown-5m-1793734500")
     panel.set_market(second)
@@ -665,7 +777,8 @@ def test_a_new_window_clears_the_old_book_and_tape(window: MainWindow) -> None:
     assert panel.market is second
     assert panel.books == {}
     assert panel.tape.trades == []
-    assert panel.ladder.book is None
+    assert all(points == [] for points in panel.series.values())
+    assert panel.evolution.market is second
 
 
 def test_the_btc_reference_shows_the_move_since_the_open(window: MainWindow) -> None:
@@ -690,6 +803,19 @@ def test_status_changes_are_visible(window: MainWindow) -> None:
 
     panel.set_status("nonsense")  # ignored
     assert "waiting" in panel.status_text.text()
+
+
+def test_the_polymarket_delay_lands_in_the_top_bar(window: MainWindow) -> None:
+    window.polymarket_feed.latency.emit(42)
+
+    assert window.pm_latency_label.text() == "PM ● 42 ms"
+    assert "#3ddc84" in window.pm_latency_label.styleSheet()
+
+    window.polymarket_feed.latency.emit(250)
+    assert "#e0b341" in window.pm_latency_label.styleSheet()
+
+    window.polymarket_feed.latency.emit(900)
+    assert "#ff5c5c" in window.pm_latency_label.styleSheet()
 
 
 def test_the_window_forwards_the_btc_mid_to_the_panel(window: MainWindow) -> None:
