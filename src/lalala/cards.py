@@ -1,7 +1,8 @@
 """Trading widgets: candlestick chart, timeframe pills, market card.
 
 The chart is hand-painted and supports panning and zooming: wheel to zoom,
-drag or arrow keys to pan, double-click to snap back to the live edge.
+drag to grab the trail on either axis (or use the arrow keys to pan), and
+double-click to snap back to the live edge and the fitted price range.
 """
 
 from __future__ import annotations
@@ -85,10 +86,17 @@ BOLLINGER_PERIOD = 20
 
 
 class CandleChart(QWidget):
-    """OHLC candles with a viewport that can be zoomed and panned.
+    """OHLC candles with a viewport that can be zoomed and grabbed.
 
     `_visible` is how many candles are on screen; `_offset` is how many candles
     sit to the right of the viewport (0 = pinned to the live edge).
+
+    Dragging grabs the chart itself: sideways walks through time, up and down
+    moves the price window. The vertical move is what makes a deep zoom usable
+    when the live candles are far from the ones on screen — the natural range
+    fits what is visible, and a price-axis zoom can still push the newest bars
+    out of view. The vertical grip is stored in pixels, so the trail follows
+    the pointer one-to-one and keeps its place as new candles arrive.
 
     The chart owns the deep history: `set_series` replaces it, `merge_series`
     unions the live/reconcile feed into it, and `add_history` prepends a page
@@ -110,10 +118,14 @@ class CandleChart(QWidget):
     # repaint. 600 bars is about one per pixel on a normal card.
     MAX_VISIBLE = 600
     ZOOM_STEP = 1.12     # one wheel notch; deliberately gentle
-    DRAG_GAIN = 0.75     # candles travelled per slot dragged
+    DRAG_GAIN = 1.0      # the trail follows the pointer one-to-one
+    DRAG_THRESHOLD = 5.0  # px before a press turns into a drag
     PRICE_ZOOM_STEP = 1.10
     MIN_PRICE_ZOOM = 0.2
     MAX_PRICE_ZOOM = 20.0
+    # A grabbed price range may leave the plot, but not so far that nothing can
+    # be found again: an edge tag still shows where the live price went.
+    MAX_PRICE_SHIFT = 1.5  # plot heights
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -125,20 +137,26 @@ class CandleChart(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setToolTip(
             "Wheel: zoom time · wheel over the price axis: stretch prices · "
-            "drag or ← →: pan · double-click: reset"
+            "drag: grab and move the chart · ← →: pan · double-click: reset"
         )
 
         self._candles: tuple[Candle, ...] = ()
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
         self._price_zoom = 1.0
+        # How far the candles are pulled from the natural price position,
+        # in pixels. 0 is the fitted range; positive means dragged down.
+        self._price_shift = 0.0
         self._precision = 2
         self._interval = DEFAULT_TIMEFRAME
         self._show_volume = True
         self._show_bollinger = False
         self._placeholder = "search a market"
         self._drag_x: float | None = None
+        self._drag_y: float | None = None
         self._drag_offset = 0
+        self._drag_price_shift = 0.0
+        self._dragging = False
         self._history_pending = False
         self._history_exhausted = False
 
@@ -178,6 +196,7 @@ class CandleChart(QWidget):
         if not candles:
             # A new market or interval starts from the default vertical scale.
             self._price_zoom = 1.0
+            self._price_shift = 0.0
         self._candles = tuple(candles)
         self._history_pending = False
         self._history_exhausted = False
@@ -262,6 +281,11 @@ class CandleChart(QWidget):
         return self._price_zoom
 
     @property
+    def price_shift(self) -> float:
+        """How far the trail was dragged vertically, in pixels."""
+        return self._price_shift
+
+    @property
     def is_live(self) -> bool:
         """True when the viewport is pinned to the newest candle."""
         return self._offset == 0
@@ -325,6 +349,7 @@ class CandleChart(QWidget):
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
         self._price_zoom = 1.0
+        self._price_shift = 0.0
         self._clamp()
         self.update()
 
@@ -355,6 +380,24 @@ class CandleChart(QWidget):
             return "time"
         return ""
 
+    def _price_shift_limit(self) -> float:
+        """How far the price window may be dragged before all data is lost."""
+        plot = max(24.0, self.height() - self.TIME_AXIS)
+        return plot * self.MAX_PRICE_SHIFT
+
+    def _update_hover_cursor(self, position) -> None:
+        """The plot is grabbable; the two axes keep their own resize cursors."""
+        if self._dragging:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        axis = self._axis_at(position.x(), position.y())
+        if axis == "price":
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        elif axis == "time":
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+
     def wheelEvent(self, event) -> None:  # noqa: N802
         steps = event.angleDelta().y() / 120.0
         if steps == 0:
@@ -384,36 +427,72 @@ class CandleChart(QWidget):
                 event.accept()
                 return
             self._drag_x = event.position().x()
+            self._drag_y = event.position().y()
             self._drag_offset = self._offset
+            self._drag_price_shift = self._price_shift
+            self._dragging = False
             self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         self._drag_x = None
+        self._drag_y = None
+        self._dragging = False
+        self._update_hover_cursor(event.position())
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if self._drag_x is None:
-            axis = self._axis_at(event.position().x(), event.position().y())
-            if axis == "price":
-                self.setCursor(Qt.CursorShape.SizeVerCursor)
-            elif axis == "time":
-                self.setCursor(Qt.CursorShape.SizeHorCursor)
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-        if self._drag_x is None or not self._candles:
+        if self._drag_x is None or self._drag_y is None or not self._candles:
+            self._update_hover_cursor(event.position())
             super().mouseMoveEvent(event)
             return
-        slot = max(1.0, (self.width() - self.GUTTER) / max(1, len(self.visible_candles())))
-        shift = int((event.position().x() - self._drag_x) / slot * self.DRAG_GAIN)
-        self._offset = self._drag_offset + shift
-        self._clamp()
-        self.update()
-        if shift > 0:
-            # Dragging back past the oldest bar pages in more history.
-            self._maybe_request_history()
+
+        dx = event.position().x() - self._drag_x
+        dy = event.position().y() - self._drag_y
+        if not self._dragging:
+            # A click that wobbles slightly is still a click, not a pan that
+            # silently freezes the viewport a candle back from live.
+            if abs(dx) < self.DRAG_THRESHOLD and abs(dy) < self.DRAG_THRESHOLD:
+                event.accept()
+                return
+            # Start from here, so crossing the dead zone does not make the
+            # trail jump by the threshold distance.
+            self._dragging = True
+            self._drag_x = event.position().x()
+            self._drag_y = event.position().y()
+            dx = dy = 0.0
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+        moved = False
+
+        # Time: one candle per on-screen slot. At a deep zoom a slot is wide,
+        # so the same drag walks fewer bars — exactly like grabbing paper.
+        slot = max(
+            1.0, (self.width() - self.GUTTER) / max(1, self.visible_count)
+        )
+        step = int(dx / slot * self.DRAG_GAIN + (0.5 if dx >= 0 else -0.5))
+        if step:
+            self._offset = self._drag_offset + step
+            self._clamp()
+            moved = True
+            if step > 0:
+                # Dragging back past the oldest bar pages in more history.
+                self._maybe_request_history()
+
+        # Price: in pixels, so the trail stays glued to the pointer. Once
+        # grabbed it no longer re-centres itself on every new candle.
+        limit = self._price_shift_limit()
+        price_shift = self._drag_price_shift + dy
+        price_shift = max(-limit, min(limit, price_shift))
+        if price_shift != self._price_shift:
+            self._price_shift = price_shift
+            moved = True
+
+        if moved:
+            self.update()
         event.accept()
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
@@ -520,7 +599,13 @@ class CandleChart(QWidget):
         body_width = max(1.0, slot * 0.62)
 
         def price_y(price: float) -> float:
-            return price_rect.bottom() - (price - low) / span * price_rect.height()
+            # The vertical grab is a pixel offset, so the trail follows the
+            # pointer exactly and keeps its place when new candles arrive.
+            return (
+                price_rect.bottom()
+                - (price - low) / span * price_rect.height()
+                + self._price_shift
+            )
 
         def x_at(index: int) -> float:
             return full.left() + (index + 0.5) * slot
@@ -529,8 +614,11 @@ class CandleChart(QWidget):
         last_y = price_y(candles[-1].c)
         painter.setFont(mono_font(8))
         for fraction in (0.0, 0.5, 1.0):
-            level = low + span * fraction
-            gy = price_y(level)
+            # Grid lines stay put; their labels follow the grabbed window.
+            gy = price_rect.bottom() - fraction * price_rect.height()
+            level = low + (
+                fraction + self._price_shift / price_rect.height()
+            ) * span
             painter.setPen(QPen(QColor(BORDER), 1))
             painter.drawLine(QPointF(price_rect.left(), gy), QPointF(price_rect.right(), gy))
             if abs(gy - last_y) < 11:
@@ -636,16 +724,46 @@ class CandleChart(QWidget):
                 painter.setClipping(False)
 
         # -- last price --
-        painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(
-            QPointF(price_rect.left(), last_y), QPointF(price_rect.right(), last_y)
-        )
-        painter.setPen(QColor(ACCENT))
-        painter.drawText(
-            QRectF(price_rect.right() + 4, last_y - 7, self.GUTTER - 6, 14),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            format_price(candles[-1].c, self._precision),
-        )
+        text = format_price(candles[-1].c, self._precision)
+        if price_rect.top() <= last_y <= price_rect.bottom():
+            painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(
+                QPointF(price_rect.left(), last_y), QPointF(price_rect.right(), last_y)
+            )
+            painter.setPen(QColor(ACCENT))
+            painter.drawText(
+                QRectF(price_rect.right() + 4, last_y - 7, self.GUTTER - 6, 14),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                text,
+            )
+        else:
+            # The trail was grabbed past the live price: pin its label and a
+            # small wedge to the edge it left through, so it is obvious which
+            # way to drag back instead of the price simply disappearing.
+            beyond_top = last_y < price_rect.top()
+            edge_y = price_rect.top() if beyond_top else price_rect.bottom()
+            painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(
+                QPointF(price_rect.left(), edge_y), QPointF(price_rect.right(), edge_y)
+            )
+            painter.setPen(QColor(ACCENT))
+            painter.drawText(
+                QRectF(price_rect.right() + 4, edge_y - 7, self.GUTTER - 6, 14),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                text,
+            )
+            tip = 1.0 if beyond_top else -1.0
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(ACCENT))
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(price_rect.right() - 5, edge_y + tip * 2),
+                        QPointF(price_rect.right() - 11, edge_y - tip * 4),
+                        QPointF(price_rect.right() - 11, edge_y + tip * 6),
+                    ]
+                )
+            )
 
         # -- time axis --
         painter.setFont(mono_font(8))
@@ -671,13 +789,18 @@ class CandleChart(QWidget):
             )
             right_edge = left + width
 
-        # -- scrolled-back hint --
+        # -- scrolled-back / grabbed hint --
+        hints = []
         if not self.is_live:
+            hints.append(f"{self._offset} back")
+        if self._price_shift:
+            hints.append("price grabbed")
+        if hints:
             painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
                 QRectF(full.left() + 4, full.top(), full.width() - 8, 12),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                f"{self._offset} back · double-click for live",
+                f"{' · '.join(hints)} · double-click to reset",
             )
         painter.end()
 

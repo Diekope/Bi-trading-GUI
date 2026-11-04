@@ -80,11 +80,11 @@ squeezing the candles.
 | Wheel over the time axis | zoom the time range |
 | Wheel over the plot | zoom the time range |
 | Shift + wheel | pan two candles per notch |
-| Drag | pan, 0.75 candles per candle-width |
+| Drag | grab the trail: sideways walks through time, up / down moves the price window |
 | ← / → | pan one candle (Shift: ten) |
 | ↑ / ↓ | zoom the time range |
 | Home | jump to the oldest candle, loading a page if needed |
-| End, `0`, double-click | reset: live edge, default range, 1.0 price zoom |
+| End, `0`, double-click | reset: live edge, fitted price range, 1.0 price zoom |
 | `1` … `6` | switch timeframe (1m, 3m, 5m, 15m, 30m, 1h) |
 
 The two axes are separate. The price gutter on the right changes only the
@@ -92,7 +92,18 @@ vertical scale — how far apart prices sit — and leaves the number of candles
 alone; each wheel notch is 10%, clamped between 0.2× and 20×. The bottom time
 axis changes only the time range. The pointer turns into a vertical resize
 cursor over the price gutter and a horizontal one over the time axis, so it is
-clear which wheel you are about to use.
+clear which wheel you are about to use. Over the plot it is an open hand: the
+whole trail can be grabbed.
+
+Dragging moves the chart with the pointer. Sideways walks one candle per
+on-screen slot, so a deep zoom needs a longer drag but still lands exactly on a
+bar. Up and down pull the price window with the pointer, one pixel for one
+pixel, and the grab holds: new candles no longer re-centre the scale under your
+hand. That is what recovers the live bars when a deep zoom plus a price stretch
+has pushed them out of view. If the live price is off the plot, its label and a
+small wedge stay pinned to the edge it left through, so it is obvious which way
+to drag back. Double-click (or `End` / `0`) releases the grab and fits the
+range again. A press that moves less than a few pixels stays a click.
 
 Zooming out stops at 600 bars (`MAX_VISIBLE`). Before that cap the requested
 window kept growing while the series was short — invisibly, since only the
@@ -102,8 +113,9 @@ no matter how far back the chart is paged.
 
 The vertical scale pivots on the centre of the natural price range, so zooming
 does not make the chart jump. Scrolling back freezes the viewport — new bars no
-longer drag the view forward — and shows `N back · double-click for live`. Until
-then it is pinned to the newest candle.
+longer drag the view forward — and shows `N back · double-click to reset`; the
+same hint says `price grabbed` after a vertical drag. Until then it is pinned to
+the newest candle.
 
 **Deeper history.** The first 300 bars cover roughly 5 hours at 1m. Reaching
 the left edge (drag, wheel, `Home`, or the panning keys) fires one REST
@@ -229,7 +241,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             189 tests: parsing/search/aliases, slug math, candle + book
+tests/             195 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```

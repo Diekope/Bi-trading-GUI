@@ -432,6 +432,135 @@ def test_scrolled_back_chart_still_paints(app: QApplication, window: MainWindow)
     assert len({image.pixelColor(x, 5).name() for x in range(0, image.width(), 9)}) >= 1
 
 
+# -- grabbing the chart ----------------------------------------------------
+
+
+def _plot_center(chart) -> QPoint:
+    """A point in the middle of the candlestick area, clear of both axes."""
+    return QPoint(chart.width() // 2, chart.height() // 2)
+
+
+def test_dragging_the_chart_walks_back_through_time(
+    app: QApplication, window: MainWindow
+) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    for _ in range(40):
+        chart.zoom(1)
+    slot = (chart.width() - chart.GUTTER) / chart.visible_count
+    start = _plot_center(chart)
+
+    QTest.mousePress(
+        chart, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start
+    )
+    # Cross the dead zone, then drag exactly two on-screen slots.
+    QTest.mouseMove(chart, QPoint(start.x() + 8, start.y()))
+    QTest.mouseMove(chart, QPoint(start.x() + 8 + int(slot * 2), start.y()))
+    app.processEvents()
+    QTest.mouseRelease(
+        chart,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(start.x() + 8 + int(slot * 2), start.y()),
+    )
+
+    assert chart.offset == 2
+
+
+def test_dragging_down_moves_the_price_window(
+    app: QApplication, window: MainWindow
+) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    start = _plot_center(chart)
+
+    QTest.mousePress(
+        chart, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start
+    )
+    QTest.mouseMove(chart, QPoint(start.x(), start.y() + 8))
+    QTest.mouseMove(chart, QPoint(start.x(), start.y() + 68))
+    app.processEvents()
+    QTest.mouseRelease(
+        chart,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(start.x(), start.y() + 68),
+    )
+
+    # One-to-one with the pointer, measured from where the dead zone ended.
+    assert chart.price_shift == pytest.approx(60.0)
+    assert chart.offset == 0  # a vertical grab must not walk through time
+
+
+def test_the_price_window_cannot_be_dragged_out_of_reach(
+    app: QApplication, window: MainWindow
+) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    start = _plot_center(chart)
+
+    QTest.mousePress(
+        chart, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start
+    )
+    QTest.mouseMove(chart, QPoint(start.x(), start.y() + 8))
+    QTest.mouseMove(chart, QPoint(start.x(), start.y() + 10_000))
+    app.processEvents()
+    QTest.mouseRelease(
+        chart,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(start.x(), start.y() + 10_000),
+    )
+
+    assert chart.price_shift == pytest.approx(chart._price_shift_limit())
+
+
+def test_a_click_that_wobbles_does_not_grab_the_chart(
+    app: QApplication, window: MainWindow
+) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    start = _plot_center(chart)
+
+    QTest.mousePress(
+        chart, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start
+    )
+    QTest.mouseMove(chart, QPoint(start.x() + 2, start.y() + 2))
+    app.processEvents()
+    QTest.mouseRelease(
+        chart,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(start.x() + 2, start.y() + 2),
+    )
+
+    assert chart.offset == 0
+    assert chart.is_live is True
+    assert chart.price_shift == 0.0
+
+
+def test_double_click_releases_the_vertical_grab(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    chart.pan(20)
+    chart._price_shift = 45.0
+
+    chart.reset_view()
+
+    assert chart.price_shift == 0.0
+    assert chart.offset == 0
+
+
+def test_a_new_series_releases_the_vertical_grab(window: MainWindow) -> None:
+    chart = window.main_card.chart
+    chart.set_series(_long_series())
+    chart._price_shift = 45.0
+
+    chart.set_series(())
+
+    assert chart.price_shift == 0.0
+
+
 # -- chart time axis -------------------------------------------------------
 
 def test_axis_time_is_hours_and_minutes_for_intraday() -> None:
