@@ -147,6 +147,14 @@ class ParamsTile(Card):
 
         self.sizing.currentTextChanged.connect(self._on_sizing_changed)
         self.dynamic_tp.toggled.connect(self._apply_dynamic)
+        for field in (
+            self.initial_capital,
+            self.position,
+            self.tp_field,
+            self.sl_field,
+            self.cash_field,
+        ):
+            field.textChanged.connect(self.changed)
 
     # -- values ------------------------------------------------------------
 

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from lalala.panels import Card
 from lalala.strat_params import ParamsTile
+from lalala.strat_playback import PlaybackTile
 from lalala.strat_results import ResultsTile
 from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
@@ -48,7 +49,7 @@ class StratWindow(QMainWindow):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(CARD_GAP)
 
-        self.left = Card(self.splitter)
+        self.left = PlaybackTile(self.splitter)
 
         # The right side stacks three tiles: the history controls on top, then
         # backtest parameters and a still-empty results tile, the last two
@@ -82,6 +83,20 @@ class StratWindow(QMainWindow):
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
         self._balanced = False
+
+        # The left tile plays whatever the other two are set to.
+        self.download.span_changed.connect(self._sync_playback)
+        self.params.changed.connect(self._sync_params)
+        self._sync_playback()
+        self._sync_params()
+        self.left.play()
+
+    def _sync_playback(self) -> None:
+        start, end, resolution = self.download.span()
+        self.left.set_source(list(range(start, end + 1)), resolution)
+
+    def _sync_params(self) -> None:
+        self.left.set_params(self.params.params())
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Fit the two upper tiles to their content once the size is known."""

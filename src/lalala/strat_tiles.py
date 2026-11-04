@@ -80,6 +80,8 @@ class ResolutionPicker(QWidget):
 class DownloadTile(Card):
     """Pick a span; Download fills in the 1m bars that are missing."""
 
+    span_changed = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._adjusting = False
@@ -244,6 +246,7 @@ class DownloadTile(Card):
     def _span_changed(self) -> None:
         self._error = None
         self.refresh()
+        self.span_changed.emit()
 
     def _normalize_span(self) -> None:
         """A reversed pick is not an error: flip it back into order.

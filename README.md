@@ -241,6 +241,7 @@ src/lalala/
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
+  strat_playback.py the left tile: candles rolling through a run, figures live
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_results.py the results tile: sample equity curve, drawdown, metrics
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
@@ -259,11 +260,12 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             241 tests: parsing/search/aliases, slug math, candle + book
+tests/             253 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its tiles, the chart/backtest settings,
-                   and the candle store and downloader
+                   strategy window and its tiles, the playback walk, the
+                   chart/backtest settings, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -311,6 +313,22 @@ the empty results tile below them takes the rest of the column.
 Decided and hard-coded for the run (no switches in the UI): fees and slippage
 are fixed, one position is held at a time, and a trade is refused across a
 data gap rather than filled through it. The entry rule is a separate tile.
+
+## Playback tile
+
+The left half holds the run as a moving picture: candles scroll past a
+playhead, the entries and exits are marked on them, and a row of figures above
+recomputes on every candle — PnL, equity, cash, drawdown, max drawdown, max
+gain, the current streak, the best winning and worst losing streak, trades,
+win rate, fees.
+
+It is a **preview**, not an engine. Two things are provisional and labelled as
+such in the tile: the entry rule is a placeholder (enter long when a candle
+closes above the one before it), and the candles come from the local store's
+most recent year in the span when there is one, from a fixed-seed walk
+otherwise. Fills are the optimistic kind — the target and the stop are both
+checked against a candle's range, so if one candle touches both, the target
+wins.
 ```
 
 ## Window layout

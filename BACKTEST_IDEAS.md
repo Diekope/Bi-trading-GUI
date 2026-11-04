@@ -22,12 +22,25 @@ metrics always agree (`lalala.strat_results`).
   and a run refuses to fill through them.
 - **BTC only**; the entry rule lives in its own tile inside a run.
 
+## Built so far
+
+- **Left tile** — the playback: candles rolling past a playhead with the
+  entries and exits marked, and live figures above it (PnL, equity, cash,
+  drawdown, max drawdown, max gain, streak, best win, worst loss, trades, win
+  rate, fees). Preview only: the entry rule is a placeholder and the candles
+  come from the newest year on disk, or a fixed-seed sample. See
+  `src/lalala/strat_playback.py`.
+- **Right column** — `HISTORY` (span, resolution, download), `BACKTEST VALUE`
+  (the parameter gallery), `RESULTS` (a sample equity curve and metrics).
+
 ## Ideas, in the order I would build them
 
 ### 1. Equity curve — done as an example
 - [x] Strategy equity, with **buy & hold** faint behind it.
 - [x] Mark where the worst drawdown bottomed.
 - [ ] Replace the sample with a real run.
+- [ ] Feed the curve from the playback's walk, so the left and right tiles
+      tell the same story.
 
 ### 2. Metrics row — done as an example
 - [x] Return, buy & hold, edge, max drawdown, Sharpe, trades, win rate,
