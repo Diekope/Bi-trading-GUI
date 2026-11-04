@@ -154,9 +154,11 @@ up/down window that is open right now.
   Above-target reads green, below reads red.
 - **Return** — what the selected outcome pays if it wins: `RETURN` is the
   profit at its ask, `PER $100` the cash back on a $100 stake. A winning binary
-  share always settles at $1.00, so a 64-cent buy returns $1.56, or +56%. Each
-  tile also carries its own multiple when the column is wide enough to fit it
-  without clipping the quotes.
+  share always settles at $1.00, so a 64-cent buy returns $1.56, or +56%. The
+  price comes from the live book (its mid when the book is one-sided), never
+  from Gamma's listing snapshot, which drifts late in a window. Each tile also
+  carries its own multiple when the column is wide enough to fit it without
+  clipping the quotes.
 - **BTC chart** — a rolling fifteen-minute view of the underlying, with the
   current window's target as a dashed line and the gap shaded green above / red
   below. A rollover does not reset the line: the previous windows scroll left
@@ -223,7 +225,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             180 tests: parsing/search/aliases, slug math, candle + book
+tests/             181 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```

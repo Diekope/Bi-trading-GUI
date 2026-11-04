@@ -1004,21 +1004,27 @@ class PolymarketPanel(Card):
         self._refresh_earning()
 
     def _refresh_earning(self) -> None:
-        """What the selected outcome pays, at the ask you could actually pay.
+        """What the selected outcome pays, at the price you could actually pay.
 
-        A winning binary share is worth $1.00, so the ask alone fixes both the
-        multiple and the profit: 64 cents returns $1.56, or +56%.
+        A winning binary share is worth $1.00, so the price alone fixes both
+        the multiple and the profit: 64 cents returns $1.56, or +56%.
+
+        The live book comes first. Gamma's best ask is a snapshot from when the
+        market was listed and can be tens of cents away late in the window; a
+        one-sided book falls back to the live mid, and only a market with no
+        book at all uses Gamma's quote.
         """
         if self.market is None or self._selected >= len(self.market.outcomes):
             return
         outcome = self.market.outcomes[self._selected]
+        tile = self.up_tile if self._selected == 0 else self.down_tile
         book = self.books.get(outcome.token_id)
-        cost = book.best_ask if book is not None else None
-        if cost is None:
+        if book is not None and book.best_ask is not None:
+            cost = book.best_ask
+        elif tile.price is not None:
+            cost = tile.price
+        else:
             cost = outcome.best_ask
-        if cost is None:
-            tile = self.up_tile if self._selected == 0 else self.down_tile
-            cost = tile.ask
         earning = binary_return(cost)
         if earning is None:
             self._set_text(self.return_value, "—")
@@ -1035,7 +1041,6 @@ class PolymarketPanel(Card):
         self.payout_value.setToolTip(
             f"Cash back per $100 staked on {outcome.name}."
         )
-
     @staticmethod
     def _window_text(market: PolymarketMarket) -> str:
         if market.start_ms <= 0 or market.end_ms <= 0:

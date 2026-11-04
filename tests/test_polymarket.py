@@ -837,6 +837,19 @@ def test_the_selected_outcome_shows_what_it_earns(window: MainWindow) -> None:
     assert panel.payout_value.text() == "$333"
 
 
+def test_a_stale_gamma_ask_does_not_price_the_return(window: MainWindow) -> None:
+    """Gamma's snapshot can be far from the live book late in the window."""
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())  # Gamma says the up ask is 51c
+    panel.apply_book(parse_book(book_payload(UP_TOKEN, asks=())))
+
+    # The book bids 66c and offers nothing, so the live mid is the estimate,
+    # not the 51c Gamma recorded when the market opened.
+    assert panel.up_tile.price == pytest.approx(0.66)
+    assert panel.return_value.text() == "+52%"
+    assert panel.payout_value.text() == "$152"
+
+
 def test_the_delayed_tip_is_interpolated_between_samples(
     window: MainWindow,
 ) -> None:
