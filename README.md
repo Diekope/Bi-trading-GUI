@@ -152,16 +152,22 @@ up/down window that is open right now.
   the best eight levels on each side), the window-open **target**, the live
   Hyperliquid BTC perp mid, and the signed percent from the target to it.
   Above-target reads green, below reads red.
-- **BTC chart** — a rolling five-minute view of the underlying, with the
+- **Return** — what the selected outcome pays if it wins: `RETURN` is the
+  profit at its ask, `PER $100` the cash back on a $100 stake. A winning binary
+  share always settles at $1.00, so a 64-cent buy returns $1.56, or +56%. Each
+  tile also carries its own multiple when the column is wide enough to fit it
+  without clipping the quotes.
+- **BTC chart** — a rolling fifteen-minute view of the underlying, with the
   current window's target as a dashed line and the gap shaded green above / red
   below. A rollover does not reset the line: the previous windows scroll left
   while the new target segment grows from the right edge. Five-minute
   boundaries get a tick and a time label, not a full-height rule, so the line
-  stays one unbroken curve. The view ends ~1s behind live — more than the
-  250ms sample interval — so a fresh sample always lands ahead of the cursor.
-  The tip is interpolated between stored samples, then eased, so it glides
-  sideways into place instead of snapping vertically on every tick. The
-  y-range eases too. An hour of samples is retained.
+  stays one unbroken curve. The view ends ~1.5s behind live — more than the
+  one-second sample interval — so a fresh sample always lands ahead of the
+  cursor. The tip is interpolated between stored samples, then eased, and each
+  sample is eased from the one before it, so a one-tick spike reads as a bend
+  instead of a needle. The polyline then runs through a quadratic curve at
+  every corner. The y-range eases too. An hour of samples is retained.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
@@ -217,7 +223,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             175 tests: parsing/search/aliases, slug math, candle + book
+tests/             180 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```

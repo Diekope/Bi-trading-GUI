@@ -460,6 +460,17 @@ def format_shares(size: float | None) -> str:
     return text or "0"
 
 
+def binary_return(price: float | None) -> tuple[float, float] | None:
+    """Payout multiple and profit percent of a winning share bought at `price`.
+
+    A binary share settles at $1.00, so a 64-cent buy returns 1.56x: the stake
+    back plus 56%. Returns None when there is no tradable price.
+    """
+    if price is None or not 0.0 < price < 1.0:
+        return None
+    return 1.0 / price, (1.0 - price) / price * 100.0
+
+
 def format_delta(percent: float | None) -> str:
     """A signed percent, without a '-0.00%' that reads like a bug."""
     if percent is None:

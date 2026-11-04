@@ -36,6 +36,7 @@ from lalala.polymarket_data import (
     PricePoint,
     TokenBook,
     Trade,
+    binary_return,
     format_cents,
     format_compact,
     format_countdown,
@@ -55,18 +56,38 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
-SAMPLE_EVERY_MS = 250      # four points a second: the edge grows in small steps
-MAX_POINTS = 14_400        # one hour of samples; the line keeps rolling past windows
+SAMPLE_EVERY_MS = 1_000    # one history point per second; the wire is faster
+MAX_POINTS = 3_600         # one hour of samples; the line keeps rolling past windows
+SMOOTH = 0.30              # per sample; a one-tick spike becomes a bend, not a needle
 
-# The chart is a rolling window, not one market window. Five minutes matches the
-# market's own horizon and gives the live edge roughly two pixels a second, so
-# it advances sideways instead of stretching into a vertical spike.
-VIEW_MS = 5 * 60_000
+# The chart is a rolling window, not one market window. Fifteen minutes shows
+# three Polymarket windows and still gives a five-minute move room to breathe.
+VIEW_MS = 15 * 60_000
 WINDOW_MARK_MS = 300_000
 FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
-LAG_MS = 1_000             # > one sample: the tip always has a future keyframe
+LAG_MS = 1_500             # > one sample: the tip always has a future keyframe
 EASE_TIP = 0.18            # per frame, toward the interpolated tip
 EASE_RANGE = 0.08          # per frame, toward the natural y-range
+
+
+def smooth_path(vertices: list[tuple[float, float]]) -> QPainterPath:
+    """A path whose corners are rounded instead of meeting at hard angles.
+
+    Each interior vertex becomes the control point of a quadratic that runs
+    between the midpoints of its two segments, so the curve brushes past every
+    sample and turns a one-sample spike into a bend. It cannot overshoot: every
+    control point is a real data point.
+    """
+    path = QPainterPath()
+    if not vertices:
+        return path
+    path.moveTo(*vertices[0])
+    for index in range(1, len(vertices) - 1):
+        x, y = vertices[index]
+        next_x, next_y = vertices[index + 1]
+        path.quadTo(x, y, (x + next_x) * 0.5, (y + next_y) * 0.5)
+    path.lineTo(*vertices[-1])
+    return path
 
 
 def _alpha(color: str, alpha: int) -> QColor:
@@ -156,16 +177,32 @@ class OutcomeTile(QWidget):
 
         painter.setFont(mono_font(8))
         painter.setPen(QColor(TEXT_FAINT))
+        cost = self.ask if self.ask is not None else self.price
+        earning = binary_return(cost)
+        room = 46.0 if earning is not None and rect.width() >= 168 else 0.0
         quote = (
             f"bid {format_cents(self.bid)}  ·  ask {format_cents(self.ask)}"
             if self.bid is not None or self.ask is not None
             else "waiting for quotes"
         )
         painter.drawText(
-            QRectF(pad, 39, rect.width() - pad * 2, 14),
+            QRectF(pad, 39, rect.width() - pad * 2 - room, 14),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             quote,
         )
+
+        # What a winning share pays, from the price you would actually pay.
+        # Only on a tile wide enough to carry it without clipping the quotes;
+        # the selected outcome always has the numbers in the stats rows.
+        if room:
+            multiple, _ = earning
+            painter.setFont(mono_font(8, bold=True))
+            painter.setPen(QColor(self.accent))
+            painter.drawText(
+                QRectF(rect.width() - pad - room, 39, room, 14),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                f"×{multiple:.2f}",
+            )
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -174,16 +211,16 @@ class OutcomeTile(QWidget):
 
 
 class PriceChart(QWidget):
-    """BTC over a rolling five minutes, against the window's target.
+    """BTC over a rolling fifteen minutes, against the window's target.
 
     The binary market's question is whether BTC ends above where the window
     started, so the useful line is the underlying price, not the implied
-    probability. The x-axis is a rolling five minutes that ends a fraction
+    probability. The x-axis is a rolling fifteen minutes that ends a fraction
     of a second behind live, so a rollover never clears the line and the newest
     sample never snaps: old windows scroll left, the new target segment grows
     from the right edge, and the tip is interpolated along the last segment.
-    The y-range eases too, so the chart glides instead of stepping once per
-    sample.
+    The curve is smoothed through the samples, and the y-range eases, so the
+    chart glides instead of stepping once per sample.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -368,6 +405,8 @@ class PriceChart(QWidget):
         )
 
         # The line: the samples inside the view, plus the eased live tip.
+        # Rounded between samples so a one-tick spike bends instead of forming
+        # the hard vertical corner that made the edge look like it jumped.
         series: list[tuple[int, float]] = [
             (point.timestamp_ms, point.price) for point in points
         ]
@@ -377,12 +416,9 @@ class PriceChart(QWidget):
         above = target is not None and reference >= target
         color = (UP if above else DOWN) if target is not None else ACCENT
 
-        path = QPainterPath()
-        for stamp, price in series:
-            if path.elementCount() == 0:
-                path.moveTo(x_of(stamp), y_of(price))
-            else:
-                path.lineTo(x_of(stamp), y_of(price))
+        path = smooth_path(
+            [(x_of(stamp), y_of(price)) for stamp, price in series]
+        )
 
         # The target and the shaded gap belong to the current window only:
         # older windows had a different opening price, so shading them against
@@ -395,10 +431,11 @@ class PriceChart(QWidget):
                 if stamp >= market.start_ms
             ]
             if window:
-                fill = QPainterPath()
-                fill.moveTo(x_of(window[0][0]), y_of(window[0][1]))
-                for stamp, price in window[1:]:
-                    fill.lineTo(x_of(stamp), y_of(price))
+                fill = QPainterPath(
+                    smooth_path(
+                        [(x_of(stamp), y_of(price)) for stamp, price in window]
+                    )
+                )
                 fill.lineTo(x_of(window[-1][0]), target_y)
                 fill.lineTo(x_of(window[0][0]), target_y)
                 fill.closeSubpath()
@@ -713,6 +750,14 @@ class PolymarketPanel(Card):
         self.target_value = self._stat(stats, 1, 1, "TARGET")
         self.btc_value = self._stat(stats, 2, 0, "BTC")
         self.move_value = self._stat(stats, 2, 1, "Δ OPEN")
+        self.return_value = self._stat(stats, 3, 0, "RETURN")
+        self.payout_value = self._stat(stats, 3, 1, "PER $100")
+        self.return_value.setToolTip(
+            "Profit if the selected outcome wins, bought at its ask."
+        )
+        self.payout_value.setToolTip(
+            "Cash returned per $100 staked on the selected outcome."
+        )
         self.target_value.setToolTip(
             "Window-open BTC price the outcome is measured against. "
             "Polymarket resolves on Chainlink's BTC/USD TWAP; this reference "
@@ -806,6 +851,7 @@ class PolymarketPanel(Card):
         selected = self._selected_book()
         if selected is not None:
             self._set_text(self.spread_value, format_cents(selected.spread))
+        self._refresh_earning()
         # Depth near the touch: the whole book is dominated by 1¢ lottery
         # tickets far from the price, which says little about executable size.
         self._set_text(
@@ -842,14 +888,25 @@ class PolymarketPanel(Card):
             self._update_delta(self._btc)
 
     def _sample_price(self, price: float) -> None:
-        """Record BTC once a second for the reference chart."""
+        """Record BTC once a second for the reference chart.
+
+        The value is eased from the previous sample, so a single tick that
+        jumps and comes back reads as a bend in the line instead of a needle.
+        Only consecutive samples are eased: after a gap the first sample is
+        taken as-is, or the line would drag toward a stale backfill.
+        """
         if self.market is None:
             return
         now_ms = int(time.time() * 1000)
         if now_ms - self._last_sample < SAMPLE_EVERY_MS:
             return
         self._last_sample = now_ms
-        self.points.append(PricePoint(now_ms, float(price)))
+        value = float(price)
+        if self.points and now_ms - self.points[-1].timestamp_ms <= (
+            SAMPLE_EVERY_MS * 2
+        ):
+            value = self.points[-1].price + (value - self.points[-1].price) * SMOOTH
+        self.points.append(PricePoint(now_ms, value))
         del self.points[:-MAX_POINTS]
         self.price_chart.set_data(self.points, self.target)
 
@@ -944,6 +1001,40 @@ class PolymarketPanel(Card):
     def _refresh_selection(self) -> None:
         self.up_tile.set_selected(self._selected == 0)
         self.down_tile.set_selected(self._selected == 1)
+        self._refresh_earning()
+
+    def _refresh_earning(self) -> None:
+        """What the selected outcome pays, at the ask you could actually pay.
+
+        A winning binary share is worth $1.00, so the ask alone fixes both the
+        multiple and the profit: 64 cents returns $1.56, or +56%.
+        """
+        if self.market is None or self._selected >= len(self.market.outcomes):
+            return
+        outcome = self.market.outcomes[self._selected]
+        book = self.books.get(outcome.token_id)
+        cost = book.best_ask if book is not None else None
+        if cost is None:
+            cost = outcome.best_ask
+        if cost is None:
+            tile = self.up_tile if self._selected == 0 else self.down_tile
+            cost = tile.ask
+        earning = binary_return(cost)
+        if earning is None:
+            self._set_text(self.return_value, "—")
+            self._set_text(self.payout_value, "—")
+            return
+        multiple, percent = earning
+        self._set_text(self.return_value, f"+{percent:,.0f}%")
+        self._set_text(self.payout_value, f"${multiple * 100:,.0f}")
+        self.return_value.setStyleSheet(f"color: {UP}; background: transparent;")
+        self.payout_value.setStyleSheet(f"color: {TEXT}; background: transparent;")
+        self.return_value.setToolTip(
+            f"{outcome.name} at {format_cents(cost)}: profit if it wins."
+        )
+        self.payout_value.setToolTip(
+            f"Cash back per $100 staked on {outcome.name}."
+        )
 
     @staticmethod
     def _window_text(market: PolymarketMarket) -> str:

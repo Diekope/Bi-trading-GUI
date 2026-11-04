@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+from PySide6.QtGui import QPainterPath  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala import polymarket_feed  # noqa: E402
@@ -28,6 +29,7 @@ from lalala.polymarket_data import (  # noqa: E402
     TokenBook,
     Trade,
     apply_price_change,
+    binary_return,
     format_cents,
     format_compact,
     format_countdown,
@@ -42,7 +44,13 @@ from lalala.polymarket_data import (  # noqa: E402
     window_price_points,
 )
 from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
-from lalala.polymarket_panel import EASE_RANGE, SAMPLE_EVERY_MS  # noqa: E402
+from lalala.polymarket_panel import (  # noqa: E402
+    EASE_RANGE,
+    SAMPLE_EVERY_MS,
+    SMOOTH,
+    VIEW_MS,
+    smooth_path,
+)
 from lalala.theme import apply_dark_theme  # noqa: E402
 
 TOKENS = (
@@ -696,9 +704,26 @@ def test_the_price_chart_samples_at_most_once_per_interval(
     panel._last_sample -= SAMPLE_EVERY_MS
     panel.set_btc(100_030.0)
     assert len(panel.points) == 2
-    assert panel.points[-1].price == pytest.approx(100_030.0)
+    # Consecutive samples are eased, so a lone tick is a bend and not a needle.
+    assert panel.points[-1].price == pytest.approx(
+        100_010.0 + (100_030.0 - 100_010.0) * SMOOTH
+    )
     assert panel.price_chart.points is panel.points
     assert panel.price_chart.target == pytest.approx(100_000.0)
+
+
+def test_a_sample_after_a_gap_is_not_dragged_toward_stale_data(
+    window: MainWindow,
+) -> None:
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+    panel.points = [PricePoint(0, 90_000.0)]
+    panel._last_sample = 0
+
+    panel.set_btc(100_000.0)
+
+    # A minute-old point must not pull the new value down; the line would lie.
+    assert panel.points[-1].price == pytest.approx(100_000.0)
 
 
 def test_window_prices_backfill_and_keep_the_line_sorted(
@@ -763,6 +788,53 @@ def test_the_price_range_eases_toward_new_extremes(
     lo, hi = chart._range([100_000.0, 100_050.0], 100_000.0)
     assert 78_000.0 < lo < 99_975.0
     assert 78_300.0 < hi < 100_075.0
+
+
+def test_the_chart_keeps_the_fifteen_minute_window() -> None:
+    # Restored on request: five minutes cut the context, and the rounded curve
+    # now carries the smoothness instead of the shorter span.
+    assert VIEW_MS == 15 * 60_000
+
+
+def test_the_curve_rounds_a_sharp_corner() -> None:
+    path = smooth_path([(0.0, 10.0), (5.0, 0.0), (10.0, 10.0)])
+
+    kinds = [path.elementAt(index).type for index in range(path.elementCount())]
+    # Not two straight segments meeting at a point: at least one curve.
+    assert QPainterPath.ElementType.CurveToElement in kinds
+    last = path.elementAt(path.elementCount() - 1)
+    assert last.x == pytest.approx(10.0)
+    assert last.y == pytest.approx(10.0)
+
+
+def test_a_winning_share_is_worth_a_dollar() -> None:
+    multiple, percent = binary_return(0.64)
+
+    assert multiple == pytest.approx(1.5625)
+    assert percent == pytest.approx(56.25)
+    assert binary_return(None) is None
+    assert binary_return(0.0) is None
+    assert binary_return(1.0) is None
+
+
+def test_the_selected_outcome_shows_what_it_earns(window: MainWindow) -> None:
+    panel = window.polymarket
+    panel.set_market(market_from_gamma())
+    panel.apply_book(parse_book(book_payload(UP_TOKEN)))
+    panel.apply_book(
+        parse_book(book_payload(DOWN_TOKEN, asks=((0.30, 80),)))
+    )
+
+    panel._select_token(0)
+
+    # Buying UP at its 68-cent ask returns $1.47 for every $100 staked.
+    assert panel.return_value.text() == "+47%"
+    assert panel.payout_value.text() == "$147"
+
+    # Selecting the other side prices that outcome instead.
+    panel._select_token(1)
+    assert panel.return_value.text() == "+233%"
+    assert panel.payout_value.text() == "$333"
 
 
 def test_the_delayed_tip_is_interpolated_between_samples(
