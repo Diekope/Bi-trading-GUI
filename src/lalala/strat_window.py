@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from lalala.panels import Card
+from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
 
 
@@ -41,7 +42,21 @@ class StratWindow(QMainWindow):
         self.splitter.setHandleWidth(CARD_GAP)
 
         self.left = Card(self.splitter)
-        self.right = Card(self.splitter)
+
+        # The right side stacks two tiles: the data controls on top, a second
+        # tile underneath for whatever it feeds.
+        self.right = QSplitter(Qt.Orientation.Vertical, self.splitter)
+        self.right.setObjectName("stratColumn")
+        self.right.setChildrenCollapsible(False)
+        self.right.setHandleWidth(CARD_GAP)
+        self.download = DownloadTile(self.right)
+        self.blank = Card(self.right)
+        self.right.addWidget(self.download)
+        self.right.addWidget(self.blank)
+        self.right.setStretchFactor(0, 0)
+        self.right.setStretchFactor(1, 1)
+        self.right.setSizes([220, 400])
+
         self.splitter.addWidget(self.left)
         self.splitter.addWidget(self.right)
         self.splitter.setStretchFactor(0, 1)

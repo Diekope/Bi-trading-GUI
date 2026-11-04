@@ -62,12 +62,14 @@ QStatusBar::item {{ border: none; }}
     background-color: transparent;
     color: {TEXT_MUTED};
 }}
-QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter {{
+QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter,
+QSplitter#stratColumn {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
 QSplitter#tileSplitter::handle:vertical,
-QSplitter#stratSplitter::handle:horizontal {{
+QSplitter#stratSplitter::handle:horizontal,
+QSplitter#stratColumn::handle:vertical {{
     background-color: transparent;
 }}
 
@@ -82,6 +84,68 @@ QLineEdit {{
 }}
 QLineEdit:focus {{
     border-color: {ACCENT};
+}}
+
+QComboBox {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: {TEXT};
+    min-width: 54px;
+}}
+QComboBox:hover {{
+    border-color: {ACCENT};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 14px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    color: {TEXT};
+    selection-background-color: {ACCENT};
+    outline: none;
+}}
+
+/* -- actions --------------------------------------------------------- */
+QPushButton#actionButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    padding: 3px 16px;
+}}
+QPushButton#actionButton:hover {{
+    border-color: {ACCENT};
+}}
+QPushButton#actionButton:disabled {{
+    background-color: #121216;
+    border-color: #1c1c20;
+    color: #3a3a40;
+}}
+
+QPushButton#startButton {{
+    background-color: #10202a;
+    border: 1px solid #1d3a4a;
+    border-radius: 4px;
+    color: {ACCENT};
+    padding: 3px 16px;
+}}
+QPushButton#startButton:hover {{
+    border-color: {ACCENT};
+}}
+
+#venuePanel QLabel#tileTitle {{
+    color: {TEXT};
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+#venuePanel QLabel#spanArrow {{
+    color: {TEXT_FAINT};
+    font-size: 11px;
 }}
 
 /* Popup is a top-level window, so it must be styled at app level. */
