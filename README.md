@@ -242,6 +242,7 @@ src/lalala/
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
   strat_params.py  the backtest tile: a gallery of run inputs
+  strat_results.py the results tile: sample equity curve, drawdown, metrics
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
@@ -258,7 +259,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             236 tests: parsing/search/aliases, slug math, candle + book
+tests/             241 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the chart/backtest settings,

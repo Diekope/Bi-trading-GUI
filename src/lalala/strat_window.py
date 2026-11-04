@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from lalala.panels import Card
 from lalala.strat_params import ParamsTile
+from lalala.strat_results import ResultsTile
 from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
 
@@ -58,10 +59,10 @@ class StratWindow(QMainWindow):
         self.right.setHandleWidth(CARD_GAP)
         self.download = DownloadTile(self.right)
         self.params = ParamsTile(self.right)
-        self.blank = Card(self.right)
+        self.results = ResultsTile(self.right)
         self.right.addWidget(self.download)
         self.right.addWidget(self.params)
-        self.right.addWidget(self.blank)
+        self.right.addWidget(self.results)
         # The controls keep their content height; the results tile takes the
         # rest, so neither upper tile wastes space on nothing.
         self.right.setStretchFactor(0, 0)

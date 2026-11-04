@@ -86,10 +86,10 @@ def test_the_right_side_stacks_three_tiles(app: QApplication, window) -> None:
     assert column.count() == 3
     assert column.widget(0) is window.download
     assert column.widget(1) is window.params
-    assert column.widget(2) is window.blank
+    assert column.widget(2) is window.results
     assert isinstance(window.download, Card)
     assert isinstance(window.params, Card)
-    assert window.blank.findChildren(Card) == []
+    assert isinstance(window.results, Card)
 
 
 def test_the_upper_tiles_fit_their_content(app: QApplication, window) -> None:
@@ -98,7 +98,7 @@ def test_the_upper_tiles_fit_their_content(app: QApplication, window) -> None:
 
     # The controls keep only the height their content needs…
     assert params == pytest.approx(window.params.sizeHint().height(), abs=8)
-    # …and the empty results tile takes everything left over.
+    # …and the results tile takes everything left over.
     assert results > params
 
 

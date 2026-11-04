@@ -198,6 +198,19 @@ QPushButton#startButton:hover {{
 #venuePanel QCheckBox#paramToggle:hover {{
     color: {TEXT};
 }}
+/* Metric values in the results tile, coloured by what they mean. */
+#venuePanel QLabel#metricValue_accent {{
+    color: {ACCENT};
+}}
+#venuePanel QLabel#metricValue_down {{
+    color: {DOWN};
+}}
+#venuePanel QLabel#metricValue_muted {{
+    color: {TEXT_MUTED};
+}}
+#venuePanel QLabel#metricValue_text {{
+    color: {TEXT};
+}}
 /* A visible box: the default indicator nearly disappears on this background. */
 #venuePanel QCheckBox#paramToggle::indicator {{
     width: 12px;
