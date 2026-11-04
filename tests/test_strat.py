@@ -92,13 +92,14 @@ def test_the_right_side_stacks_three_tiles(app: QApplication, window) -> None:
     assert window.blank.findChildren(Card) == []
 
 
-def test_the_parameters_and_results_tiles_share_the_space(
-    app: QApplication, window
-) -> None:
+def test_the_upper_tiles_fit_their_content(app: QApplication, window) -> None:
     app.processEvents()
     _, params, results = window.right.sizes()
 
-    assert abs(params - results) <= 1
+    # The controls keep only the height their content needs…
+    assert params == pytest.approx(window.params.sizeHint().height(), abs=8)
+    # …and the empty results tile takes everything left over.
+    assert results > params
 
 
 def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:

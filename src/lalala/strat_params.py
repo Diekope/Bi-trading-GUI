@@ -135,13 +135,12 @@ class ParamsTile(Card):
         self.body.addWidget(gallery)
 
         hint = QLabel(
-            "Cash above the cap is meant for the cold wallet. BTC only."
+            "Most cash the run may trade with; anything above it is set "
+            "aside. BTC only."
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         self.body.addWidget(hint)
-
-        self.body.addStretch(1)
 
         self._apply_sizing(defaults.sizing)
         self._apply_dynamic(defaults.dynamic_tp)

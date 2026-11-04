@@ -62,13 +62,15 @@ class StratWindow(QMainWindow):
         self.right.addWidget(self.download)
         self.right.addWidget(self.params)
         self.right.addWidget(self.blank)
-        # The controls tile keeps its content height; the rest goes below.
+        # The controls keep their content height; the results tile takes the
+        # rest, so neither upper tile wastes space on nothing.
         self.right.setStretchFactor(0, 0)
-        self.right.setStretchFactor(1, 1)
+        self.right.setStretchFactor(1, 0)
         self.right.setStretchFactor(2, 1)
-        self.download.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
-        )
+        for tile in (self.download, self.params):
+            tile.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+            )
 
         self.splitter.addWidget(self.left)
         self.splitter.addWidget(self.right)
@@ -81,11 +83,12 @@ class StratWindow(QMainWindow):
         self._balanced = False
 
     def showEvent(self, event) -> None:  # noqa: N802
-        """Give the two lower tiles the same height once the real size is known."""
+        """Fit the two upper tiles to their content once the size is known."""
         super().showEvent(event)
         if self._balanced:
             return
         self._balanced = True
         top = self.download.sizeHint().height()
-        rest = max(2, self.right.height() - top - 2 * CARD_GAP)
-        self.right.setSizes([top, rest // 2, rest - rest // 2])
+        middle = self.params.sizeHint().height()
+        rest = max(2, self.right.height() - top - middle - 2 * CARD_GAP)
+        self.right.setSizes([top, middle, rest])

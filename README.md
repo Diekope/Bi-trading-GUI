@@ -294,7 +294,7 @@ to a line, wrapping with the tile's width — none of them wired yet:
 | `Sizing` | how `Position` is read: `Balance %`, `Fixed $` or `Risk %` |
 | `Position` | the value itself; its caption and its bounds follow `Sizing` |
 | `TP %` / `SL %` | take profit and stop loss, percent from entry |
-| `Max cash $` | most that may sit in cash; the rest is for a cold wallet |
+| `Max cash $` | most cash the run may trade with; anything above it is set aside |
 | `Dynamic TP` | switch: let the take profit trail |
 | `Reverse % to close` | pull-back from the peak that closes a trailing TP; only live while the switch is on |
 
@@ -303,6 +303,13 @@ Only BTC is in scope. The starting values live in the same
 and are clamped on the way in — an unknown `sizing` mode falls back to
 `balance`. Numeric fields take a dot as the decimal mark whatever the system
 locale, and are bounded so a percentage cannot exceed the whole book.
+
+Both the history tile and this one keep only the height their content needs;
+the empty results tile below them takes the rest of the column.
+
+Decided and hard-coded for the run (no switches in the UI): fees and slippage
+are fixed, one position is held at a time, and a trade is refused across a
+data gap rather than filled through it. The entry rule is a separate tile.
 ```
 
 ## Window layout

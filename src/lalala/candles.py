@@ -5,6 +5,10 @@ resolution is the only one worth keeping, because anything coarser can be
 compacted from it later. Everything here is pure — no Qt, no network — so the
 coverage rules can be tested against a temp directory.
 
+The files carry real venue gaps (Binance was down for hours on 2017-09-06,
+and briefly twice in December). They are left as they are: a run refuses to
+trade across a gap rather than inventing the missing minutes.
+
     data/candles/BTC-2017-1m.csv
     timestamp,open,high,low,close,volume
 """
