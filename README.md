@@ -291,19 +291,19 @@ a good year has.
 Under the parameters, three curves are drawn live as the loop walks:
 **strategy** (amber), **random buy** (indigo) and **buy & hold** (grey dashed),
 each revealed a bar at a time up to the walk's position, with its running
-total in the header. The scale is fixed when the run starts, so the picture
-never rescales as it fills.
+total in a legend along the bottom. The scale is fixed when the run starts, so
+the picture never rescales as it fills.
 
 Random buy is the benchmark that matters: it opens on a coin flip with the
 same exits, sizing and fees, so an entry rule that cannot beat it has no edge.
 Buy and hold puts the whole book in at the first bar and never sells. Note
-that the two strategies deploy only a fraction of the book per trade, while
+that the two strategies deploy only a fraction of what the cap allows, while
 buy and hold is fully exposed — so its swing is much larger, and that is
 honest rather than a plotting artefact.
 
-`Sizing` percentages are read as a share of the **whole book** (held down to
-what `Max cash $` allows), not of the tradable cash: a 10% position on a
-$10,000 book risks $1,000 per trade.
+`Sizing` percentages are a share of what `Max cash $` allows the run to trade
+with, not of the whole book: with a $2,000 cap, a 10% position is $200 a
+trade.
 
 ## Backtest tile
 

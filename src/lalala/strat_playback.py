@@ -346,14 +346,11 @@ class Playback:
         return candle.close > previous.close
 
     def _budget(self) -> float:
-        """How much to put on: a share of the book, capped by the cash rules."""
+        """How much to put on: a share of what the cap allows us to trade with."""
         deployable = min(self.cash, self.max_cash)
         if self.sizing == "fixed":
             return max(0.0, min(self.position, deployable))
-        # A percentage is a share of the whole book, not of the tradable cash,
-        # then held down to what may actually be deployed.
-        book = max(0.0, self.equity)
-        return max(0.0, min(book * self.position / 100.0, deployable))
+        return deployable * max(0.0, self.position) / 100.0
 
     def _enter(self, candle: Candle) -> None:
         notional = self._budget()

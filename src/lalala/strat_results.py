@@ -140,7 +140,19 @@ class ResultsTile(Card):
         title.setObjectName("tileTitle")
         header.addWidget(title)
         header.addStretch(1)
+        self.body.addLayout(header)
 
+        self.note = QLabel("no run yet")
+        self.note.setObjectName("hintLabel")
+        self.body.addWidget(self.note)
+
+        self.curve = LiveCurve()
+        self.body.addWidget(self.curve, 1)
+
+        # The legend reads along the bottom, under the lines it names.
+        legend = QHBoxLayout()
+        legend.setContentsMargins(0, 0, 0, 0)
+        legend.setSpacing(12)
         self.legend: dict[str, QLabel] = {}
         for key, caption in (
             ("strategy", "strategy"),
@@ -150,16 +162,10 @@ class ResultsTile(Card):
             label = QLabel(caption)
             label.setObjectName(f"legend_{key}")
             label.setFont(mono_font(8, bold=True))
-            header.addWidget(label)
+            legend.addWidget(label)
             self.legend[key] = label
-        self.body.addLayout(header)
-
-        self.note = QLabel("no run yet")
-        self.note.setObjectName("hintLabel")
-        self.body.addWidget(self.note)
-
-        self.curve = LiveCurve()
-        self.body.addWidget(self.curve, 1)
+        legend.addStretch(1)
+        self.body.addLayout(legend)
 
     # -- the run -----------------------------------------------------------
 
@@ -171,8 +177,12 @@ class ResultsTile(Card):
     def clear_session(self) -> None:
         self.curve.set_session(None)
         self.note.setText("no run yet")
-        for label in self.legend.values():
-            label.setText(label.text().split(" ")[0])
+        for key, caption in (
+            ("strategy", "strategy"),
+            ("random", "random buy"),
+            ("hold", "buy & hold"),
+        ):
+            self.legend[key].setText(caption)
 
     def refresh(self) -> None:
         """The legend carries the running totals, so they move with the lines."""
