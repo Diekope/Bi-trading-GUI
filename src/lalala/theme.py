@@ -193,10 +193,25 @@ QPushButton#startButton:hover {{
 #venuePanel QCheckBox#paramToggle {{
     color: {TEXT_MUTED};
     font-size: 10px;
-    spacing: 6px;
+    spacing: 7px;
 }}
 #venuePanel QCheckBox#paramToggle:hover {{
     color: {TEXT};
+}}
+/* A visible box: the default indicator nearly disappears on this background. */
+#venuePanel QCheckBox#paramToggle::indicator {{
+    width: 12px;
+    height: 12px;
+    border: 1px solid {BORDER};
+    border-radius: 3px;
+    background-color: {PANEL_ALT};
+}}
+#venuePanel QCheckBox#paramToggle::indicator:hover {{
+    border-color: {ACCENT_DIM};
+}}
+#venuePanel QCheckBox#paramToggle::indicator:checked {{
+    background-color: {ACCENT};
+    border-color: {ACCENT};
 }}
 
 /* Popup is a top-level window, so it must be styled at app level. */

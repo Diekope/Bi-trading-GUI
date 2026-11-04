@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy  # noqa: E402
 
 from lalala import candles  # noqa: E402
 from lalala.candles import append_rows, candle_file  # noqa: E402
@@ -329,6 +329,7 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
     defaults = Settings.load().backtest
     tile = window.params
 
+    assert tile.findChild(QLabel, "tileTitle").text() == "BACKTEST VALUE"
     assert tile.params() == {
         "initial_capital": defaults.initial_capital,
         "sizing": defaults.sizing,
@@ -389,13 +390,29 @@ def test_the_fields_only_take_numbers(window) -> None:
     from PySide6.QtGui import QValidator
 
     tile = window.params
-    validator = tile.cash_field.validator()
 
-    assert validator.validate("12.5", 0)[0] == QValidator.State.Acceptable
-    # Letters never become a number, and a percentage cannot exceed
-    # the whole book, so neither is ever accepted.
-    assert validator.validate("abc", 0)[0] != QValidator.State.Acceptable
-    assert validator.validate("120", 0)[0] != QValidator.State.Acceptable
+    assert tile.cash_field.validator().validate("12.5", 0)[0] == QValidator.State.Acceptable
+    # Letters never become a number.
+    assert tile.cash_field.validator().validate("abc", 0)[0] != QValidator.State.Acceptable
+    # A percentage cannot exceed the whole book; cash is an amount, so it can.
+    assert tile.sl_field.validator().validate("120", 0)[0] != QValidator.State.Acceptable
+    assert tile.cash_field.validator().validate("120", 0)[0] == QValidator.State.Acceptable
+
+
+def test_the_dynamic_switch_is_clickable_anywhere_in_its_cell(window) -> None:
+    tile = window.params
+    checkbox = tile.dynamic_tp
+
+    # A wide hit area, so the caption above can name it and the box is obvious.
+    assert checkbox.text() == "Enabled"
+    assert checkbox.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+
+    # Clicking the middle of the cell toggles it, not just the little box.
+    from PySide6.QtTest import QTest
+
+    QTest.mouseClick(checkbox, Qt.MouseButton.LeftButton, pos=checkbox.rect().center())
+    assert checkbox.isChecked() is True
+    assert tile.reverse_element.isEnabled() is True
 
 
 def test_the_reverse_field_follows_the_dynamic_switch(window) -> None:

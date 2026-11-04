@@ -150,7 +150,7 @@ def test_backtest_values_are_clamped_and_modes_are_checked(tmp_path) -> None:
                 "backtest": {
                     "initial_capital": -5,
                     "sl": 900,
-                    "cash": 400,
+                    "cash": -400,
                     "sizing": "moon",
                     "dyn_tp_reverse": 500,
                 }
@@ -162,8 +162,10 @@ def test_backtest_values_are_clamped_and_modes_are_checked(tmp_path) -> None:
 
     assert backtest.initial_capital == 0.0
     assert backtest.sl == pytest.approx(100.0)
-    assert backtest.cash == pytest.approx(100.0)
+    assert backtest.cash == 0.0
     assert backtest.dyn_tp_reverse == pytest.approx(100.0)
+    # Cash is a flat amount, not a share: a large one is allowed.
+    assert BacktestDefaults().cash == pytest.approx(2_000.0)
     # An unknown mode is not a mode.
     assert backtest.sizing == BacktestDefaults().sizing
 

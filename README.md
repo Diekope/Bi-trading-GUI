@@ -258,7 +258,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             235 tests: parsing/search/aliases, slug math, candle + book
+tests/             236 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the chart/backtest settings,
@@ -294,7 +294,7 @@ to a line, wrapping with the tile's width — none of them wired yet:
 | `Sizing` | how `Position` is read: `Balance %`, `Fixed $` or `Risk %` |
 | `Position` | the value itself; its caption and its bounds follow `Sizing` |
 | `TP %` / `SL %` | take profit and stop loss, percent from entry |
-| `Max cash %` | cap on the share held in cash; the rest is for a cold wallet |
+| `Max cash $` | most that may sit in cash; the rest is for a cold wallet |
 | `Dynamic TP` | switch: let the take profit trail |
 | `Reverse % to close` | pull-back from the peak that closes a trailing TP; only live while the switch is on |
 

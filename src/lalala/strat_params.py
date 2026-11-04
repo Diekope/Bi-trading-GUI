@@ -78,7 +78,7 @@ class ParamsTile(Card):
         super().__init__(parent)
         defaults = Settings.load().backtest
 
-        title = QLabel("BACKTEST")
+        title = QLabel("BACKTEST VALUE")
         title.setObjectName("tileTitle")
         self.body.addWidget(title)
 
@@ -95,14 +95,18 @@ class ParamsTile(Card):
         self.position = self._field(defaults.position, 0.0, 100.0)
         self.tp_field = self._field(defaults.tp, 0.0, 10_000.0)
         self.sl_field = self._field(defaults.sl, 0.0, 100.0)
-        self.cash_field = self._field(defaults.cash, 0.0, 100.0)
+        self.cash_field = self._field(defaults.cash, 0.0, 1e12)
 
-        self.dynamic_tp = QCheckBox("")
+        self.dynamic_tp = QCheckBox("Enabled")
         self.dynamic_tp.setObjectName("paramToggle")
         self.dynamic_tp.setToolTip("Let the take profit trail as price runs")
         self.dynamic_tp.setCursor(Qt.CursorShape.PointingHandCursor)
         self.dynamic_tp.setChecked(defaults.dynamic_tp)
         self.dynamic_tp.setMinimumHeight(24)
+        # The whole cell is the hit area, not just the little box.
+        self.dynamic_tp.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.reverse_field = self._field(defaults.dyn_tp_reverse, 0.0, 100.0)
 
         self._elements = [
@@ -111,7 +115,7 @@ class ParamsTile(Card):
             _Element(SIZING[defaults.sizing][0], self.position),
             _Element("TP %", self.tp_field),
             _Element("SL %", self.sl_field),
-            _Element("Max cash %", self.cash_field),
+            _Element("Max cash $", self.cash_field),
             _Element("Dynamic TP", self.dynamic_tp),
             _Element("Reverse % to close", self.reverse_field),
         ]
