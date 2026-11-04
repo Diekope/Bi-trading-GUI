@@ -166,10 +166,13 @@ up/down window that is open right now.
   boundaries get a tick and a time label, not a full-height rule, so the line
   stays one unbroken curve. The view ends ~1.5s behind live — more than the
   one-second sample interval — so a fresh sample always lands ahead of the
-  cursor. The tip is interpolated between stored samples, then eased, and each
-  sample is eased from the one before it, so a one-tick spike reads as a bend
-  instead of a needle. The polyline then runs through a quadratic curve at
-  every corner. The y-range eases too. An hour of samples is retained.
+  cursor. The newest ninety seconds take a third of the plot width, so the live
+  edge advances a few pixels a second instead of crawling sub-pixel; older
+  data keeps even spacing and only boundaries clear of that slice are labelled.
+  The tip is interpolated between stored samples, then eased, and each sample
+  is eased from the one before it, so a one-tick spike reads as a bend instead
+  of a needle. The polyline then runs through a quadratic curve at every
+  corner. The y-range eases too. An hour of samples is retained.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
@@ -225,7 +228,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             181 tests: parsing/search/aliases, slug math, candle + book
+tests/             182 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```

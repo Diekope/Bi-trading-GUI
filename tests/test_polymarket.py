@@ -46,10 +46,12 @@ from lalala.polymarket_data import (  # noqa: E402
 from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
 from lalala.polymarket_panel import (  # noqa: E402
     EASE_RANGE,
+    FOCUS_MS,
     SAMPLE_EVERY_MS,
     SMOOTH,
     VIEW_MS,
     smooth_path,
+    time_to_x,
 )
 from lalala.theme import apply_dark_theme  # noqa: E402
 
@@ -794,6 +796,23 @@ def test_the_chart_keeps_the_fifteen_minute_window() -> None:
     # Restored on request: five minutes cut the context, and the rounded curve
     # now carries the smoothness instead of the shorter span.
     assert VIEW_MS == 15 * 60_000
+
+
+def test_the_live_slice_advances_faster_than_the_history() -> None:
+    start, end = 0, VIEW_MS
+    left, right = 0.0, 1_000.0
+    focus = end - FOCUS_MS
+
+    def x(stamp: int) -> float:
+        return time_to_x(stamp, start, end, left, right)
+
+    assert x(start) == pytest.approx(left)
+    assert x(end) == pytest.approx(right)
+    # Monotonic: there is no point where the line runs backwards.
+    assert x(focus - 1) < x(focus) < x(focus + 1) < x(end)
+    # One second at the edge covers several times the distance of one second
+    # in the history — that is what makes the tip read as moving forward.
+    assert x(end) - x(end - 1_000) > 2 * (x(focus - 1_000) - x(focus - 2_000))
 
 
 def test_the_curve_rounds_a_sharp_corner() -> None:

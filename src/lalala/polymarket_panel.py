@@ -62,12 +62,40 @@ SMOOTH = 0.30              # per sample; a one-tick spike becomes a bend, not a 
 
 # The chart is a rolling window, not one market window. Fifteen minutes shows
 # three Polymarket windows and still gives a five-minute move room to breathe.
+# A linear fifteen-minute axis would move the live edge under a pixel a second,
+# so the newest slice gets a wider share of the plot: the same line advances
+# fast enough to read as motion instead of stretching in place.
 VIEW_MS = 15 * 60_000
+FOCUS_MS = 90_000          # the live slice, stretched on the right
+FOCUS_SHARE = 0.34         # fraction of the plot width it occupies
 WINDOW_MARK_MS = 300_000
 FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
 LAG_MS = 1_500             # > one sample: the tip always has a future keyframe
 EASE_TIP = 0.18            # per frame, toward the interpolated tip
 EASE_RANGE = 0.08          # per frame, toward the natural y-range
+
+
+def time_to_x(
+    stamp_ms: float, start_ms: int, end_ms: int, left: float, right: float
+) -> float:
+    """Where a moment lands on the x-axis.
+
+    Linear until the live slice, then stretched into FOCUS_SHARE of the width.
+    Older data keeps even spacing; only the newest minutes are magnified, so
+    the tip travels tens of pixels a minute instead of a handful.
+    """
+    width = right - left
+    if end_ms <= start_ms or width <= 0.0:
+        return right
+    focus_start = end_ms - FOCUS_MS
+    if stamp_ms >= focus_start:
+        share = (stamp_ms - focus_start) / FOCUS_MS
+        return right - width * FOCUS_SHARE + min(1.0, share) * width * FOCUS_SHARE
+    old_span = focus_start - start_ms
+    if old_span <= 0:
+        return left
+    share = max(0.0, (stamp_ms - start_ms) / old_span)
+    return left + share * width * (1.0 - FOCUS_SHARE)
 
 
 def smooth_path(vertices: list[tuple[float, float]]) -> QPainterPath:
@@ -325,7 +353,6 @@ class PriceChart(QWidget):
         now = int(time.time() * 1000)
         end = now - LAG_MS
         start = end - VIEW_MS
-        span = float(VIEW_MS)
 
         points = [
             point
@@ -368,9 +395,7 @@ class PriceChart(QWidget):
             )
 
         def x_of(stamp_ms: int) -> float:
-            return left + min(
-                1.0, max(0.0, (stamp_ms - start) / span)
-            ) * (right - left)
+            return time_to_x(stamp_ms, start, end, left, right)
 
         def y_of(price: float) -> float:
             return bottom - (price - lo) / (hi - lo) * (bottom - top)
@@ -385,7 +410,11 @@ class PriceChart(QWidget):
             x = x_of(boundary)
             painter.setPen(QPen(QColor(BORDER), 1))
             painter.drawLine(x, bottom - 3, x, bottom)
-            if x - last_label >= 44.0 and x <= right - 44.0:
+            if (
+                end - boundary >= 2 * FOCUS_MS
+                and x - last_label >= 44.0
+                and x <= right - 44.0
+            ):
                 painter.setPen(QColor(TEXT_FAINT))
                 painter.drawText(
                     QRectF(x - 18, bottom + 1, 36, 13),
