@@ -12,9 +12,15 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala.panels import Card  # noqa: E402
-from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
+from lalala.strat_tiles import (  # noqa: E402
+    FIRST_YEAR,
+    RESOLUTIONS,
+    DownloadTile,
+    candle_file,
+    expected_rows,
+)
 from lalala.strat_window import StratWindow  # noqa: E402
-from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
+from lalala.theme import ACCENT, CANVAS, DOWN, apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -26,13 +32,23 @@ def app() -> QApplication:
 
 @pytest.fixture
 def window(app: QApplication, monkeypatch, tmp_path) -> StratWindow:
-    # No real data directory in tests.
-    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "data"))
+    # No real candle directory in tests.
+    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
     win = StratWindow()
     win.show()
     app.processEvents()
     yield win
     win.close()
+
+
+def _write_year(year: int, resolution: str, rows: int) -> None:
+    """A minimal OHLCV table with `rows` data lines."""
+    path = candle_file(year, resolution)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as handle:
+        handle.write("timestamp,open,high,low,close,volume\n")
+        for index in range(rows):
+            handle.write(f"{index},1,1,1,1,1\n")
 
 
 def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
@@ -49,15 +65,12 @@ def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
     assert image.pixelColor(gap).name() == CANVAS
 
 
-def test_the_right_side_stacks_two_tiles(
-    app: QApplication, window
-) -> None:
+def test_the_right_side_stacks_two_tiles(app: QApplication, window) -> None:
     column = window.right
     assert column.orientation() == Qt.Orientation.Vertical
     assert column.count() == 2
     assert column.widget(0) is window.download
     assert column.widget(1) is window.blank
-    # Both are cards; the lower one is still empty.
     assert isinstance(window.download, Card)
     assert window.blank.findChildren(Card) == []
 
@@ -74,43 +87,81 @@ def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:
     assert tile.span() == (FIRST_YEAR, this_year, "1m")
 
 
-def test_the_resolution_picker_is_exclusive(
-    app: QApplication, window
-) -> None:
+def test_the_resolution_picker_is_exclusive(app: QApplication, window) -> None:
     picker = window.download.resolution
 
     assert picker.current() == "1m"
-    order = [picker.group.button(i).text() for i in range(len(picker.group.buttons()))]
+    order = [
+        picker.group.button(i).text()
+        for i in range(len(picker.group.buttons()))
+    ]
     assert order == list(RESOLUTIONS)
 
     picker.group.button(2).click()
     app.processEvents()
     assert picker.current() == "1h"
-    # Exclusive: only one pill is checked at a time.
     assert sum(b.isChecked() for b in picker.group.buttons()) == 1
 
 
-def test_download_grays_out_once_the_span_is_on_disk(window) -> None:
+def test_an_empty_span_is_missing_and_flags_download(window) -> None:
     tile = window.download
 
+    missing, partial = tile.coverage()
+    assert missing == list(range(FIRST_YEAR, datetime.now().year + 1))
+    assert partial == []
+    assert tile.has_data() is False
+
+    assert tile.status.isVisible() is True
+    assert tile.status.text() == f"missing {FIRST_YEAR}–{datetime.now().year}"
+    assert DOWN in tile.status.styleSheet()
+    # Download is offered, and carries the amber "needs data" edge.
     assert tile.download_button.isEnabled() is True
+    assert tile.download_button.property("attention") is True
 
-    target = tile.has_data()
-    assert target is False
-    # Pretend the download ran: the file for that exact span now exists.
-    path = os.path.join(
-        os.environ["LALALA_DATA"], f"{tile.span_name()}.parquet"
-    )
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    open(path, "w").close()
 
+def test_a_short_year_reads_as_partial_in_amber(window) -> None:
+    tile = window.download
+    tile.start_year.setCurrentText("2017")
+    tile.end_year.setCurrentText("2017")
+    tile.resolution.group.button(2).click()  # 1h
+    _write_year(2017, "1h", 10)
     tile.refresh()
-    assert tile.has_data() is True
-    assert tile.download_button.isEnabled() is False
 
-    # A different span is still downloadable.
-    tile.start_year.setCurrentText(str(FIRST_YEAR + 1))
+    missing, partial = tile.coverage()
+    assert missing == []
+    assert partial == [2017]
+    assert tile.status.text() == "partial 2017"
+    assert ACCENT in tile.status.styleSheet()
     assert tile.download_button.isEnabled() is True
+
+
+def test_a_complete_span_grays_the_button_out(window) -> None:
+    tile = window.download
+    tile.start_year.setCurrentText("2017")
+    tile.end_year.setCurrentText("2017")
+    tile.resolution.group.button(2).click()  # 1h
+    _write_year(2017, "1h", 365 * 24)
+    tile.refresh()
+
+    assert tile.coverage() == ([], [])
+    assert tile.has_data() is True
+    assert tile.status.isVisible() is False
+    assert tile.download_button.isEnabled() is False
+    assert tile.download_button.property("attention") is False
+
+
+def test_the_current_year_is_only_expected_up_to_today(window) -> None:
+    tile = window.download
+    this_year = datetime.now(tz=timezone.utc).year
+    tile.start_year.setCurrentText(str(this_year))
+    tile.end_year.setCurrentText(str(this_year))
+    tile.resolution.group.button(2).click()  # 1h
+
+    now = datetime.now(tz=timezone.utc)
+    assert expected_rows(this_year, "1h", now) == max(1, now.timetuple().tm_yday) * 24
+    # A full past year is partial today, since this year is not over.
+    _write_year(this_year, "1h", expected_rows(this_year, "1h", now))
+    assert tile.coverage() == ([], [])
 
 
 def test_start_does_nothing_yet(app: QApplication, window) -> None:

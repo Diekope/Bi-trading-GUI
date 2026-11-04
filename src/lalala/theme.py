@@ -129,6 +129,12 @@ QPushButton#actionButton:disabled {{
     border-color: #1c1c20;
     color: #3a3a40;
 }}
+/* Incomplete span: the button keeps its amber edge until it is downloaded. */
+QPushButton#actionButton[attention="true"] {{
+    background-color: {ACCENT_BG};
+    border-color: {ACCENT_DIM};
+    color: {ACCENT};
+}}
 
 QPushButton#startButton {{
     background-color: {ACCENT_BG};
@@ -150,6 +156,9 @@ QPushButton#startButton:hover {{
 #venuePanel QLabel#spanArrow {{
     color: {TEXT_FAINT};
     font-size: 11px;
+}}
+#venuePanel QLabel#coverageLabel {{
+    font-size: 9px;
 }}
 
 /* Popup is a top-level window, so it must be styled at app level. */

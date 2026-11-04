@@ -240,7 +240,7 @@ src/lalala/
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
-  strat_tiles.py   the history tile: span picker, resolution, download/start
+  strat_tiles.py   the history tile: span picker, resolution, coverage, actions
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
   panels.py        Card chrome, MAX_TILES
   cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
@@ -255,10 +255,17 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             202 tests: parsing/search/aliases, slug math, candle + book
+tests/             205 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its history tile
+
+Downloaded history lives in `data/candles/` — one OHLCV CSV per year and
+resolution, `BTC-<year>-<resolution>.csv`, with a header row and columns
+`timestamp, open, high, low, close, volume`. The history tile reads those
+files to report which years of the selected span are missing (red) or only
+partly downloaded (amber), and gives the Download button an amber edge until
+the span is complete. The folder is kept in git, its contents are not.
 ```
 
 ## Window layout
