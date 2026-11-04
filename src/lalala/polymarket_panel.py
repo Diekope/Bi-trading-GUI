@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.panels import Card
+from lalala.settings import Settings
 from lalala.polymarket_data import (
     PolymarketMarket,
     PricePoint,
@@ -56,23 +57,26 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
-SAMPLE_EVERY_MS = 1_000    # one history point per second; the wire is faster
-MAX_POINTS = 3_600         # one hour of samples; the line keeps rolling past windows
-SMOOTH = 0.30              # per sample; a one-tick spike becomes a bend, not a needle
+# Feel is tunable from ~/.config/lalala/settings.json (see lalala.settings);
+# these names stay module-level so the panel and its tests read as one place.
+SETTINGS = Settings.load()
+SAMPLE_EVERY_MS = SETTINGS.sample_every_ms
+MAX_POINTS = max(600, 3_600_000 // SAMPLE_EVERY_MS)  # one hour of samples
+SMOOTH = SETTINGS.smooth   # per sample; a one-tick spike becomes a bend
 
 # The chart is a rolling window, not one market window. Fifteen minutes shows
 # three Polymarket windows and still gives a five-minute move room to breathe.
 # A linear fifteen-minute axis would move the live edge under a pixel a second,
 # so the newest slice gets a wider share of the plot: the same line advances
 # fast enough to read as motion instead of stretching in place.
-VIEW_MS = 15 * 60_000
-FOCUS_MS = 90_000          # the live slice, stretched on the right
-FOCUS_SHARE = 0.34         # fraction of the plot width it occupies
+VIEW_MS = SETTINGS.view_ms
+FOCUS_MS = SETTINGS.focus_ms
+FOCUS_SHARE = SETTINGS.focus_share
 WINDOW_MARK_MS = 300_000
-FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
-LAG_MS = 1_500             # > one sample: the tip always has a future keyframe
-EASE_TIP = 0.18            # per frame, toward the interpolated tip
-EASE_RANGE = 0.08          # per frame, toward the natural y-range
+FRAME_MS = SETTINGS.frame_ms
+LAG_MS = SETTINGS.lag_ms   # > one sample: the tip always has a future keyframe
+EASE_TIP = SETTINGS.ease_tip
+EASE_RANGE = SETTINGS.ease_range
 
 
 def time_to_x(

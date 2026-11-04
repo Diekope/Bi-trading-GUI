@@ -223,12 +223,13 @@ src/lalala/
   polymarket_data.py   slugs, Gamma/CLOB/WS parsing, formatting (no Qt)
   polymarket_feed.py   one 5m market: resolve, snapshot, stream, roll over
   polymarket_panel.py  outcome tiles, countdown, BTC/target chart, tape (QPainter)
+  settings.py      chart feel from ~/.config/lalala/settings.json + env overrides
   venues/
     base.py         Venue protocol for order placement (not used by the UI yet)
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             182 tests: parsing/search/aliases, slug math, candle + book
+tests/             189 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
@@ -260,6 +261,30 @@ Palette (`theme.py`):
 | `BORDER` | `#25262a` | card edge |
 | `ACCENT` | `#1793d1` | Arch cyan, last-price line |
 | `UP` / `DOWN` | `#3ddc84` / `#ff5c5c` | candles, latency colours, Polymarket sides |
+
+## Tuning the chart
+
+The feel of the Polymarket chart comes from `~/.config/lalala/settings.json`,
+written on first launch. Point `LALALA_SETTINGS` elsewhere to keep a different
+profile, or override any key with `LALALA_<KEY>`. Restart after an edit; the
+file is read once at startup.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `view_ms` | `900000` | total span on screen (fifteen minutes) |
+| `focus_ms` | `90000` | length of the fast live slice |
+| `focus_share` | `0.34` | share of the plot width that slice gets |
+| `lag_ms` | `1500` | how far behind live the tip sits; must exceed `sample_every_ms` |
+| `sample_every_ms` | `1000` | resolution of the stored line |
+| `smooth` | `0.30` | per-sample damping; lower is rounder |
+| `ease_tip` | `0.18` | per-frame glide toward the target |
+| `ease_range` | `0.08` | per-frame glide of the y-scale |
+| `frame_ms` | `33` | repaint interval (~30 fps) |
+
+The live edge travels `width × focus_share ÷ (focus_ms / 1000)` pixels a second
+— about 2.2 px/s on a wide column, 1.1 px/s on a narrow one. Every value is
+clamped to a drawable range, and a corrupt file falls back to the defaults
+instead of refusing to start.
 
 ## Data sources
 
