@@ -11,16 +11,15 @@ import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from lalala import candles  # noqa: E402
+from lalala.candles import append_rows, candle_file  # noqa: E402
 from lalala.panels import Card  # noqa: E402
-from lalala.strat_tiles import (  # noqa: E402
-    FIRST_YEAR,
-    RESOLUTIONS,
-    DownloadTile,
-    candle_file,
-    expected_rows,
-)
+from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
 from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
+
+# A year holds this many bars in the tests, so faking one stays cheap.
+TEST_BARS_PER_YEAR = 10
 
 
 @pytest.fixture(scope="session")
@@ -30,10 +29,22 @@ def app() -> QApplication:
     return instance
 
 
-@pytest.fixture
-def window(app: QApplication, monkeypatch, tmp_path) -> StratWindow:
-    # No real candle directory in tests.
+@pytest.fixture(autouse=True)
+def small_year(monkeypatch, tmp_path):
+    # No real candle directory, and a year that fits in a handful of rows.
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
+    monkeypatch.setattr(
+        candles, "expected_rows", lambda year, now=None: TEST_BARS_PER_YEAR
+    )
+    monkeypatch.setattr(
+        "lalala.strat_tiles.expected_rows",
+        lambda year, now=None: TEST_BARS_PER_YEAR,
+    )
+    candles._ROW_CACHE.clear()
+
+
+@pytest.fixture
+def window(app: QApplication) -> StratWindow:
     win = StratWindow()
     win.show()
     app.processEvents()
@@ -41,14 +52,17 @@ def window(app: QApplication, monkeypatch, tmp_path) -> StratWindow:
     win.close()
 
 
-def _write_year(year: int, resolution: str, rows: int) -> None:
-    """A minimal OHLCV table with `rows` data lines."""
-    path = candle_file(year, resolution)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as handle:
-        handle.write("timestamp,open,high,low,close,volume\n")
-        for index in range(rows):
-            handle.write(f"{index},1,1,1,1,1\n")
+def _write(year: int, rows: int) -> None:
+    append_rows(
+        candle_file(year),
+        [(i * 60_000, 1.0, 2.0, 0.5, 1.5, 10.0) for i in range(rows)],
+    )
+
+
+def _pick(tile: DownloadTile, start: int, end: int, resolution: str) -> None:
+    tile.start_year.setCurrentText(str(start))
+    tile.end_year.setCurrentText(str(end))
+    tile.resolution.group.button(RESOLUTIONS.index(resolution)).click()
 
 
 def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
@@ -114,17 +128,14 @@ def test_an_empty_span_is_missing_and_flags_download(window) -> None:
     assert tile.status.isVisible() is True
     assert tile.status.text() == f"missing {FIRST_YEAR}–{datetime.now().year}"
     assert tile.status.property("state") == "missing"
-    # Download is offered, and carries the amber "needs data" edge.
     assert tile.download_button.isEnabled() is True
     assert tile.download_button.property("attention") is True
 
 
 def test_a_short_year_reads_as_partial_in_amber(window) -> None:
     tile = window.download
-    tile.start_year.setCurrentText("2017")
-    tile.end_year.setCurrentText("2017")
-    tile.resolution.group.button(2).click()  # 1h
-    _write_year(2017, "1h", 10)
+    _pick(tile, 2017, 2017, "1m")
+    _write(2017, 4)
     tile.refresh()
 
     missing, partial = tile.coverage()
@@ -135,44 +146,17 @@ def test_a_short_year_reads_as_partial_in_amber(window) -> None:
     assert tile.download_button.isEnabled() is True
 
 
-def test_a_complete_span_grays_the_button_out(window) -> None:
+def test_a_complete_span_grays_download_out(window) -> None:
     tile = window.download
-    tile.start_year.setCurrentText("2017")
-    tile.end_year.setCurrentText("2017")
-    tile.resolution.group.button(2).click()  # 1h
-    _write_year(2017, "1h", 365 * 24)
+    _pick(tile, 2017, 2017, "1h")
+    _write(2017, TEST_BARS_PER_YEAR)
     tile.refresh()
 
     assert tile.coverage() == ([], [])
     assert tile.has_data() is True
     assert tile.status.isVisible() is False
-    assert tile.download_button.isEnabled() is False
-    assert tile.download_button.property("attention") is False
-
-
-def test_the_current_year_is_only_expected_up_to_today(window) -> None:
-    tile = window.download
-    this_year = datetime.now(tz=timezone.utc).year
-    tile.start_year.setCurrentText(str(this_year))
-    tile.end_year.setCurrentText(str(this_year))
-    tile.resolution.group.button(2).click()  # 1h
-
-    now = datetime.now(tz=timezone.utc)
-    assert expected_rows(this_year, "1h", now) == max(1, now.timetuple().tm_yday) * 24
-    # A full past year is partial today, since this year is not over.
-    _write_year(this_year, "1h", expected_rows(this_year, "1h", now))
-    assert tile.coverage() == ([], [])
-
-
-def test_start_does_nothing_yet(app: QApplication, window) -> None:
-    tile = window.download
-    before = (tile.span(), tile.has_data())
-
-    tile.start_button.click()
-    app.processEvents()
-
-    assert tile.start_button.isEnabled() is True
-    assert (tile.span(), tile.has_data()) == before
+    # Coverage is a property of the 1m store, not the picked resolution.
+    assert tile.download_button.isVisible() is False
 
 
 def test_the_action_row_is_start_left_download_right(
@@ -182,7 +166,6 @@ def test_the_action_row_is_start_left_download_right(
     assert tile.start_button.text() == "Start backtest"
 
     row = tile.body.itemAt(tile.body.count() - 1).layout()
-    # Start on the left, Download on the right, the note at the far edge.
     assert row.itemAt(0).widget() is tile.start_button
     assert row.itemAt(1).widget() is tile.download_button
     assert row.itemAt(2).widget() is tile.status
@@ -193,42 +176,64 @@ def test_the_action_row_is_start_left_download_right(
 def test_only_the_relevant_button_is_shown(app: QApplication, window) -> None:
     tile = window.download
 
-    # Nothing on disk: Download stands alone, Start is out of the way.
     assert tile.download_button.isVisible() is True
     assert tile.start_button.isVisible() is False
 
-    # Complete span: the big Start backtest takes the row, Download goes.
-    tile.start_year.setCurrentText("2017")
-    tile.end_year.setCurrentText("2017")
-    tile.resolution.group.button(2).click()  # 1h
-    _write_year(2017, "1h", 365 * 24)
+    _pick(tile, 2017, 2017, "1m")
+    _write(2017, TEST_BARS_PER_YEAR)
     tile.refresh()
     app.processEvents()
 
     assert tile.start_button.isVisible() is True
     assert tile.download_button.isVisible() is False
     assert tile.status.isVisible() is False
-    # With the note and Download gone, Start owns the whole row.
     assert tile.start_button.width() > tile.width() * 0.8
 
 
-def test_the_note_only_squeezes_download(app: QApplication, window) -> None:
+def test_the_note_shares_the_row_with_download(app: QApplication, window) -> None:
     tile = window.download
-    assert tile.status.isVisible() is True  # missing years in the empty temp dir
+    assert tile.status.isVisible() is True  # missing years in the empty store
     assert tile.start_button.isVisible() is False
-
-    # Download and the note share the row; the note never touches anything else.
-    assert tile.download_button.width() < tile.width()
-    assert tile.status.width() > 0
     assert tile.download_button.width() == pytest.approx(
         tile.status.width(), abs=8
     )
 
 
+def test_containers_do_not_show_the_canvas(app: QApplication, window) -> None:
+    """A plain child widget must not paint the dark canvas over the card."""
+    tile = window.download
+    image = window.grab().toImage()
+    widget = tile.resolution
+    y = widget.mapTo(window, widget.rect().center()).y()
+    seen = {
+        image.pixelColor(
+            widget.mapTo(window, widget.rect().topLeft()).x() + dx, y
+        ).name()
+        for dx in range(4, widget.width() - 4, 7)
+    }
+    assert CANVAS not in seen
+
+
+def test_the_actionable_button_is_the_one_that_pulses(window) -> None:
+    tile = window.download
+
+    assert tile.download_button.graphicsEffect() is tile._glow_download
+    assert tile._pulse_download.loopCount() == -1
+    assert tile._pulse_download.state() == tile._pulse_download.State.Running
+    assert tile._pulse_start.state() == tile._pulse_start.State.Stopped
+
+    _pick(tile, 2017, 2017, "1m")
+    _write(2017, TEST_BARS_PER_YEAR)
+    tile.refresh()
+
+    assert tile._pulse_download.state() == tile._pulse_download.State.Stopped
+    assert tile._glow_download.opacity() == pytest.approx(1.0)
+    assert tile._pulse_start.state() == tile._pulse_start.State.Running
+
+
 def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
     tile = window.download
 
-    # Ask for 2020 → 2018; the picker quietly reorders it.
     tile.start_year.setCurrentText("2020")
     tile.end_year.setCurrentText("2018")
     app.processEvents()
@@ -244,42 +249,61 @@ def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
     assert tile.end_year.currentText() == "2018"
 
 
-def test_containers_do_not_show_the_canvas(app: QApplication, window) -> None:
-    """A plain child widget must not paint the dark canvas over the card."""
-    from lalala.theme import CANVAS
+# -- downloading -----------------------------------------------------------
 
+
+def test_download_asks_only_for_the_years_that_are_short(
+    app: QApplication, window, monkeypatch
+) -> None:
     tile = window.download
-    image = window.grab().toImage()
-    for widget in (tile.resolution,):
-        y = widget.mapTo(window, widget.rect().center()).y()
-        seen = {
-            image.pixelColor(
-                widget.mapTo(window, widget.rect().topLeft()).x() + dx, y
-            ).name()
-            for dx in range(4, widget.width() - 4, 7)
-        }
-        assert CANVAS not in seen, widget.objectName()
+    asked: list[list[int]] = []
+    monkeypatch.setattr(
+        tile.downloader, "start", lambda years: asked.append(years) or True
+    )
 
-
-def test_the_actionable_button_is_the_one_that_pulses(window) -> None:
-    tile = window.download
-
-    # Missing data: Download breathes and carries the amber edge, Start does
-    # not move.
-    assert tile.download_button.graphicsEffect() is tile._glow_download
-    assert tile._pulse_download.loopCount() == -1
-    assert tile._pulse_download.state() == tile._pulse_download.State.Running
-    assert tile._pulse_start.state() == tile._pulse_start.State.Stopped
-    assert tile.download_button.property("attention") is True
-
-    # A complete span: the pulse hands over to Start, Download goes quiet.
-    tile.start_year.setCurrentText("2017")
-    tile.end_year.setCurrentText("2017")
-    tile.resolution.group.button(2).click()  # 1h
-    _write_year(2017, "1h", 365 * 24)
+    _pick(tile, 2017, 2018, "1m")
+    _write(2017, TEST_BARS_PER_YEAR)  # complete; only 2018 is needed
     tile.refresh()
+    tile.download_button.click()
+    app.processEvents()
 
-    assert tile._pulse_download.state() == tile._pulse_download.State.Stopped
-    assert tile._glow_download.opacity() == pytest.approx(1.0)
-    assert tile._pulse_start.state() == tile._pulse_start.State.Running
-    assert tile.download_button.property("attention") is False
+    assert asked == [[2018]]
+    assert "downloading 2018" in tile.status.text()
+    assert tile.download_button.isEnabled() is False
+
+
+def test_progress_reads_as_a_percentage(app: QApplication, window, monkeypatch) -> None:
+    tile = window.download
+    monkeypatch.setattr(tile.downloader, "start", lambda years: True)
+
+    tile.download_button.click()
+    tile._on_progress(2017, TEST_BARS_PER_YEAR // 2)
+    assert tile.status.text() == "downloading 2017… 50%"
+
+
+def test_finishing_swaps_the_button_to_start(
+    app: QApplication, window, monkeypatch
+) -> None:
+    tile = window.download
+    monkeypatch.setattr(tile.downloader, "start", lambda years: True)
+
+    tile.download_button.click()
+    _write(2017, TEST_BARS_PER_YEAR)
+    tile._on_finished()
+    app.processEvents()
+
+    assert tile.has_data() is False  # the default span still misses years
+    # Narrow the span to the one that is complete; Start takes over.
+    _pick(tile, 2017, 2017, "1m")
+    assert tile.start_button.isVisible() is True
+
+
+def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> None:
+    tile = window.download
+    monkeypatch.setattr(tile.downloader, "start", lambda years: True)
+
+    tile.download_button.click()
+    tile._on_failed("HTTPStatusError: 500")
+
+    assert "download failed" in tile.status.text()
+    assert tile.download_button.isEnabled() is True

@@ -1,19 +1,18 @@
 """Tiles for the backtest/strategy window.
 
 The first tile picks a span of history and a resolution, then offers to
-download it or to start a run on it. History is kept as one OHLCV file per
-(year, resolution) under `data/candles`, so the tile can say exactly which
-years are missing and which are only partly there.
+download it or to start a run on it. History is kept as one 1m OHLCV file per
+year under `data/candles` (see `lalala.candles`), so the tile can say exactly
+which years are missing and which are only partly there; the resolution only
+chooses what the run compacts those bars into.
 
-Only the controls exist so far: Download reports coverage, Start is
-deliberately unwired.
+Only the controls and the download exist so far: Start is deliberately
+unwired.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 from PySide6.QtCore import QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
@@ -24,91 +23,22 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
 
+from lalala.candle_download import CandleDownloader
+from lalala.candles import (
+    coverage,
+    ensure_data_dir,
+    expected_rows,
+    format_years,
+)
 from lalala.panels import Card
 
 # History starts here: the venues' pre-2017 coverage is thin, so the picker
 # should not imply it is there.
 FIRST_YEAR = 2017
 RESOLUTIONS = ("1m", "5m", "1h")
-ASSET = "BTC"
-
-# One file per (year, resolution): `BTC-2017-1m.csv`, a plain OHLCV table with
-# a header. Expected rows come from the calendar, so a short file is a real
-# gap rather than a guess.
-CANDLES_PER_DAY = {"1m": 1440, "5m": 288, "1h": 24}
-COMPLETE = 0.99  # a full year with a few venue outages is still "complete"
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-# Row counts are stable between writes, so a span change does not re-scan a
-# half-million-line file every time the picker moves.
-_ROW_CACHE: dict[tuple[str, float], int] = {}
-
-
-def candles_dir() -> Path:
-    """Where the OHLCV files live. `LALALA_DATA` overrides the default."""
-    return Path(os.environ.get("LALALA_DATA", REPO_ROOT / "data" / "candles"))
-
-
-def candle_file(year: int, resolution: str) -> Path:
-    return candles_dir() / f"{ASSET}-{year}-{resolution}.csv"
-
-
-def ensure_data_dir() -> Path:
-    """Create `data/candles` on first use so a download has somewhere to go."""
-    target = candles_dir()
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
-    return target
-
-
-def _is_leap(year: int) -> bool:
-    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-
-
-def expected_rows(year: int, resolution: str, now: datetime) -> int:
-    """Candles a whole year holds — or the part of this year already elapsed."""
-    days = 366 if _is_leap(year) else 365
-    if year == now.year:
-        days = max(1, now.timetuple().tm_yday)
-    return days * CANDLES_PER_DAY[resolution]
-
-
-def row_count(path: Path) -> int:
-    """Data rows in a CSV, minus the header. Zero when the file is absent."""
-    try:
-        stat = path.stat()
-    except OSError:
-        return 0
-    key = (str(path), stat.st_mtime)
-    cached = _ROW_CACHE.get(key)
-    if cached is not None:
-        return cached
-    try:
-        with path.open("rb") as handle:
-            lines = sum(1 for _ in handle)
-    except OSError:
-        return 0
-    count = max(0, lines - 1)
-    _ROW_CACHE[key] = count
-    return count
-
-
-def format_years(years: list[int]) -> str:
-    """`2017 2018 2019` as `2017–2019`, gaps kept explicit."""
-    if not years:
-        return ""
-    if len(years) == 1:
-        return str(years[0])
-    if years == list(range(years[0], years[-1] + 1)):
-        return f"{years[0]}–{years[-1]}"
-    return ", ".join(str(year) for year in years)
 
 
 class ResolutionPicker(QWidget):
@@ -148,11 +78,13 @@ class ResolutionPicker(QWidget):
 
 
 class DownloadTile(Card):
-    """Pick a span and a resolution; Download reflects what is on disk."""
+    """Pick a span; Download fills in the 1m bars that are missing."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._adjusting = False
+        self._busy = False
+        self._error: str | None = None
         this_year = datetime.now(tz=timezone.utc).year
         years = list(range(FIRST_YEAR, this_year + 1))
 
@@ -172,6 +104,9 @@ class DownloadTile(Card):
         self.body.addLayout(span)
 
         self.resolution = ResolutionPicker()
+        self.resolution.setToolTip(
+            "Bars are stored at 1m; this is what the run compacts them to"
+        )
         self.body.addWidget(self.resolution)
 
         actions = QHBoxLayout()
@@ -183,7 +118,7 @@ class DownloadTile(Card):
         self.download_button = QPushButton("Download")
         self.download_button.setObjectName("actionButton")
         self.download_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.download_button.setToolTip("Fetch this span of history")
+        self.download_button.setToolTip("Fetch the missing years at 1m")
         self.status = QLabel("")
         self.status.setObjectName("coverageLabel")
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -191,15 +126,12 @@ class DownloadTile(Card):
 
         # Only one of the two is ever shown: Download while something is
         # missing, Start backtest once the span is complete and runnable.
-        # Each takes the whole row on its own; when the note has something to
-        # say it shares the row with Download.
         actions.addWidget(self.start_button, 1)
         actions.addWidget(self.download_button, 1)
         actions.addWidget(self.status, 1)
         self.body.addLayout(actions)
 
-        # Which of the two is the one to press breathes gently: Download while
-        # the span still needs fetching, Start once it is all there.
+        # Which of the two is the one to press breathes gently.
         self._glow_download = QGraphicsOpacityEffect(self.download_button)
         self.download_button.setGraphicsEffect(self._glow_download)
         self._pulse_download = self._pulse_animation(self._glow_download)
@@ -207,10 +139,15 @@ class DownloadTile(Card):
         self.start_button.setGraphicsEffect(self._glow_start)
         self._pulse_start = self._pulse_animation(self._glow_start)
 
-        # Re-check coverage the moment the chosen span or resolution changes.
-        self.start_year.currentIndexChanged.connect(self.refresh)
-        self.end_year.currentIndexChanged.connect(self.refresh)
-        self.resolution.changed.connect(self.refresh)
+        self.downloader = CandleDownloader(self)
+        self.downloader.progressed.connect(self._on_progress)
+        self.downloader.finished.connect(self._on_finished)
+        self.downloader.failed.connect(self._on_failed)
+
+        self.start_year.currentIndexChanged.connect(self._span_changed)
+        self.end_year.currentIndexChanged.connect(self._span_changed)
+        self.resolution.changed.connect(self._span_changed)
+        self.download_button.clicked.connect(self._start_download)
         self.start_button.clicked.connect(self._on_start)
 
         ensure_data_dir()
@@ -226,18 +163,8 @@ class DownloadTile(Card):
         )
 
     def coverage(self) -> tuple[list[int], list[int]]:
-        """(years with no file at all, years whose file is short of full)."""
-        start, end, resolution = self.span()
-        now = datetime.now(tz=timezone.utc)
-        missing: list[int] = []
-        partial: list[int] = []
-        for year in range(start, end + 1):
-            rows = row_count(candle_file(year, resolution))
-            if rows == 0:
-                missing.append(year)
-            elif rows < expected_rows(year, resolution, now) * COMPLETE:
-                partial.append(year)
-        return missing, partial
+        start, end, _ = self.span()
+        return coverage(start, end)
 
     def has_data(self) -> bool:
         """Every year of the span is on disk, and each one is complete."""
@@ -245,9 +172,29 @@ class DownloadTile(Card):
         return not missing and not partial
 
     def refresh(self) -> None:
-        """Keep the span ordered, report coverage, flag the Download button."""
+        """Keep the span ordered, report coverage, show the button that fits."""
         self._normalize_span()
         missing, partial = self.coverage()
+        needs = bool(missing or partial) or self._busy
+
+        self.download_button.setVisible(needs)
+        self.start_button.setVisible(not needs)
+
+        if self._busy:
+            self.download_button.setEnabled(False)
+            self._set_attention(False)
+            self._pulse(self._glow_download, self._pulse_download, True)
+            self._pulse(self._glow_start, self._pulse_start, False)
+            return
+
+        if self._error is not None:
+            self._set_status(f"download failed: {self._error}", "missing")
+            self.download_button.setEnabled(True)
+            self._set_attention(True)
+            self._pulse(self._glow_download, self._pulse_download, True)
+            self._pulse(self._glow_start, self._pulse_start, False)
+            return
+
         if missing:
             self._set_status(f"missing {format_years(missing)}", "missing")
         elif partial:
@@ -255,18 +202,67 @@ class DownloadTile(Card):
         else:
             self._set_status("")
 
-        needs = bool(missing or partial)
         self.download_button.setEnabled(needs)
         self._set_attention(needs)
-        # Swap the button to match: Download while data is missing, the big
-        # Start backtest once the span is complete.
-        self.download_button.setVisible(needs)
-        self.start_button.setVisible(not needs)
         # The actionable one breathes.
         self._pulse(self._glow_download, self._pulse_download, needs)
         self._pulse(self._glow_start, self._pulse_start, not needs)
 
+    # -- downloading -------------------------------------------------------
+
+    def _start_download(self) -> None:
+        missing, partial = self.coverage()
+        years = sorted(set(missing) | set(partial))
+        if not years:
+            return
+        self._error = None
+        self._busy = True
+        self._set_status(f"downloading {format_years(years)}…")
+        if not self.downloader.start(years):
+            self._busy = False
+        self.refresh()
+
+    def _on_progress(self, year: int, rows: int) -> None:
+        expected = expected_rows(year)
+        percent = min(100, round(rows / expected * 100)) if expected else 0
+        self._set_status(f"downloading {year}… {percent}%")
+
+    def _on_finished(self) -> None:
+        self._busy = False
+        self.refresh()
+
+    def _on_failed(self, message: str) -> None:
+        self._busy = False
+        self._error = message
+        self.refresh()
+
+    def _on_start(self) -> None:
+        """Deliberately inert: the backtest is not wired up yet."""
+
     # -- state helpers -----------------------------------------------------
+
+    def _span_changed(self) -> None:
+        self._error = None
+        self.refresh()
+
+    def _normalize_span(self) -> None:
+        """A reversed pick is not an error: flip it back into order.
+
+        Setting one combo's text re-enters `refresh` through its signal, so
+        the guard keeps the correction to a single pass.
+        """
+        if self._adjusting:
+            return
+        start = int(self.start_year.currentText())
+        end = int(self.end_year.currentText())
+        if start <= end:
+            return
+        self._adjusting = True
+        try:
+            self.start_year.setCurrentText(str(end))
+            self.end_year.setCurrentText(str(start))
+        finally:
+            self._adjusting = False
 
     def _pulse_animation(
         self, effect: QGraphicsOpacityEffect
@@ -292,25 +288,6 @@ class DownloadTile(Card):
             animation.stop()
             effect.setOpacity(1.0)
 
-    def _normalize_span(self) -> None:
-        """A reversed pick is not an error: flip it back into order.
-
-        Setting one combo's text re-enters `refresh` through its signal, so
-        the guard keeps the correction to a single pass.
-        """
-        if self._adjusting:
-            return
-        start = int(self.start_year.currentText())
-        end = int(self.end_year.currentText())
-        if start <= end:
-            return
-        self._adjusting = True
-        try:
-            self.start_year.setCurrentText(str(end))
-            self.end_year.setCurrentText(str(start))
-        finally:
-            self._adjusting = False
-
     def _set_status(self, text: str, state: str | None = None) -> None:
         """Show the note; `state` names the color it borrows from the theme."""
         self.status.setText(text)
@@ -329,9 +306,6 @@ class DownloadTile(Card):
         style = self.download_button.style()
         style.unpolish(self.download_button)
         style.polish(self.download_button)
-
-    def _on_start(self) -> None:
-        """Deliberately inert: the backtest is not wired up yet."""
 
     # -- widgets -----------------------------------------------------------
 

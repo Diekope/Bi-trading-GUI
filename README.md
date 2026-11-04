@@ -241,6 +241,8 @@ src/lalala/
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
+  candles.py       the local 1m candle store: paths, coverage, CSV helpers
+  candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
   panels.py        Card chrome, MAX_TILES
   cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
@@ -255,17 +257,25 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             205 tests: parsing/search/aliases, slug math, candle + book
+tests/             224 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its history tile
+                   strategy window and its history tile, and the candle store
+                   and downloader
 
-Downloaded history lives in `data/candles/` — one OHLCV CSV per year and
-resolution, `BTC-<year>-<resolution>.csv`, with a header row and columns
-`timestamp, open, high, low, close, volume`. The history tile reads those
-files to report which years of the selected span are missing (red) or only
-partly downloaded (amber), and gives the Download button an amber edge until
-the span is complete. The folder is kept in git, its contents are not.
+Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
+`BTC-<year>-1m.csv`, with a header row and columns
+`timestamp, open, high, low, close, volume`. Only BTC is fetched, and only at
+1m: a 5m or 1h series can be compacted from it later, so the store never holds
+the same data twice. The history tile reads those files to report which years
+of the selected span are missing (red) or only partly downloaded (amber).
+
+**Download** (`data/candles`) pulls the missing years from Binance's public
+`klines` endpoint, a thousand bars a page, resuming from the last row already
+on disk and appending each page as it arrives, so an interrupted download keeps
+what it got. The bar still forming is dropped, so the newest row is always a
+closed candle. Progress reads as a percentage of the year being fetched; a
+complete span hides Download and offers Start backtest instead.
 ```
 
 ## Window layout
