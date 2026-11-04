@@ -88,6 +88,7 @@ class PolymarketFeed(QObject):
     async def _main(self) -> None:
         async with httpx.AsyncClient(timeout=12.0) as http:
             flush_task = asyncio.create_task(self._flush_loop())
+            latency_task = asyncio.create_task(self._latency_loop())
             try:
                 while not self._stopping:
                     slug = market_slug()
@@ -108,7 +109,10 @@ class PolymarketFeed(QObject):
                     await self._watch(http, market)
             finally:
                 flush_task.cancel()
-                await asyncio.gather(flush_task, return_exceptions=True)
+                latency_task.cancel()
+                await asyncio.gather(
+                    flush_task, latency_task, return_exceptions=True
+                )
 
     async def _resolve(
         self, http: httpx.AsyncClient, slug: str
@@ -184,34 +188,52 @@ class PolymarketFeed(QObject):
             # frames/s, and a timeout wrapper per recv costs more than the
             # routing itself.
             watchdog = asyncio.create_task(self._close_at(ws, deadline))
-            pinger = asyncio.create_task(self._measure_latency(ws))
             try:
                 async for raw in ws:
                     self.dispatch(raw)
                     if self._stopping:
                         break
             finally:
-                for task in (watchdog, pinger):
-                    task.cancel()
-                await asyncio.gather(watchdog, pinger, return_exceptions=True)
+                watchdog.cancel()
+                await asyncio.gather(watchdog, return_exceptions=True)
 
-    async def _measure_latency(self, ws: Any) -> None:
-        """Ping the market socket and report the real round trip.
+    async def _latency_loop(self) -> None:
+        """Ping a socket of our own, so the readout survives a busy market.
 
-        Polymarket does not publish a latency number, so this is the same
-        signal the Hyperliquid header uses: a protocol ping and its pong.
+        The market subscription can be closed by the venue's slow-consumer
+        guard when a window is busy. Measuring on that socket made the delay
+        readout go blank exactly when the book was hottest, so the probe keeps
+        a second, subscription-free connection whose only traffic is the ping.
         """
+        backoff = 1.0
         while not self._stopping:
             try:
-                pong = await ws.ping()
-                seconds = await asyncio.wait_for(pong, timeout=5.0)
+                async with websockets.connect(
+                    WS_URL,
+                    ping_interval=None,
+                    ping_timeout=None,
+                    close_timeout=2,
+                ) as ws:
+                    backoff = 1.0
+                    while not self._stopping:
+                        started = time.perf_counter()
+                        pong = await ws.ping()
+                        await asyncio.wait_for(pong, timeout=4.0)
+                        if self._stopping:
+                            break
+                        milliseconds = round(
+                            (time.perf_counter() - started) * 1000
+                        )
+                        self.latency.emit(int(milliseconds))
+                        await asyncio.sleep(LATENCY_EVERY)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                return
-            if not self._stopping:
-                self.latency.emit(int(round(seconds * 1000)))
-            await asyncio.sleep(LATENCY_EVERY)
+                pass  # a probe failure is not an app error
+            if self._stopping:
+                break
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, MAX_BACKOFF)
 
     async def _close_at(self, ws: Any, deadline: float) -> None:
         """Close the socket when the window ends or the app asks to stop."""

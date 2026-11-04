@@ -55,17 +55,18 @@ from lalala.theme import (
 
 AMBER = "#e0b341"
 TRACK = "#1b1b20"
-SAMPLE_EVERY_MS = 1_000    # one history point per second; the wire is faster
-MAX_POINTS = 3_600         # one hour of samples; the line keeps rolling past windows
+SAMPLE_EVERY_MS = 250      # four points a second: the edge grows in small steps
+MAX_POINTS = 14_400        # one hour of samples; the line keeps rolling past windows
 
-# The chart is a rolling window, not one market window. Fifteen minutes shows
-# three Polymarket windows and still gives a five-minute move room to breathe.
-VIEW_MS = 15 * 60_000
+# The chart is a rolling window, not one market window. Five minutes matches the
+# market's own horizon and gives the live edge roughly two pixels a second, so
+# it advances sideways instead of stretching into a vertical spike.
+VIEW_MS = 5 * 60_000
 WINDOW_MARK_MS = 300_000
 FRAME_MS = 33              # ~30 fps: the scroll and the live tip glide
-LAG_MS = 700               # draw slightly behind live so samples never snap
-EASE_TIP = 0.28            # per frame, toward the interpolated tip
-EASE_RANGE = 0.12          # per frame, toward the natural y-range
+LAG_MS = 1_000             # > one sample: the tip always has a future keyframe
+EASE_TIP = 0.18            # per frame, toward the interpolated tip
+EASE_RANGE = 0.08          # per frame, toward the natural y-range
 
 
 def _alpha(color: str, alpha: int) -> QColor:
@@ -173,11 +174,11 @@ class OutcomeTile(QWidget):
 
 
 class PriceChart(QWidget):
-    """BTC over a rolling fifteen minutes, against the window's target.
+    """BTC over a rolling five minutes, against the window's target.
 
     The binary market's question is whether BTC ends above where the window
     started, so the useful line is the underlying price, not the implied
-    probability. The x-axis is a rolling fifteen minutes that ends a fraction
+    probability. The x-axis is a rolling five minutes that ends a fraction
     of a second behind live, so a rollover never clears the line and the newest
     sample never snaps: old windows scroll left, the new target segment grows
     from the right edge, and the tip is interpolated along the last segment.
@@ -192,8 +193,6 @@ class PriceChart(QWidget):
         self.target: float | None = None
         self._lo: float | None = None
         self._hi: float | None = None
-        self._live: float | None = None
-        self._live_at: int | None = None
         self._tip: float | None = None
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -222,13 +221,6 @@ class PriceChart(QWidget):
             self.target = target
         self.update()
 
-    def set_live(self, price: float) -> None:
-        """The newest quote, used as the last keyframe of the delayed tip."""
-        self._live = float(price)
-        self._live_at = int(time.time() * 1000)
-        if self._tip is None:
-            self._tip = self._live
-
     def _advance(self) -> None:
         if self.market is None or not self.isVisible():
             return
@@ -245,30 +237,29 @@ class PriceChart(QWidget):
             self._tip += (target - self._tip) * EASE_TIP
 
     def _tip_at(self, moment_ms: int) -> float | None:
-        """Price at a moment between keyframes, so the line never snaps back.
+        """Price at a moment between keyframes, so the line never snaps.
 
-        One-second samples and the latest live quote are the keyframes. The
-        painted tip sits on the segment that contains `moment_ms`, which is
-        continuous as samples cross the delayed cursor.
+        The painted tip sits on the segment that contains `moment_ms`. The
+        view is delayed by more than one sample, so a new sample always lands
+        ahead of the cursor: it extends the curve without moving the part
+        already on screen. The scan runs backwards from the newest sample,
+        which is where the cursor always is.
         """
+        if not self.points:
+            return None
         before: PricePoint | None = None
         after: PricePoint | None = None
-        for point in self.points:
+        for index in range(len(self.points) - 1, -1, -1):
+            point = self.points[index]
             if point.timestamp_ms <= moment_ms:
                 before = point
-            else:
-                after = point
+                following = index + 1
+                if following < len(self.points):
+                    after = self.points[following]
                 break
 
-        if self._live is not None and self._live_at is not None:
-            if self._live_at <= moment_ms:
-                if before is None or self._live_at > before.timestamp_ms:
-                    before = PricePoint(self._live_at, self._live)
-            elif after is None or self._live_at < after.timestamp_ms:
-                after = PricePoint(self._live_at, self._live)
-
         if before is None:
-            return after.price if after is not None else None
+            return self.points[0].price
         if after is None or after.timestamp_ms <= before.timestamp_ms:
             return before.price
         gap = after.timestamp_ms - before.timestamp_ms
@@ -687,10 +678,10 @@ class PolymarketPanel(Card):
         delay.setContentsMargins(0, 0, 0, 0)
         delay.setSpacing(6)
 
-        self.latency_label = QLabel("PM ● —")
-        self.latency_label.setFont(mono_font(8))
+        self.latency_label = QLabel("PM DELAY ● —")
+        self.latency_label.setFont(mono_font(8, bold=True))
         self.latency_label.setStyleSheet(
-            f"color: {TEXT_FAINT}; background: transparent;"
+            f"color: {TEXT_MUTED}; background: transparent;"
         )
         self.latency_label.setToolTip(
             "WebSocket ping/pong round trip to Polymarket's CLOB"
@@ -903,11 +894,10 @@ class PolymarketPanel(Card):
         self._set_text(self.btc_value, f"{price:,.1f}")
         self._update_delta(price)
         self._sample_price(price)
-        self.price_chart.set_live(price)
 
     def set_latency(self, milliseconds: float, color: str = TEXT_MUTED) -> None:
         """Polymarket's own round trip, shown above its tiles."""
-        self._set_text(self.latency_label, f"PM ● {milliseconds:.0f} ms")
+        self._set_text(self.latency_label, f"PM DELAY ● {milliseconds:.0f} ms")
         self.latency_label.setStyleSheet(
             f"color: {color}; background: transparent;"
         )

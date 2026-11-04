@@ -7,6 +7,7 @@ so neither feed starts a thread.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -17,6 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from lalala import polymarket_feed  # noqa: E402
 from lalala.main_window import MainWindow  # noqa: E402
 from lalala.market_data import Candle, CandleSeries  # noqa: E402
 from lalala.polymarket_data import (  # noqa: E402
@@ -676,7 +678,7 @@ def test_clicking_down_highlights_the_tile(window: MainWindow) -> None:
     assert panel.spread_value.text() == "2¢"
 
 
-def test_the_price_chart_samples_at_most_once_a_second(
+def test_the_price_chart_samples_at_most_once_per_interval(
     window: MainWindow,
 ) -> None:
     panel = window.polymarket
@@ -686,7 +688,7 @@ def test_the_price_chart_samples_at_most_once_a_second(
     panel.set_btc(100_010.0)
     assert len(panel.points) == 1
 
-    # A second mid inside the same second must not add a point.
+    # A second mid inside the same interval must not add a point.
     panel.set_btc(100_020.0)
     assert len(panel.points) == 1
 
@@ -763,34 +765,31 @@ def test_the_price_range_eases_toward_new_extremes(
     assert 78_300.0 < hi < 100_075.0
 
 
-def test_the_live_tip_eases_toward_the_newest_quote(window: MainWindow) -> None:
-    chart = window.polymarket.price_chart
-    chart.set_live(100_000.0)
-    assert chart._tip == pytest.approx(100_000.0)
-
-    chart.set_live(100_100.0)
-    chart._ease()
-
-    assert chart._tip == pytest.approx(100_028.0)  # part of the gap, not a snap
-    assert chart._tip < 100_100.0
-
-
 def test_the_delayed_tip_is_interpolated_between_samples(
     window: MainWindow,
 ) -> None:
     chart = window.polymarket.price_chart
     chart.points = [PricePoint(1_000, 100.0), PricePoint(2_000, 102.0)]
-    chart._live = None
-    chart._live_at = None
 
     assert chart._tip_at(1_500) == pytest.approx(101.0)
     assert chart._tip_at(1_000) == pytest.approx(100.0)
     assert chart._tip_at(2_000) == pytest.approx(102.0)
     assert chart._tip_at(500) == pytest.approx(100.0)
 
-    # The live quote is a keyframe after the last sample.
-    chart._live, chart._live_at = 104.0, 2_500
-    assert chart._tip_at(2_250) == pytest.approx(103.0)
+
+def test_a_new_sample_never_moves_the_delayed_tip_backwards(
+    window: MainWindow,
+) -> None:
+    chart = window.polymarket.price_chart
+    chart.points = [PricePoint(1_000, 100.0), PricePoint(2_000, 102.0)]
+    before = chart._tip_at(1_500)
+
+    # The view is delayed by more than one sample, so a frame that arrives
+    # later is always ahead of the cursor and cannot change what is painted.
+    chart.points.append(PricePoint(3_000, 150.0))
+
+    assert chart._tip_at(1_500) == pytest.approx(before)
+    assert chart._tip_at(2_500) == pytest.approx(126.0)
 
 
 def test_trades_fill_the_tape_newest_first(window: MainWindow) -> None:
@@ -886,7 +885,7 @@ def test_the_polymarket_delay_sits_above_its_tiles(window: MainWindow) -> None:
     window.polymarket_feed.latency.emit(42)
 
     label = window.polymarket.latency_label
-    assert label.text() == "PM ● 42 ms"
+    assert label.text() == "PM DELAY ● 42 ms"
     assert "#3ddc84" in label.styleSheet()
 
     window.polymarket_feed.latency.emit(250)
@@ -894,6 +893,44 @@ def test_the_polymarket_delay_sits_above_its_tiles(window: MainWindow) -> None:
 
     window.polymarket_feed.latency.emit(900)
     assert "#ff5c5c" in label.styleSheet()
+
+
+def test_the_delay_probe_pings_a_socket_of_its_own(monkeypatch) -> None:
+    """A busy market socket must not take the readout down with it."""
+    feed = PolymarketFeed()
+    seen: list[int] = []
+    feed.latency.connect(seen.append)
+
+    class FakeSocket:
+        async def ping(self):
+            loop = asyncio.get_running_loop()
+            pong = loop.create_future()
+            loop.call_soon(pong.set_result, None)
+            return pong
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        polymarket_feed.websockets, "connect", lambda *a, **k: FakeSocket()
+    )
+    monkeypatch.setattr(polymarket_feed, "LATENCY_EVERY", 0.0)
+
+    async def drive() -> None:
+        task = asyncio.create_task(feed._latency_loop())
+        await asyncio.sleep(0.05)
+        feed._stopping = True
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(drive())
+
+    # Emitted without any market session, book, or subscription.
+    assert seen
+    assert all(value >= 0 for value in seen)
 
 
 def test_the_window_forwards_the_btc_mid_to_the_panel(window: MainWindow) -> None:

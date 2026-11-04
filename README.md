@@ -144,21 +144,24 @@ up/down window that is open right now.
   stats describe.
 - **Clock** — the window in UTC and a live countdown; white, amber inside a
   minute, red inside 30 seconds.
-- **Venue delay** — Polymarket's WebSocket ping/pong, top-left above the tiles;
-  green ≤120ms, amber ≤300ms, red above.
+- **PM delay** — a bold `PM DELAY ● NN ms` readout at the top of the column,
+  above the tiles: Polymarket's own WebSocket ping/pong, green ≤120ms, amber
+  ≤300ms, red above. It runs on a second, subscription-free socket, so a busy
+  market that trips the venue's slow-consumer guard cannot blank it.
 - **Stats** — spread, Gamma liquidity, top-of-book depth (the price × size of
   the best eight levels on each side), the window-open **target**, the live
   Hyperliquid BTC perp mid, and the signed percent from the target to it.
   Above-target reads green, below reads red.
-- **BTC chart** — a rolling fifteen-minute view of the underlying, with the
+- **BTC chart** — a rolling five-minute view of the underlying, with the
   current window's target as a dashed line and the gap shaded green above / red
   below. A rollover does not reset the line: the previous windows scroll left
   while the new target segment grows from the right edge. Five-minute
   boundaries get a tick and a time label, not a full-height rule, so the line
-  stays one unbroken curve. The view ends ~0.7s behind live and the tip is
-  interpolated between one-second samples and the newest quote, then eased, so
-  it glides instead of snapping on every update. The y-range eases too. An hour
-  of samples is retained.
+  stays one unbroken curve. The view ends ~1s behind live — more than the
+  250ms sample interval — so a fresh sample always lands ahead of the cursor.
+  The tip is interpolated between stored samples, then eased, so it glides
+  sideways into place instead of snapping vertically on every tick. The
+  y-range eases too. An hour of samples is retained.
 - **Tape** — the last twelve prints, newest first, with the outcome, price and
   fractional share size.
 
@@ -214,7 +217,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             174 tests: parsing/search/aliases, slug math, candle + book
+tests/             175 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel
 ```
@@ -232,7 +235,7 @@ tests/             174 tests: parsing/search/aliases, slug math, candle + book
 |        Polymarket       +-----------------------------------+
 |  UP 64.5¢  DOWN 35.5¢   |  xyz:CL  [XYZ]               96.7 +|
 |  19:35–19:40  closes…   |  1m 3m 5m 15m 30m 1h              |
-|  PM ● 26 ms             |  |╿╽│╿╽ ...                       |
+|  PM DELAY ● 26 ms       |  |╿╽│╿╽ ...                       |
 |  BTC chart + tape       |                                   |
 +-------------------------+-----------------------------------+
 ```
