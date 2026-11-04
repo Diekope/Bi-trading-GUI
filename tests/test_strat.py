@@ -310,6 +310,26 @@ def test_finishing_swaps_the_button_to_start(
     assert tile.start_button.isVisible() is True
 
 
+def test_start_backtest_restarts_the_playback(
+    app: QApplication, window
+) -> None:
+    """The button in the history tile is the only thing that starts it over."""
+    playback = window.left
+    for _ in range(6):
+        playback.playback.advance()
+    assert playback.playback.index == 6
+
+    _pick(window.download, 2017, 2017, "1m")
+    app.processEvents()
+    # A span change alone leaves the walk where it is…
+    assert playback.playback.index == 6
+
+    window.download.start_button.click()
+    app.processEvents()
+    # …pressing the button is what restarts it.
+    assert playback.playback.index == 0
+
+
 def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> None:
     tile = window.download
     monkeypatch.setattr(tile.downloader, "start", lambda years: True)

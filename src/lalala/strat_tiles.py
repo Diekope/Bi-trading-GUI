@@ -81,6 +81,7 @@ class DownloadTile(Card):
     """Pick a span; Download fills in the 1m bars that are missing."""
 
     span_changed = Signal()
+    started = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -239,7 +240,8 @@ class DownloadTile(Card):
         self.refresh()
 
     def _on_start(self) -> None:
-        """Deliberately inert: the backtest is not wired up yet."""
+        """Start backtest: hand off to the playback, which owns the walk."""
+        self.started.emit()
 
     # -- state helpers -----------------------------------------------------
 

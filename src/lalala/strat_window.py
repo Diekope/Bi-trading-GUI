@@ -84,12 +84,15 @@ class StratWindow(QMainWindow):
         self.setCentralWidget(canvas)
         self._balanced = False
 
-        # The left tile plays whatever the other two are set to.
+        # The left tile plays whatever the other two are set to. A change of
+        # span or parameters only marks the run ready — pressing Start
+        # backtest is what actually restarts it.
         self.download.span_changed.connect(self._sync_playback)
         self.params.changed.connect(self._sync_params)
+        self.download.started.connect(self.left.restart)
         self._sync_playback()
         self._sync_params()
-        self.left.play()
+        self.left.restart()
 
     def _sync_playback(self) -> None:
         start, end, resolution = self.download.span()

@@ -260,7 +260,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             253 tests: parsing/search/aliases, slug math, candle + book
+tests/             256 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the playback walk, the
@@ -329,6 +329,12 @@ most recent year in the span when there is one, from a fixed-seed walk
 otherwise. Fills are the optimistic kind — the target and the stop are both
 checked against a candle's range, so if one candle touches both, the target
 wins.
+
+The chart slides between candles rather than hopping a whole slot, so it
+scrolls like a live one, and the figures step once per candle. A change of
+span, resolution or parameter is only remembered — the walk keeps its place
+and the note says `press Start backtest` — so the one thing that starts a run
+over is that button. When the walk reaches the end of its series it loops.
 ```
 
 ## Window layout

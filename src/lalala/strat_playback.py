@@ -387,10 +387,17 @@ class CandlePlayer(QWidget):
     def __init__(self, playback: Playback, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.playback = playback
+        # How far the loop has travelled toward the next candle, 0..1. The
+        # chart slides by this much every frame, so it scrolls like a live one
+        # instead of hopping a whole slot at a time.
+        self.offset = 0.0
         self.setMinimumHeight(140)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+
+    def set_offset(self, offset: float) -> None:
+        self.offset = max(0.0, min(0.999, offset))
 
     def visible_count(self, width: float) -> int:
         return max(30, int((width - 62.0) / 7.0))
@@ -409,7 +416,8 @@ class CandlePlayer(QWidget):
             return
 
         room = self.visible_count(width)
-        last = self.playback.index
+        # The walk can sit one past the end for a frame before it wraps.
+        last = min(self.playback.index, len(self.playback.candles) - 1)
         first = max(0, last - room + 1)
         window = self.playback.candles[first : last + 1]
         if not window:
@@ -424,7 +432,7 @@ class CandlePlayer(QWidget):
         slot = (right - left) / room
 
         def x_of(position: int) -> float:
-            return left + (position - first + 0.5) * slot
+            return left + (position - first + 0.5 - self.offset) * slot
 
         def y_of(value: float) -> float:
             return bottom - (value - low) / (high - low) * (bottom - top)
@@ -477,11 +485,6 @@ class CandlePlayer(QWidget):
                     )
                 )
 
-        # The live edge: a hairline at the newest candle.
-        edge = x_of(last)
-        painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DotLine))
-        painter.drawLine(QPointF(edge, top), QPointF(edge, bottom))
-
         # While a position is open, its entry price rides across the plot.
         if self.playback.in_position and self.playback.entry_price > 0:
             y = y_of(self.playback.entry_price)
@@ -512,6 +515,11 @@ class PlaybackTile(Card):
 
         self.playback = Playback(sample_candles())
         self.source = "example"
+        # What the controls are set to. A change here is not a restart: it is
+        # picked up the next time Start backtest is pressed.
+        self._wanted_years: list[int] = []
+        self._wanted_resolution = "1m"
+        self._wanted_params: dict | None = None
 
         title = QLabel("BACKTEST")
         title.setObjectName("tileTitle")
@@ -546,11 +554,12 @@ class PlaybackTile(Card):
 
     def _tick(self) -> None:
         self._elapsed += FRAME_MS
-        if self._elapsed < STEP_MS:
-            return
-        self._elapsed = 0
-        self.playback.advance()
-        self._refresh_metrics()
+        if self._elapsed >= STEP_MS:
+            self._elapsed -= STEP_MS
+            self.playback.advance()
+            self._refresh_metrics()
+        # Every frame, not every candle: this is what makes it scroll.
+        self.player.set_offset(self._elapsed / STEP_MS)
         self.player.update()
 
     def play(self) -> None:
@@ -562,42 +571,62 @@ class PlaybackTile(Card):
     def playing(self) -> bool:
         return self._timer.isActive()
 
+    def restart(self) -> None:
+        """Adopt the controls and start the walk over. The only way it resets."""
+        bars = load_candles(
+            self._wanted_years, self._wanted_resolution, BARS_TO_PLAY
+        )
+        if bars:
+            played = self._wanted_years[-1] if self._wanted_years else 0
+            self.source = f"{played} · {self._wanted_resolution}"
+        else:
+            self.source = "example"
+            bars = sample_candles()
+        self.playback.candles = bars
+        if self._wanted_params is not None:
+            self._adopt_params(self._wanted_params)
+        self.playback.reset()
+        self._elapsed = 0
+        self.player.set_offset(0.0)
+        self._describe()
+        self._refresh_metrics()
+        self.player.update()
+        self.play()
+
     # -- source ------------------------------------------------------------
 
     def set_source(self, years: list[int], resolution: str) -> None:
-        """Show the span's real candles, or the sample when there are none."""
-        bars = load_candles(years, resolution, BARS_TO_PLAY)
-        if bars:
-            played = years[-1] if years else 0
-            self.source = f"{played} · {resolution}"
-            self.note.setText(f"looping {self.source} — placeholder entry rule")
-            self.playback.candles = bars
-        else:
-            self.source = "example"
-            self.note.setText("example loop — no bars on disk for this span")
-            self.playback.candles = sample_candles()
-        self.playback.reset()
-        self._refresh_metrics()
-        self.player.update()
+        """Remember the span. Nothing changes until the next restart."""
+        self._wanted_years = list(years)
+        self._wanted_resolution = resolution
+        self._describe()
 
     def set_params(self, params: dict) -> None:
-        """Adopt the parameter tile's numbers.
+        """Remember the parameters. Nothing changes until the next restart."""
+        self._wanted_params = dict(params)
+        self._describe()
 
-        A different capital restarts the walk, since every figure is measured
-        from it; tweaking TP or SL only affects the next trade.
-        """
-        capital = float(params["initial_capital"] or 0.0)
-        restart = capital != self.playback.capital
-        self.playback.capital = capital
+    def _adopt_params(self, params: dict) -> None:
+        self.playback.capital = float(params["initial_capital"] or 0.0)
         self.playback.tp = float(params["tp"] or 0.0)
         self.playback.sl = float(params["sl"] or 0.0)
         self.playback.position = float(params["position"] or 0.0)
         self.playback.sizing = str(params["sizing"])
         self.playback.max_cash = float(params["cash"] or 0.0)
-        if restart:
-            self.playback.reset()
-        self._refresh_metrics()
-        self.player.update()
+
+    def _describe(self) -> None:
+        arrow = "placeholder entry rule"
+        if self._wanted_years:
+            ready = f"{self._wanted_years[-1]} · {self._wanted_resolution}"
+            if ready == self.source:
+                self.note.setText(f"looping {self.source} — {arrow}")
+            else:
+                self.note.setText(
+                    f"looping {self.source} — ready {ready}, "
+                    f"press Start backtest"
+                )
+        else:
+            self.note.setText(f"{self.source} loop — {arrow}")
 
     # -- layout ------------------------------------------------------------
 

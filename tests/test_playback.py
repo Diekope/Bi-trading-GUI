@@ -197,57 +197,88 @@ def test_one_position_at_a_time() -> None:
 # -- the tile --------------------------------------------------------------
 
 
-def test_the_tile_advances_and_swaps_its_source(app: QApplication) -> None:
+def test_the_tile_scrolls_between_candles(app: QApplication) -> None:
     tile = PlaybackTile()
     tile.show()
     app.processEvents()
 
     assert tile.source == "example"
-    assert len(tile.playback.candles) == len(sample_candles())
     assert tile.playing() is False
 
     tile.play()
     assert tile.playing() is True
     start = tile.playback.index
-    for _ in range(4):
+    tile._tick()
+    # A frame before the next candle only shifts the picture, it does not step.
+    assert tile.playback.index == start
+    assert 0.0 < tile.player.offset < 1.0
+    for _ in range(3):
         tile._tick()
-    assert tile.playback.index > start
+    assert tile.playback.index == start + 1
+    tile.close()
+
+
+def test_a_change_does_not_restart_the_walk(app: QApplication) -> None:
+    tile = PlaybackTile()
+    tile.restart()
+    for _ in range(5):
+        tile.playback.advance()
+    index = tile.playback.index
 
     append_rows(
         candle_file(2021),
         [(index * 60_000, 300.0, 301.0, 299.0, 300.0, 1.0) for index in range(12)],
     )
     tile.set_source([2021], "1m")
-
-    assert tile.source == "2021 · 1m"
-    assert len(tile.playback.candles) == 12
-    assert tile.playback.index == 0  # a new source restarts the walk
-    assert tile._metric_labels[0][1].text() != ""
-    tile.close()
-
-
-def test_a_new_capital_restarts_but_a_new_target_does_not(
-    app: QApplication,
-) -> None:
-    tile = PlaybackTile()
-    app.processEvents()
-    for _ in range(3):
-        tile.playback.advance()
-    index = tile.playback.index
-
-    tile.set_params(
-        {
-            "initial_capital": 10_000.0, "tp": 3.0, "sl": 1.0,
-            "position": 10.0, "sizing": "balance", "cash": 2_000.0,
-        }
-    )
-    assert tile.playback.index == index       # same book: keep walking
-    assert tile.playback.tp == pytest.approx(3.0)
-
     tile.set_params(
         {
             "initial_capital": 5_000.0, "tp": 3.0, "sl": 1.0,
             "position": 10.0, "sizing": "balance", "cash": 2_000.0,
         }
     )
-    assert tile.playback.index == 0           # smaller book: start over
+
+    # Remembered, not applied: the walk keeps its place.
+    assert tile.playback.index == index
+    assert tile.source == "example"
+    assert "press Start backtest" in tile.note.text()
+    assert tile.playback.tp == pytest.approx(2.0)
+    tile.close()
+
+
+def test_the_curve_of_a_finished_series_still_paints(app: QApplication) -> None:
+    """The walk sits one past the end for a frame before it wraps."""
+    tile = PlaybackTile()
+    tile.playback.candles = sample_candles(6)
+    for _ in range(6):
+        tile.playback.advance()
+    tile.show()
+    app.processEvents()
+
+    assert tile.playback.done is True
+    assert not tile.player.grab().toImage().isNull()
+    tile.close()
+
+
+def test_restart_adopts_what_the_controls_say(app: QApplication) -> None:
+    append_rows(
+        candle_file(2021),
+        [(index * 60_000, 300.0, 301.0, 299.0, 300.0, 1.0) for index in range(12)],
+    )
+    tile = PlaybackTile()
+    tile.set_source([2021], "1m")
+    tile.set_params(
+        {
+            "initial_capital": 5_000.0, "tp": 3.0, "sl": 1.0,
+            "position": 10.0, "sizing": "balance", "cash": 2_000.0,
+        }
+    )
+
+    tile.restart()
+
+    assert tile.source == "2021 · 1m"
+    assert len(tile.playback.candles) == 12
+    assert tile.playback.index == 0
+    assert tile.playback.tp == pytest.approx(3.0)
+    assert tile.playback.capital == pytest.approx(5_000.0)
+    assert tile._metric_labels[0][1].text() != ""
+    tile.close()
