@@ -91,7 +91,6 @@ class DownloadTile(Card):
         title.setObjectName("tileTitle")
         self.body.addWidget(title)
 
-        self.body.addWidget(self._caption("Span"))
         span = QHBoxLayout()
         span.setSpacing(6)
         self.start_year = self._year_select(years, years[0])
@@ -103,11 +102,8 @@ class DownloadTile(Card):
         span.addWidget(self.end_year, 1)
         self.body.addLayout(span)
 
-        self.body.addWidget(self._caption("Resolution"))
         self.resolution = ResolutionPicker()
         self.body.addWidget(self.resolution)
-
-        self.body.addStretch(1)
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
@@ -156,11 +152,6 @@ class DownloadTile(Card):
         """Deliberately inert: the backtest is not wired up yet."""
 
     # -- widgets -----------------------------------------------------------
-
-    def _caption(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("fieldLabel")
-        return label
 
     def _year_select(self, years: list[int], current: int) -> QComboBox:
         combo = QComboBox()

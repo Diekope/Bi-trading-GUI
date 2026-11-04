@@ -10,7 +10,13 @@ as one product.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from lalala.panels import Card
 from lalala.strat_tiles import DownloadTile
@@ -53,9 +59,12 @@ class StratWindow(QMainWindow):
         self.blank = Card(self.right)
         self.right.addWidget(self.download)
         self.right.addWidget(self.blank)
+        # The controls tile keeps its content height; the rest goes below.
         self.right.setStretchFactor(0, 0)
         self.right.setStretchFactor(1, 1)
-        self.right.setSizes([220, 400])
+        self.download.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
 
         self.splitter.addWidget(self.left)
         self.splitter.addWidget(self.right)
