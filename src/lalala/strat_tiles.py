@@ -189,18 +189,13 @@ class DownloadTile(Card):
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status.setVisible(False)
 
-        # Start keeps the left half. On the right, the note only takes room
-        # from Download, so the split shifts only when it has something to say.
-        self._right_group = QWidget()
-        self._right_group.setObjectName("coverageRow")
-        right_row = QHBoxLayout(self._right_group)
-        right_row.setContentsMargins(0, 0, 0, 0)
-        right_row.setSpacing(8)
-        right_row.addWidget(self.download_button, 1)
-        right_row.addWidget(self.status, 1)
-
+        # Only one of the two is ever shown: Download while something is
+        # missing, Start backtest once the span is complete and runnable.
+        # Each takes the whole row on its own; when the note has something to
+        # say it shares the row with Download.
         actions.addWidget(self.start_button, 1)
-        actions.addWidget(self._right_group, 1)
+        actions.addWidget(self.download_button, 1)
+        actions.addWidget(self.status, 1)
         self.body.addLayout(actions)
 
         # Which of the two is the one to press breathes gently: Download while
@@ -263,8 +258,11 @@ class DownloadTile(Card):
         needs = bool(missing or partial)
         self.download_button.setEnabled(needs)
         self._set_attention(needs)
-        # The actionable one breathes: Download while data is missing, Start
-        # once the span is complete.
+        # Swap the button to match: Download while data is missing, the big
+        # Start backtest once the span is complete.
+        self.download_button.setVisible(needs)
+        self.start_button.setVisible(not needs)
+        # The actionable one breathes.
         self._pulse(self._glow_download, self._pulse_download, needs)
         self._pulse(self._glow_start, self._pulse_start, not needs)
 

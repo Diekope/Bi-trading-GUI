@@ -182,29 +182,47 @@ def test_the_action_row_is_start_left_download_right(
     assert tile.start_button.text() == "Start backtest"
 
     row = tile.body.itemAt(tile.body.count() - 1).layout()
-    # Start keeps the left half; the note can only eat into Download's half.
+    # Start on the left, Download on the right, the note at the far edge.
     assert row.itemAt(0).widget() is tile.start_button
-    assert row.stretch(0) == 1
-    right = row.itemAt(1).widget()
-    assert row.stretch(1) == 1
+    assert row.itemAt(1).widget() is tile.download_button
+    assert row.itemAt(2).widget() is tile.status
+    for index in range(3):
+        assert row.stretch(index) == 1
 
-    right_row = right.layout()
-    assert right_row.itemAt(0).widget() is tile.download_button
-    assert right_row.itemAt(1).widget() is tile.status
-    assert right_row.stretch(0) == 1
-    assert right_row.stretch(1) == 1
+
+def test_only_the_relevant_button_is_shown(app: QApplication, window) -> None:
+    tile = window.download
+
+    # Nothing on disk: Download stands alone, Start is out of the way.
+    assert tile.download_button.isVisible() is True
+    assert tile.start_button.isVisible() is False
+
+    # Complete span: the big Start backtest takes the row, Download goes.
+    tile.start_year.setCurrentText("2017")
+    tile.end_year.setCurrentText("2017")
+    tile.resolution.group.button(2).click()  # 1h
+    _write_year(2017, "1h", 365 * 24)
+    tile.refresh()
+    app.processEvents()
+
+    assert tile.start_button.isVisible() is True
+    assert tile.download_button.isVisible() is False
+    assert tile.status.isVisible() is False
+    # With the note and Download gone, Start owns the whole row.
+    assert tile.start_button.width() > tile.width() * 0.8
 
 
 def test_the_note_only_squeezes_download(app: QApplication, window) -> None:
     tile = window.download
     assert tile.status.isVisible() is True  # missing years in the empty temp dir
+    assert tile.start_button.isVisible() is False
 
-    row = tile.body.itemAt(tile.body.count() - 1).layout()
-    right = row.itemAt(1).widget()
-    # Start keeps its half; on the right, Download and the note share it.
-    assert abs(tile.start_button.width() - right.width()) <= 8
-    assert tile.download_button.width() < right.width()
+    # Download and the note share the row; the note never touches anything else.
+    assert tile.download_button.width() < tile.width()
     assert tile.status.width() > 0
+    assert tile.download_button.width() == pytest.approx(
+        tile.status.width(), abs=8
+    )
 
 
 def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
@@ -232,7 +250,7 @@ def test_containers_do_not_show_the_canvas(app: QApplication, window) -> None:
 
     tile = window.download
     image = window.grab().toImage()
-    for widget in (tile.resolution, tile._right_group):
+    for widget in (tile.resolution,):
         y = widget.mapTo(window, widget.rect().center()).y()
         seen = {
             image.pixelColor(

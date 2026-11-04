@@ -76,7 +76,7 @@ QSplitter#stratColumn::handle:vertical {{
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
-#coverageRow, #resolutionPicker {{
+#resolutionPicker {{
     background-color: transparent;
 }}
 
