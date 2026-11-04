@@ -17,10 +17,14 @@ from pathlib import Path
 
 ASSET = "BTC"
 RESOLUTION = "1m"          # the only resolution ever downloaded
-CANDLES_PER_DAY = 1440     # one-minute bars
 COMPLETE = 0.99            # a full year with a few venue outages is "complete"
 MINUTE_MS = 60_000
 HEADER = "timestamp,open,high,low,close,volume\n"
+
+# The BTCUSDT spot pair opened on this minute. Nothing exists before it, so
+# 2017 is only expected from here — otherwise the first year could never be
+# called complete and its Download would never clear.
+HISTORY_START_MS = 1_502_942_400_000  # 2017-08-17T04:00Z
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,28 +56,28 @@ def ensure_data_dir() -> Path:
     return target
 
 
-def _is_leap(year: int) -> bool:
-    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+def _stamp(year: int, month: int, day: int) -> int:
+    return int(
+        datetime(year, month, day, tzinfo=timezone.utc).timestamp() * 1000
+    )
 
 
 def expected_rows(year: int, now: datetime | None = None) -> int:
-    """One-minute bars a whole year holds, or the part already elapsed.
+    """One-minute bars a year should hold, clipped to what can exist.
 
-    The current year is only expected up to today, so a run that is still
-    collecting this year is not called short.
+    The span starts at the pair's listing, not at the calendar, and the
+    current year only counts up to today, so a run still collecting this year
+    is not called short.
     """
     if now is None:
         now = datetime.now(tz=timezone.utc)
-    days = 366 if _is_leap(year) else 365
+    start = max(_stamp(year, 1, 1), HISTORY_START_MS)
+    end = _stamp(year + 1, 1, 1)
     if year == now.year:
-        days = max(1, now.timetuple().tm_yday)
-    return days * CANDLES_PER_DAY
-
-
-def expected_until(year: int, moment_ms: int) -> int:
-    """Bars a year should hold given a wall-clock cutoff."""
-    moment = datetime.fromtimestamp(moment_ms / 1000, tz=timezone.utc)
-    return expected_rows(year, moment)
+        end = min(end, int(now.timestamp() * 1000))
+    if end <= start:
+        return 0
+    return (end - start) // MINUTE_MS
 
 
 def row_count(path: Path) -> int:

@@ -171,6 +171,22 @@ QPushButton#startButton:hover {{
 #venuePanel QLabel#coverageLabel[state="partial"] {{
     color: {ACCENT};
 }}
+#venuePanel QLabel#fieldLabel {{
+    color: {TEXT_FAINT};
+    font-size: 10px;
+}}
+#venuePanel QLabel#hintLabel {{
+    color: {TEXT_FAINT};
+    font-size: 9px;
+}}
+#venuePanel QCheckBox#paramToggle {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    spacing: 6px;
+}}
+#venuePanel QCheckBox#paramToggle:hover {{
+    color: {TEXT};
+}}
 
 /* Popup is a top-level window, so it must be styled at app level. */
 QListWidget#marketResults {{

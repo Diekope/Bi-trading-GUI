@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from lalala import candles  # noqa: E402
 from lalala.candles import append_rows, candle_file  # noqa: E402
 from lalala.panels import Card  # noqa: E402
+from lalala.strat_params import DEFAULTS, ParamsTile  # noqa: E402
 from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
 from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
@@ -79,14 +80,25 @@ def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
     assert image.pixelColor(gap).name() == CANVAS
 
 
-def test_the_right_side_stacks_two_tiles(app: QApplication, window) -> None:
+def test_the_right_side_stacks_three_tiles(app: QApplication, window) -> None:
     column = window.right
     assert column.orientation() == Qt.Orientation.Vertical
-    assert column.count() == 2
+    assert column.count() == 3
     assert column.widget(0) is window.download
-    assert column.widget(1) is window.blank
+    assert column.widget(1) is window.params
+    assert column.widget(2) is window.blank
     assert isinstance(window.download, Card)
+    assert isinstance(window.params, Card)
     assert window.blank.findChildren(Card) == []
+
+
+def test_the_parameters_and_results_tiles_share_the_space(
+    app: QApplication, window
+) -> None:
+    app.processEvents()
+    _, params, results = window.right.sizes()
+
+    assert abs(params - results) <= 1
 
 
 def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:
@@ -251,7 +263,6 @@ def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
 
 # -- downloading -----------------------------------------------------------
 
-
 def test_download_asks_only_for_the_years_that_are_short(
     app: QApplication, window, monkeypatch
 ) -> None:
@@ -307,3 +318,41 @@ def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> No
 
     assert "download failed" in tile.status.text()
     assert tile.download_button.isEnabled() is True
+
+
+# -- backtest parameters ---------------------------------------------------
+
+
+def test_the_parameters_start_from_the_defaults(window) -> None:
+    tile = window.params
+
+    assert tile.params() == {
+        "tp": 2.0,
+        "sl": 1.0,
+        "position": 10.0,
+        "cash": 20.0,
+        "dynamic_tp": False,
+    }
+    assert tile.tp_field.text() == DEFAULTS["tp"]
+
+
+def test_the_fields_only_take_numbers(window) -> None:
+    from PySide6.QtGui import QValidator
+
+    tile = window.params
+    validator = tile.position_field.validator()
+
+    assert validator.validate("12.5", 0)[0] == QValidator.State.Acceptable
+    # Letters never become a number, and a percentage cannot exceed
+    # the whole book, so neither is ever accepted.
+    assert validator.validate("abc", 0)[0] != QValidator.State.Acceptable
+    assert validator.validate("120", 0)[0] != QValidator.State.Acceptable
+
+
+def test_dynamic_tp_is_a_switch(window) -> None:
+    tile = window.params
+
+    assert tile.dynamic_tp.isChecked() is False
+    tile.dynamic_tp.setChecked(True)
+    assert tile.params()["dynamic_tp"] is True
+

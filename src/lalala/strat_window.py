@@ -1,10 +1,9 @@
-"""A blank second window, the starting point for the backtest/strategy work.
+"""The backtest/strategy window.
 
-Nothing is drawn yet: it exists so the backtest and strategy screens have a
-place to grow, beside the live terminal rather than inside it. It splits in
-half — two empty floating cards on the same canvas — so the two screens have
-their own side, and it shares the shell's theme and gap, so the windows read
-as one product.
+Two halves. The left is still open. The right stacks three tiles: the history
+controls on top, the backtest parameters below them, and an empty tile under
+that, the lower two sharing the space equally. It shares the terminal's theme
+and gap, so the two windows read as one product.
 """
 
 from __future__ import annotations
@@ -19,12 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.panels import Card
+from lalala.strat_params import ParamsTile
 from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
 
 
 class StratWindow(QMainWindow):
-    """Empty dark window, split in two. Fill the halves with the screens."""
+    """Left half open, right half stacked into three tiles."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -49,19 +49,23 @@ class StratWindow(QMainWindow):
 
         self.left = Card(self.splitter)
 
-        # The right side stacks two tiles: the data controls on top, a second
-        # tile underneath for whatever it feeds.
+        # The right side stacks three tiles: the history controls on top, then
+        # backtest parameters and a still-empty results tile, the last two
+        # sharing the space below equally.
         self.right = QSplitter(Qt.Orientation.Vertical, self.splitter)
         self.right.setObjectName("stratColumn")
         self.right.setChildrenCollapsible(False)
         self.right.setHandleWidth(CARD_GAP)
         self.download = DownloadTile(self.right)
+        self.params = ParamsTile(self.right)
         self.blank = Card(self.right)
         self.right.addWidget(self.download)
+        self.right.addWidget(self.params)
         self.right.addWidget(self.blank)
         # The controls tile keeps its content height; the rest goes below.
         self.right.setStretchFactor(0, 0)
         self.right.setStretchFactor(1, 1)
+        self.right.setStretchFactor(2, 1)
         self.download.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
@@ -74,3 +78,14 @@ class StratWindow(QMainWindow):
 
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
+        self._balanced = False
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Give the two lower tiles the same height once the real size is known."""
+        super().showEvent(event)
+        if self._balanced:
+            return
+        self._balanced = True
+        top = self.download.sizeHint().height()
+        rest = max(2, self.right.height() - top - 2 * CARD_GAP)
+        self.right.setSizes([top, rest // 2, rest - rest // 2])
