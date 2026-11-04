@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.panels import Card
-from lalala.theme import ACCENT, DOWN
 
 # History starts here: the venues' pre-2017 coverage is thin, so the picker
 # should not imply it is there.
@@ -186,9 +185,7 @@ class DownloadTile(Card):
         self.download_button.setToolTip("Fetch this span of history")
         self.status = QLabel("")
         self.status.setObjectName("coverageLabel")
-        self.status.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status.setVisible(False)
 
         # Start keeps the left half. On the right, the note only takes room
@@ -255,9 +252,9 @@ class DownloadTile(Card):
         self._normalize_span()
         missing, partial = self.coverage()
         if missing:
-            self._set_status(f"missing {format_years(missing)}", DOWN)
+            self._set_status(f"missing {format_years(missing)}", "missing")
         elif partial:
-            self._set_status(f"partial {format_years(partial)}", ACCENT)
+            self._set_status(f"partial {format_years(partial)}", "partial")
         else:
             self._set_status("")
 
@@ -314,11 +311,15 @@ class DownloadTile(Card):
         finally:
             self._adjusting = False
 
-    def _set_status(self, text: str, color: str | None = None) -> None:
+    def _set_status(self, text: str, state: str | None = None) -> None:
+        """Show the note; `state` names the color it borrows from the theme."""
         self.status.setText(text)
         self.status.setVisible(bool(text))
-        if color is not None:
-            self.status.setStyleSheet(f"color: {color};")
+        if state is not None:
+            self.status.setProperty("state", state)
+            style = self.status.style()
+            style.unpolish(self.status)
+            style.polish(self.status)
 
     def _set_attention(self, flag: bool) -> None:
         """Give Download a little color while the span is not complete."""

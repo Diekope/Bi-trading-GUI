@@ -20,7 +20,7 @@ from lalala.strat_tiles import (  # noqa: E402
     expected_rows,
 )
 from lalala.strat_window import StratWindow  # noqa: E402
-from lalala.theme import ACCENT, CANVAS, DOWN, apply_dark_theme  # noqa: E402
+from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -113,7 +113,7 @@ def test_an_empty_span_is_missing_and_flags_download(window) -> None:
 
     assert tile.status.isVisible() is True
     assert tile.status.text() == f"missing {FIRST_YEAR}–{datetime.now().year}"
-    assert DOWN in tile.status.styleSheet()
+    assert tile.status.property("state") == "missing"
     # Download is offered, and carries the amber "needs data" edge.
     assert tile.download_button.isEnabled() is True
     assert tile.download_button.property("attention") is True
@@ -131,7 +131,7 @@ def test_a_short_year_reads_as_partial_in_amber(window) -> None:
     assert missing == []
     assert partial == [2017]
     assert tile.status.text() == "partial 2017"
-    assert ACCENT in tile.status.styleSheet()
+    assert tile.status.property("state") == "partial"
     assert tile.download_button.isEnabled() is True
 
 
