@@ -98,12 +98,12 @@ whole trail can be grabbed.
 Dragging moves the chart with the pointer. Sideways walks one candle per
 on-screen slot, so a deep zoom needs a longer drag but still lands exactly on a
 bar. Up and down pull the price window with the pointer, one pixel for one
-pixel, and the grab holds: new candles no longer re-centre the scale under your
-hand. That is what recovers the live bars when a deep zoom plus a price stretch
-has pushed them out of view. If the live price is off the plot, its label and a
-small wedge stay pinned to the edge it left through, so it is obvious which way
-to drag back. Double-click (or `End` / `0`) releases the grab and fits the
-range again. A press that moves less than a few pixels stays a click.
+pixel, and the grab is not undone by the next tick. That is what recovers the
+live bars when a deep zoom plus a price stretch has pushed them out of view. If
+the live price is off the plot, its label and a small wedge stay pinned to the
+edge it left through, so it is obvious which way to drag back. Double-click (or
+`End` / `0`) releases the grab and fits the range again. A press that moves
+less than a few pixels stays a click.
 
 Zooming out stops at 600 bars (`MAX_VISIBLE`). Before that cap the requested
 window kept growing while the series was short — invisibly, since only the

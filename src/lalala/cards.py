@@ -96,7 +96,7 @@ class CandleChart(QWidget):
     when the live candles are far from the ones on screen — the natural range
     fits what is visible, and a price-axis zoom can still push the newest bars
     out of view. The vertical grip is stored in pixels, so the trail follows
-    the pointer one-to-one and keeps its place as new candles arrive.
+    the pointer one-to-one instead of snapping back to a fitted scale.
 
     The chart owns the deep history: `set_series` replaces it, `merge_series`
     unions the live/reconcile feed into it, and `add_history` prepends a page
