@@ -56,7 +56,8 @@ def test_console_entry_point_resolves() -> None:
 
 
 def test_canvas_is_lighter_than_floating_cards(window: MainWindow) -> None:
-    assert QColor(CANVAS).lightness() > QColor(PANEL).lightness()
+    # The canvas is the darker surface: the panels read as raised above it.
+    assert QColor(CANVAS).lightness() < QColor(PANEL).lightness()
     assert window.palette().window().color() == QColor(CANVAS)
 
 

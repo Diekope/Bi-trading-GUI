@@ -7,8 +7,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from lalala.panels import Card  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
 from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
 
@@ -20,7 +22,7 @@ def app() -> QApplication:
     return instance
 
 
-def test_the_window_is_blank_and_shares_the_shell_theme(
+def test_the_window_splits_in_two_empty_halves(
     app: QApplication,
 ) -> None:
     window = StratWindow()
@@ -28,12 +30,17 @@ def test_the_window_is_blank_and_shares_the_shell_theme(
     app.processEvents()
 
     assert window.windowTitle() == "lalala · backtest + strategy"
-    # Nothing is drawn yet: the canvas is the only widget.
-    canvas = window.centralWidget()
-    assert canvas is not None
-    assert canvas.findChildren(type(canvas)) == []
-    # It paints, and paints the shell's canvas colour.
+    # Two equal floating cards, side by side, both still empty.
+    assert window.splitter.count() == 2
+    assert window.splitter.orientation() == Qt.Orientation.Horizontal
+    assert window.left.findChildren(Card) == []
+    assert window.right.findChildren(Card) == []
+    left, right = window.splitter.sizes()
+    assert abs(left - right) <= 1
+    # It paints, and paints the shell's canvas colour through the gap.
     image = window.grab().toImage()
     assert not image.isNull()
-    assert image.pixelColor(window.width() // 2, window.height() // 2).name() == CANVAS
+    handle = window.splitter.handle(1)
+    gap = handle.mapTo(window, handle.rect().center())
+    assert image.pixelColor(gap).name() == CANVAS
     window.close()

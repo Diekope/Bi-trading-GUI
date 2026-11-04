@@ -1,10 +1,11 @@
 """Dark theme, Arch-flavoured.
 
-Two surface levels:
-    CANVAS  the main window, lighter — the "desk" the panels float on
-    PANEL   the floating cards, darker and rounded
+Two surface levels, darkest first:
+    CANVAS  the main window — the "desk" the panels float on, nearly black
+    PANEL   the floating cards, a shade lighter than the desk
 
-The accent is Arch Linux's cyan (#1793d1), used sparingly: one mark per panel.
+The panels sit *above* the canvas, so they are the lighter surface. The accent
+is Arch Linux's cyan (#1793d1), used sparingly: one mark per panel.
 """
 
 from __future__ import annotations
@@ -12,9 +13,9 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-CANVAS = "#17181b"      # main window, blackish but still lighter than the cards
-PANEL = "#0b0b0d"       # floating cards, near-black
-PANEL_ALT = "#151519"   # hover / striping inside a card
+CANVAS = "#0b0b0d"      # main window, darkest: the panels read as raised
+PANEL = "#17181b"       # floating cards, a shade lighter than the canvas
+PANEL_ALT = "#1e1f23"   # hover / striping inside a card, lighter still
 BORDER = "#25262a"      # card edges, splitter hairline
 
 CARD_RADIUS = 6
@@ -61,11 +62,12 @@ QStatusBar::item {{ border: none; }}
     background-color: transparent;
     color: {TEXT_MUTED};
 }}
-QSplitter#cardSplitter, QSplitter#tileSplitter {{
+QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
-QSplitter#tileSplitter::handle:vertical {{
+QSplitter#tileSplitter::handle:vertical,
+QSplitter#stratSplitter::handle:horizontal {{
     background-color: transparent;
 }}
 

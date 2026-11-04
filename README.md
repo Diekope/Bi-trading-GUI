@@ -10,7 +10,8 @@ uv sync          # PySide6, httpx, websockets
 uv run lalala
 ```
 
-A second, still blank window is set aside for the backtest/strategy work:
+A second window, split in two empty halves, is set aside for the
+backtest/strategy work:
 
 ```sh
 uv run lalala-strat
@@ -238,7 +239,7 @@ src/lalala/
   app.py           QApplication bootstrap
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
   strat.py         entry point for the blank backtest/strategy window
-  strat_window.py  blank second window for backtest + strategy work
+  strat_window.py  second window, split in two, for backtest + strategy work
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
   panels.py        Card chrome, MAX_TILES
   cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
@@ -255,7 +256,7 @@ src/lalala/
     runner.py       asyncio loop on a worker thread
 tests/             197 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
-                   shortcuts, overlays, the Polymarket panel, the blank
+                   shortcuts, overlays, the Polymarket panel, the split
                    strategy window
 ```
 
@@ -281,8 +282,8 @@ Palette (`theme.py`):
 
 | Token | Hex | Role |
 | --- | --- | --- |
-| `CANVAS` | `#17181b` | main window, lighter |
-| `PANEL` | `#0b0b0d` | floating cards, darker |
+| `CANVAS` | `#0b0b0d` | main window, darkest |
+| `PANEL` | `#17181b` | floating cards, a shade lighter |
 | `BORDER` | `#25262a` | card edge |
 | `ACCENT` | `#1793d1` | Arch cyan, last-price line |
 | `UP` / `DOWN` | `#3ddc84` / `#ff5c5c` | candles, latency colours, Polymarket sides |
