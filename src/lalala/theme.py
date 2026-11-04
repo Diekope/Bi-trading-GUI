@@ -1,11 +1,11 @@
-"""Dark theme, Arch-flavoured.
+"""Dark theme.
 
 Two surface levels, darkest first:
     CANVAS  the main window — the "desk" the panels float on, nearly black
     PANEL   the floating cards, a shade lighter than the desk
 
 The panels sit *above* the canvas, so they are the lighter surface. The accent
-is Arch Linux's cyan (#1793d1), used sparingly: one mark per panel.
+is amber (#e0b341), used sparingly: one mark per panel.
 """
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ TEXT = "#e4e4e6"
 TEXT_MUTED = "#8a8a90"
 TEXT_FAINT = "#57575c"
 
-ACCENT = "#1793d1"      # Arch cyan
+ACCENT = "#e0b341"      # amber
+ACCENT_DIM = "#4a3a1d"  # accent-tinted border for checked / raised controls
+ACCENT_BG = "#241d0e"   # accent-tinted fill for the same
 UP = "#3ddc84"
 DOWN = "#ff5c5c"
 BAND = "#6f7bd8"        # Bollinger bands, deliberately quieter than ACCENT
@@ -81,6 +83,7 @@ QLineEdit {{
     padding: 3px 7px;
     color: {TEXT};
     selection-background-color: {ACCENT};
+    selection-color: {CANVAS};
 }}
 QLineEdit:focus {{
     border-color: {ACCENT};
@@ -106,6 +109,7 @@ QComboBox QAbstractItemView {{
     border: 1px solid {BORDER};
     color: {TEXT};
     selection-background-color: {ACCENT};
+    selection-color: {CANVAS};
     outline: none;
 }}
 
@@ -127,8 +131,8 @@ QPushButton#actionButton:disabled {{
 }}
 
 QPushButton#startButton {{
-    background-color: #10202a;
-    border: 1px solid #1d3a4a;
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
     border-radius: 4px;
     color: {ACCENT};
     padding: 3px 16px;
@@ -162,7 +166,7 @@ QListWidget#marketResults::item {{
     color: {TEXT};
 }}
 QListWidget#marketResults::item:selected {{
-    background-color: #1d2a35;
+    background-color: {ACCENT_BG};
     color: {ACCENT};
 }}
 
@@ -207,8 +211,8 @@ QPushButton#tfButton:hover {{
 }}
 QPushButton#tfButton:checked {{
     color: {ACCENT};
-    border-color: #1d3a4a;
-    background-color: #10202a;
+    border-color: {ACCENT_DIM};
+    background-color: {ACCENT_BG};
 }}
 
 #latencyLabel {{

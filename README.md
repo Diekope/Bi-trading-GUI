@@ -286,7 +286,7 @@ Palette (`theme.py`):
 | `CANVAS` | `#0b0b0d` | main window, darkest |
 | `PANEL` | `#17181b` | floating cards, a shade lighter |
 | `BORDER` | `#25262a` | card edge |
-| `ACCENT` | `#1793d1` | Arch cyan, last-price line |
+| `ACCENT` | `#e0b341` | amber accent, last-price line |
 | `UP` / `DOWN` | `#3ddc84` / `#ff5c5c` | candles, latency colours, Polymarket sides |
 
 ## Tuning the chart

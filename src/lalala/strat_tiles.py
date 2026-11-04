@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -63,10 +64,12 @@ class ResolutionPicker(QWidget):
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setChecked(index == 0)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
             self.group.addButton(button, index)
             self._values[index] = value
-            layout.addWidget(button)
-        layout.addStretch(1)
+            layout.addWidget(button, 1)
 
         self.group.idClicked.connect(
             lambda index: self.changed.emit(self._values[index])
@@ -95,10 +98,9 @@ class DownloadTile(Card):
         self.end_year = self._year_select(years, years[-1])
         arrow = QLabel("→")
         arrow.setObjectName("spanArrow")
-        span.addWidget(self.start_year)
+        span.addWidget(self.start_year, 1)
         span.addWidget(arrow)
-        span.addWidget(self.end_year)
-        span.addStretch(1)
+        span.addWidget(self.end_year, 1)
         self.body.addLayout(span)
 
         self.body.addWidget(self._caption("Resolution"))
@@ -117,9 +119,8 @@ class DownloadTile(Card):
         self.start_button.setObjectName("startButton")
         self.start_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_button.setToolTip("Not wired up yet")
-        actions.addWidget(self.download_button)
-        actions.addWidget(self.start_button)
-        actions.addStretch(1)
+        actions.addWidget(self.download_button, 1)
+        actions.addWidget(self.start_button, 1)
         self.body.addLayout(actions)
 
         # Grays the Download button the moment the chosen span changes.
@@ -166,4 +167,7 @@ class DownloadTile(Card):
         combo.setObjectName("yearSelect")
         combo.addItems([str(year) for year in years])
         combo.setCurrentText(str(current))
+        combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         return combo
