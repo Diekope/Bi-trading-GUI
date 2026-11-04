@@ -215,6 +215,26 @@ QPushButton#tfButton:checked {{
     background-color: {ACCENT_BG};
 }}
 
+/* Resolution pills in the strategy tile: a light fill sets each one apart
+   from the tile behind it, so the row reads as three separate choices. */
+QPushButton#resButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 9px;
+    padding: 3px 5px;
+}}
+QPushButton#resButton:hover {{
+    color: {TEXT};
+    border-color: {ACCENT_DIM};
+}}
+QPushButton#resButton:checked {{
+    color: {ACCENT};
+    border-color: {ACCENT_DIM};
+    background-color: {ACCENT_BG};
+}}
+
 #latencyLabel {{
     color: {TEXT_MUTED};
     font-size: 10px;

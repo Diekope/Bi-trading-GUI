@@ -60,7 +60,7 @@ class ResolutionPicker(QWidget):
         self._values: dict[int, str] = {}
         for index, value in enumerate(RESOLUTIONS):
             button = QPushButton(value)
-            button.setObjectName("tfButton")
+            button.setObjectName("resButton")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setChecked(index == 0)
