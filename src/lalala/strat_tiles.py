@@ -15,10 +15,11 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -174,6 +175,10 @@ class DownloadTile(Card):
 
         actions = QHBoxLayout()
         actions.setSpacing(8)
+        self.start_button = QPushButton("Start backtest")
+        self.start_button.setObjectName("startButton")
+        self.start_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.start_button.setToolTip("Not wired up yet")
         self.download_button = QPushButton("Download")
         self.download_button.setObjectName("actionButton")
         self.download_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -181,14 +186,22 @@ class DownloadTile(Card):
         self.status = QLabel("")
         self.status.setObjectName("coverageLabel")
         self.status.setVisible(False)
-        self.start_button = QPushButton("Start")
-        self.start_button.setObjectName("startButton")
-        self.start_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.start_button.setToolTip("Not wired up yet")
+        # Start on the left, Download on the right, the note at the far edge.
+        actions.addWidget(self.start_button)
+        actions.addStretch(1)
+        actions.addWidget(self.download_button)
         actions.addWidget(self.status)
-        actions.addWidget(self.download_button, 1)
-        actions.addWidget(self.start_button, 1)
         self.body.addLayout(actions)
+
+        # A gentle pulse on Download while the span still needs fetching.
+        self._glow = QGraphicsOpacityEffect(self.download_button)
+        self.download_button.setGraphicsEffect(self._glow)
+        self._blink = QPropertyAnimation(self._glow, b"opacity", self)
+        self._blink.setDuration(1500)
+        self._blink.setKeyValueAt(0.0, 1.0)
+        self._blink.setKeyValueAt(0.5, 0.55)
+        self._blink.setKeyValueAt(1.0, 1.0)
+        self._blink.setLoopCount(-1)
 
         # Re-check coverage the moment the chosen span or resolution changes.
         self.start_year.currentIndexChanged.connect(self.refresh)
@@ -257,6 +270,13 @@ class DownloadTile(Card):
         style = self.download_button.style()
         style.unpolish(self.download_button)
         style.polish(self.download_button)
+
+        if flag:
+            if self._blink.state() != QPropertyAnimation.State.Running:
+                self._blink.start()
+        else:
+            self._blink.stop()
+            self._glow.setOpacity(1.0)
 
     def _on_start(self) -> None:
         """Deliberately inert: the backtest is not wired up yet."""

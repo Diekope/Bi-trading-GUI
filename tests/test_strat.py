@@ -173,3 +173,38 @@ def test_start_does_nothing_yet(app: QApplication, window) -> None:
 
     assert tile.start_button.isEnabled() is True
     assert (tile.span(), tile.has_data()) == before
+
+
+def test_the_action_row_is_start_left_download_right(
+    app: QApplication, window
+) -> None:
+    tile = window.download
+    assert tile.start_button.text() == "Start backtest"
+
+    row = tile.body.itemAt(tile.body.count() - 1).layout()
+    placed = [
+        row.itemAt(i).widget()
+        for i in range(row.count())
+        if row.itemAt(i).widget() is not None
+    ]
+    # Start left, Download right, the coverage note at the far right edge.
+    assert placed == [tile.start_button, tile.download_button, tile.status]
+    assert row.itemAt(1).spacerItem() is not None
+
+
+def test_download_pulses_while_the_span_needs_fetching(window) -> None:
+    tile = window.download
+
+    assert tile.download_button.graphicsEffect() is tile._glow
+    assert tile._blink.loopCount() == -1
+    assert tile._blink.state() == tile._blink.State.Running
+
+    # A complete span stops the pulse and restores full opacity.
+    tile.start_year.setCurrentText("2017")
+    tile.end_year.setCurrentText("2017")
+    tile.resolution.group.button(2).click()  # 1h
+    _write_year(2017, "1h", 365 * 24)
+    tile.refresh()
+
+    assert tile._blink.state() == tile._blink.State.Stopped
+    assert tile._glow.opacity() == pytest.approx(1.0)
