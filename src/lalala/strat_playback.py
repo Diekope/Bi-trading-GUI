@@ -19,6 +19,7 @@ against a candle's range, so if one candle touches both, the target wins.
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,9 +40,7 @@ from lalala.cards import mono_font
 from lalala.panels import Card
 from lalala.theme import (
     ACCENT,
-    BORDER,
     DOWN,
-    PANEL_ALT,
     TEXT_FAINT,
     TEXT_MUTED,
     UP,
@@ -49,7 +48,7 @@ from lalala.theme import (
 
 # Bars the loop walks before it starts over, and how long each one is on screen.
 BARS_TO_PLAY = 400
-STEP_MS = 90
+STEP_MS = 50
 FRAME_MS = 30
 # How fast the price window chases the data. Lower is calmer; the tile is
 # unreadable when the scale snaps on every new extreme.
@@ -230,6 +229,7 @@ class Playback:
         self.markers: list[tuple[int, str, float]] = []
         self.bars_in_market = 0
         self.entry_cost = 0.0
+        self.equity_curve: list[float] = [self.capital]
 
     @property
     def done(self) -> bool:
@@ -246,7 +246,13 @@ class Playback:
 
     @property
     def equity(self) -> float:
-        return self.cash + self.qty * self.close_price()
+        """The realised book: capital plus what closed trades made.
+
+        An open position is carried at what it cost, so entering a trade does
+        not move the figures — only the fee, and then the result when it
+        closes. Unrealised profit is deliberately not shown.
+        """
+        return self.cash + self.qty * self.entry_price
 
     def drawdown(self) -> float:
         if self.peak <= 0:
@@ -264,6 +270,29 @@ class Playback:
         return sum(1 for value in self.trade_returns if value > 0) / len(
             self.trade_returns
         )
+
+    @property
+    def sharpe(self) -> float:
+        """Mean over deviation of the per-bar book returns — not annualised.
+
+        The walk is minutes long, so annualising would multiply a handful of
+        trades by the square root of a year and produce a number that says
+        nothing. The plain ratio is the honest shape of it.
+        """
+        curve = self.equity_curve
+        returns = [
+            curve[i] / curve[i - 1] - 1.0
+            for i in range(1, len(curve))
+            if curve[i - 1] > 0
+        ]
+        if len(returns) < 2:
+            return 0.0
+        mean = sum(returns) / len(returns)
+        variance = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
+        deviation = variance ** 0.5
+        if deviation == 0:
+            return 0.0
+        return mean / deviation
 
     @property
     def exposure(self) -> float:
@@ -288,12 +317,11 @@ class Playback:
         self.peak = max(self.peak, self.equity)
         self.max_drawdown = min(self.max_drawdown, self.drawdown())
         self.max_gain = max(self.max_gain, self.equity / self.capital - 1.0)
+        self.equity_curve.append(self.equity)
         self.index += 1
 
     def advance(self) -> None:
-        """One tick of the loop: step, and start over at the end."""
-        if self.done:
-            self.reset()
+        """One tick of the loop. It stops at the end; starting over is a choice."""
         self.step()
 
     def _wants_long(self, candle: Candle, previous: Candle) -> bool:
@@ -365,7 +393,11 @@ class Playback:
         return [
             ("PnL", f"{pnl * 100:+,.2f}%", "accent" if pnl >= 0 else "down"),
             ("Equity", _money(self.equity), "text"),
-            ("Cash", _money(self.cash), "muted"),
+            (
+                "Sharpe",
+                f"{self.sharpe:,.2f}" if self.trades else "—",
+                "accent" if self.sharpe > 1 else "muted",
+            ),
             (
                 "Drawdown",
                 f"{self.drawdown() * 100:,.2f}%",
@@ -421,7 +453,8 @@ class CandlePlayer(QWidget):
         width = float(self.width())
         height = float(self.height())
 
-        left = 54.0
+        # No price grid: just the candles, as wide as the tile allows.
+        left = 8.0
         right = width - 8.0
         top = 18.0
         bottom = height - 16.0
@@ -439,9 +472,13 @@ class CandlePlayer(QWidget):
             return
 
         room = self.visible_count(width)
-        # The walk can sit one past the end for a frame before it wraps.
+        # The walk can sit one past the end for a frame before it stops.
         last = min(self.playback.index, len(self.playback.candles) - 1)
-        first = max(0, last - room + 1)
+        # A fractional playhead: the newest candle rides just inside the right
+        # edge and slides left, so filling the tile never jumps the picture.
+        playhead = last + self.offset
+        slot = (right - left) / room
+        first = max(0, int(math.ceil(playhead + 0.5 - room)))
         window = self.playback.candles[first : last + 1]
         if not window:
             return
@@ -456,27 +493,11 @@ class CandlePlayer(QWidget):
             self._high += (high + pad - self._high) * EASE_RANGE
         low, high = self._low, self._high
 
-        slot = (right - left) / room
-
         def x_of(position: int) -> float:
-            return left + (position - first + 0.5 - self.offset) * slot
+            return right - (playhead - position + 0.5) * slot
 
         def y_of(value: float) -> float:
             return bottom - (value - low) / (high - low) * (bottom - top)
-
-        # Grid, labelled in dollars.
-        painter.setFont(mono_font(7))
-        for step in range(3):
-            value = low + (high - low) * step / 2.0
-            y = y_of(value)
-            painter.setPen(QPen(QColor(BORDER), 1))
-            painter.drawLine(left, y, right, y)
-            painter.setPen(QColor(TEXT_FAINT))
-            painter.drawText(
-                QRectF(0, y - 7, left - 6, 14),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                f"{value:,.0f}",
-            )
 
         body = max(1.0, slot * 0.6)
         for position, bar in enumerate(window, start=first):
@@ -512,19 +533,18 @@ class CandlePlayer(QWidget):
                     )
                 )
 
-        # While a position is open, its entry price rides across the plot.
-        if self.playback.in_position and self.playback.entry_price > 0:
-            y = y_of(self.playback.entry_price)
-            painter.setPen(QPen(QColor(PANEL_ALT), 1, Qt.PenStyle.DashLine))
-            painter.drawLine(QPointF(left, y), QPointF(right, y))
-
-        # Times at both ends of the window, kept inside the plot.
+        # Times: the newest at the right edge, and the oldest only once the
+        # trail has actually reached the left of the plot.
         painter.setFont(mono_font(7))
         painter.setPen(QColor(TEXT_FAINT))
-        for position, x, align in (
-            (first, left, Qt.AlignmentFlag.AlignLeft),
-            (last, right - 68.0, Qt.AlignmentFlag.AlignRight),
-        ):
+        stamps: list[tuple[int, float, Qt.AlignmentFlag]] = [
+            (last, right - 68.0, Qt.AlignmentFlag.AlignRight)
+        ]
+        if x_of(first) >= left - slot * 0.6:
+            stamps.append((first, left, Qt.AlignmentFlag.AlignLeft))
+        for position, x, align in stamps:
+            if not 0 <= position < len(self.playback.candles):
+                continue
             bar = self.playback.candles[position]
             stamp = datetime.fromtimestamp(bar.stamp / 1000, tz=timezone.utc)
             painter.drawText(
@@ -579,6 +599,12 @@ class PlaybackTile(Card):
         self._metric_columns = 0
         self._reflow_metrics(WIDE_METRICS)
         self.body.addLayout(self._metrics)
+        for caption, value in self._metric_labels:
+            if caption.text() == "Sharpe":
+                value.setToolTip(
+                    "Mean over deviation of the per-bar book returns, "
+                    "not annualised"
+                )
 
         self.player = CandlePlayer(self.playback)
         self.body.addWidget(self.player, 1)
@@ -593,6 +619,15 @@ class PlaybackTile(Card):
     # -- the loop ----------------------------------------------------------
 
     def _tick(self) -> None:
+        if self.playback.done:
+            # It stops here. Starting over is a decision, not a loop.
+            self.pause()
+            self.run_button.setText("Run")
+            self.note.setText(
+                f"finished — {self.playback.trades} trades, "
+                f"{self.playback.win_rate * 100:,.0f}% won, press Run to replay"
+            )
+            return
         self._elapsed += FRAME_MS
         if self._elapsed >= STEP_MS:
             self._elapsed -= STEP_MS

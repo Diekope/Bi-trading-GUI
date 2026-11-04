@@ -316,25 +316,34 @@ data gap rather than filled through it. The entry rule is a separate tile.
 
 ## Playback tile
 
-The left half holds the run as a moving picture: candles scroll past a
-playhead, the entries and exits are marked on them, and a row of figures above
-recomputes on every candle — PnL, equity, cash, drawdown, max drawdown, max
-gain, the current streak, the best winning and worst losing streak, trades,
-win rate, fees.
+The left half holds the run as a moving picture: bare candles scroll past a
+playhead while a row of figures above recomputes on every candle — PnL,
+equity, Sharpe, drawdown, max drawdown, max gain, the current streak, the best
+winning and worst losing streak, trades, win rate, fees.
 
-It is a **preview**, not an engine. Two things are provisional and labelled as
-such in the tile: the entry rule is a placeholder (enter long when a candle
-closes above the one before it), and the candles come from the local store's
-most recent year in the span when there is one, from a fixed-seed walk
-otherwise. Fills are the optimistic kind — the target and the stop are both
-checked against a candle's range, so if one candle touches both, the target
-wins.
+- **Equity is realised only.** An open position is carried at what it cost, so
+  entering a trade moves nothing but its fee; the result lands when it closes.
+  Unrealised profit is deliberately not shown.
+- **Sharpe is not annualised** — the walk is minutes long, so multiplying by
+  the square root of a year would produce a meaningless number. It is the mean
+  over deviation of the per-bar book returns.
+- **The marks**: an amber ▲ under a candle is an entry, a grey ▼ above one is
+  an exit.
+- **It stops at the end** of its series rather than looping, and says how the
+  run finished. Starting over is a button, never automatic.
 
-The chart slides between candles rather than hopping a whole slot, so it
-scrolls like a live one, and the figures step once per candle. A change of
+Two things are provisional and labelled as such in the tile: the entry rule is
+a placeholder (enter long when a candle closes above the one before it), and
+the candles come from the local store's most recent year in the span when there
+is one, from a fixed-seed walk otherwise. Fills are the optimistic kind — the
+target and the stop are both checked against a candle's range, so if one candle
+touches both, the target wins.
+
+Nothing runs when the window opens: the tile sits idle until **Run** (in its
+header) or **Start backtest** (in the history tile) is pressed. A change of
 span, resolution or parameter is only remembered — the walk keeps its place
-and the note says `press Start backtest` — so the one thing that starts a run
-over is that button. When the walk reaches the end of its series it loops.
+and the note says what is ready — so those buttons are the only thing that
+starts a run over.
 ```
 
 ## Window layout

@@ -138,7 +138,6 @@ def test_a_target_touch_closes_the_trade_in_profit() -> None:
     # $100 of notional at 101, closed at the 2% target (103.02): about +$2.
     assert play.equity == pytest.approx(1_002.0, abs=0.05)
 
-
 def test_a_stop_touch_closes_the_trade_at_a_loss() -> None:
     bars = [_bar(0, 100.0), _bar(1, 101.0), _bar(2, 101.0, low=98.0)]
     play = _playback(bars)
@@ -152,7 +151,7 @@ def test_a_stop_touch_closes_the_trade_at_a_loss() -> None:
     assert play.max_drawdown < 0.0
 
 
-def test_equity_is_cash_plus_the_open_position() -> None:
+def test_the_book_is_realised_only() -> None:
     bars = [_bar(0, 100.0), _bar(1, 100.0)]  # flat: nothing to enter on
     play = _playback(bars)
     play.step()
@@ -162,12 +161,13 @@ def test_equity_is_cash_plus_the_open_position() -> None:
     for _ in range(2):
         rising.step()
     assert rising.in_position is True
-    assert rising.equity == pytest.approx(
-        rising.cash + rising.qty * 105.0, rel=1e-9
-    )
+    # The open position is carried at cost, so entering does not move the book
+    # and the rising close is not counted until the trade closes.
+    assert rising.equity == pytest.approx(1_000.0)
+    assert rising.cash == pytest.approx(900.0)
 
 
-def test_the_loop_starts_over_at_the_end() -> None:
+def test_the_walk_stops_at_the_end() -> None:
     play = _playback([_bar(0, 100.0), _bar(1, 101.0)])
 
     play.advance()
@@ -176,11 +176,13 @@ def test_the_loop_starts_over_at_the_end() -> None:
     assert play.index == 2
     assert play.done is True
 
-    play.advance()  # wraps: reset, then the first step of the new loop
+    play.advance()  # no loop, no reset: starting over is a decision
 
-    assert play.index == 1
-    assert play.trades == 0
-    assert play.equity == pytest.approx(1_000.0, rel=1e-3)
+    assert play.index == 2
+    assert play.done is True
+    # Still holding the trade it opened; nothing was closed and nothing reset.
+    assert play.in_position is True
+    assert play.equity == pytest.approx(1_000.0)
 
 
 def test_one_position_at_a_time() -> None:
@@ -211,13 +213,31 @@ def test_the_tile_scrolls_between_candles(app: QApplication) -> None:
     assert tile.playing() is True
     assert tile.playback.candles
     start = tile.playback.index
-    tile._tick()
     # A frame before the next candle only shifts the picture, it does not step.
+    tile._tick()
     assert tile.playback.index == start
     assert 0.0 < tile.player.offset < 1.0
-    for _ in range(3):
+    steps = 1
+    while tile.playback.index == start and steps < 6:
         tile._tick()
+        steps += 1
     assert tile.playback.index == start + 1
+    tile.close()
+
+
+def test_the_tile_stops_at_the_end_of_the_series(app: QApplication) -> None:
+    tile = PlaybackTile()
+    tile.playback.candles = sample_candles(3)
+    tile.restart()
+    tile.playback.candles = sample_candles(3)
+    for _ in range(20):
+        tile._tick()
+
+    assert tile.playback.done is True
+    assert tile.playing() is False          # it stopped on its own
+    assert tile.run_button.text() == "Run"
+    assert "finished" in tile.note.text()
+    assert tile.playback.index == 3         # and did not start over
     tile.close()
 
 
