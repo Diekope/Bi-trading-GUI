@@ -226,6 +226,23 @@ def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
     assert tile.end_year.currentText() == "2018"
 
 
+def test_containers_do_not_show_the_canvas(app: QApplication, window) -> None:
+    """A plain child widget must not paint the dark canvas over the card."""
+    from lalala.theme import CANVAS
+
+    tile = window.download
+    image = window.grab().toImage()
+    for widget in (tile.resolution, tile._right_group):
+        y = widget.mapTo(window, widget.rect().center()).y()
+        seen = {
+            image.pixelColor(
+                widget.mapTo(window, widget.rect().topLeft()).x() + dx, y
+            ).name()
+            for dx in range(4, widget.width() - 4, 7)
+        }
+        assert CANVAS not in seen, widget.objectName()
+
+
 def test_the_actionable_button_is_the_one_that_pulses(window) -> None:
     tile = window.download
 

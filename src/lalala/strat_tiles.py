@@ -118,6 +118,7 @@ class ResolutionPicker(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("resolutionPicker")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -191,6 +192,7 @@ class DownloadTile(Card):
         # Start keeps the left half. On the right, the note only takes room
         # from Download, so the split shifts only when it has something to say.
         self._right_group = QWidget()
+        self._right_group.setObjectName("coverageRow")
         right_row = QHBoxLayout(self._right_group)
         right_row.setContentsMargins(0, 0, 0, 0)
         right_row.setSpacing(8)

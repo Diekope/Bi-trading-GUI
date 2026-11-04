@@ -75,6 +75,11 @@ QSplitter#stratColumn::handle:vertical {{
     background-color: transparent;
 }}
 
+/* Plain containers inside a card must not paint the canvas colour. */
+#coverageRow, #resolutionPicker {{
+    background-color: transparent;
+}}
+
 /* -- inputs ---------------------------------------------------------- */
 QLineEdit {{
     background-color: {PANEL_ALT};
