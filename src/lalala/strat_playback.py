@@ -24,7 +24,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
+from PySide6.QtCore import QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -198,6 +198,9 @@ class Playback:
         max_cash: float = 2_000.0,
         fee: float = 0.0006,
         max_hold: int = 90,
+        rule: str = "momentum",
+        seed: int = 1234,
+        entry_chance: float = 0.03,
     ) -> None:
         self.candles = list(candles)
         self.capital = capital
@@ -208,11 +211,15 @@ class Playback:
         self.max_cash = max_cash
         self.fee = fee
         self.max_hold = max_hold
+        self.rule = rule
+        self.seed = seed
+        self.entry_chance = entry_chance
         self.reset()
 
     # -- state -------------------------------------------------------------
 
     def reset(self) -> None:
+        self._rng = random.Random(self.seed)
         self.index = 0
         self.cash = self.capital
         self.qty = 0.0
@@ -325,14 +332,28 @@ class Playback:
         self.step()
 
     def _wants_long(self, candle: Candle, previous: Candle) -> bool:
-        """Placeholder entry: the candle closed above the one before it."""
-        return self.index > 0 and candle.close > previous.close
+        """When to open, per the rule.
+
+        `momentum` is the placeholder stand-in for a real entry rule: buy when
+        a candle closes above the one before it. `random` buys on a coin flip,
+        which is the honest benchmark for any entry rule — if a rule cannot
+        beat buying at random, it has no edge.
+        """
+        if self.index == 0:
+            return False
+        if self.rule == "random":
+            return self._rng.random() < self.entry_chance
+        return candle.close > previous.close
 
     def _budget(self) -> float:
+        """How much to put on: a share of the book, capped by the cash rules."""
         deployable = min(self.cash, self.max_cash)
         if self.sizing == "fixed":
             return max(0.0, min(self.position, deployable))
-        return deployable * max(0.0, self.position) / 100.0
+        # A percentage is a share of the whole book, not of the tradable cash,
+        # then held down to what may actually be deployed.
+        book = max(0.0, self.equity)
+        return max(0.0, min(book * self.position / 100.0, deployable))
 
     def _enter(self, candle: Candle) -> None:
         notional = self._budget()
@@ -416,6 +437,103 @@ class Playback:
 
 def _money(value: float) -> str:
     return f"${value:,.0f}"
+
+
+# -- the three curves ------------------------------------------------------
+
+
+def benchmark_curve(candles: list[Candle], capital: float) -> tuple[float, ...]:
+    """Buy and hold: all the capital in at the first bar, never sold."""
+    if not candles or candles[0].close <= 0:
+        return (capital,)
+    first = candles[0].close
+    return tuple(capital * bar.close / first for bar in candles)
+
+
+def simulate_curve(
+    candles: list[Candle], settings: dict, rule: str, seed: int = 1234
+) -> tuple[float, ...]:
+    """Run a whole walk and hand back its realised curve.
+
+    Used to fix the scale of the results chart before it draws: the lines are
+    revealed a bar at a time, so their range has to be known up front or the
+    picture would rescale as it fills.
+    """
+    play = Playback(candles, rule=rule, seed=seed, **settings)
+    while not play.done:
+        play.advance()
+    return tuple(play.equity_curve)
+
+
+@dataclass
+class BacktestSession:
+    """One run's worth of data: the live walk, and the curves to compare it to."""
+
+    candles: list[Candle]
+    strategy: Playback
+    strategy_curve: tuple[float, ...]
+    random_curve: tuple[float, ...]
+    benchmark: tuple[float, ...]
+    low: float
+    high: float
+
+    @property
+    def index(self) -> int:
+        return self.strategy.index
+
+    @property
+    def capital(self) -> float:
+        return self.strategy.capital
+
+    def revealed(self, curve: tuple[float, ...]) -> tuple[float, ...]:
+        """The part of a curve the walk has reached, its first point included."""
+        return curve[: min(self.index + 1, len(curve))]
+
+    def current(self, curve: tuple[float, ...]) -> float:
+        if not curve:
+            return self.capital
+        return curve[min(self.index, len(curve) - 1)]
+
+    def return_of(self, curve: tuple[float, ...]) -> float:
+        if not curve or curve[0] <= 0:
+            return 0.0
+        return self.current(curve) / curve[0] - 1.0
+
+
+def _walk_settings(params: dict) -> dict:
+    return {
+        "capital": float(params["initial_capital"] or 0.0),
+        "tp": float(params["tp"] or 0.0),
+        "sl": float(params["sl"] or 0.0),
+        "position": float(params["position"] or 0.0),
+        "sizing": str(params["sizing"]),
+        "max_cash": float(params["cash"] or 0.0),
+    }
+
+
+def build_session(
+    candles: list[Candle], params: dict, random_seed: int = 1234
+) -> BacktestSession:
+    """The live walk, plus the two curves it is judged against."""
+    settings = _walk_settings(params)
+    strategy = Playback(candles, rule="momentum", **settings)
+    strategy_curve = simulate_curve(candles, settings, "momentum")
+    random_curve = simulate_curve(candles, settings, "random", random_seed)
+    benchmark = benchmark_curve(candles, settings["capital"])
+
+    values = list(strategy_curve) + list(random_curve) + list(benchmark)
+    low = min(values) if values else settings["capital"]
+    high = max(values) if values else settings["capital"]
+    pad = max((high - low) * 0.06, settings["capital"] * 0.002, 1.0)
+    return BacktestSession(
+        candles=list(candles),
+        strategy=strategy,
+        strategy_curve=strategy_curve,
+        random_curve=random_curve,
+        benchmark=benchmark,
+        low=low - pad,
+        high=high + pad,
+    )
 
 
 class CandlePlayer(QWidget):
@@ -557,11 +675,15 @@ class CandlePlayer(QWidget):
 class PlaybackTile(Card):
     """The candles rolling, with the live figures above them."""
 
+    advanced = Signal()
+    restarted = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         # Nothing runs until Run is pressed: opening the window is not a run.
         self.playback = Playback([])
+        self.session: BacktestSession | None = None
         self.source = "—"
         self._launched = False
         # What the controls are set to. A change here is not a restart: it is
@@ -633,6 +755,7 @@ class PlaybackTile(Card):
             self._elapsed -= STEP_MS
             self.playback.advance()
             self._refresh_metrics()
+            self.advanced.emit()
         # Every frame, not every candle: this is what makes it scroll.
         self.player.set_offset(self._elapsed / STEP_MS)
         self.player.update()
@@ -657,10 +780,19 @@ class PlaybackTile(Card):
         else:
             self.source = "example"
             bars = sample_candles()
-        self.playback.candles = bars
-        if self._wanted_params is not None:
-            self._adopt_params(self._wanted_params)
-        self.playback.reset()
+
+        params = self._wanted_params or {
+            "initial_capital": 10_000.0,
+            "tp": 2.0,
+            "sl": 1.0,
+            "position": 10.0,
+            "sizing": "balance",
+            "cash": 2_000.0,
+        }
+        self.session = build_session(bars, params)
+        self.playback = self.session.strategy
+        self.player.playback = self.playback
+
         self._launched = True
         self._elapsed = 0
         self.player.set_offset(0.0)
@@ -669,6 +801,7 @@ class PlaybackTile(Card):
         self._describe()
         self._refresh_metrics()
         self.player.update()
+        self.restarted.emit(self.session)
         self.play()
 
     # -- source ------------------------------------------------------------
@@ -683,14 +816,6 @@ class PlaybackTile(Card):
         """Remember the parameters. Nothing changes until the next restart."""
         self._wanted_params = dict(params)
         self._describe()
-
-    def _adopt_params(self, params: dict) -> None:
-        self.playback.capital = float(params["initial_capital"] or 0.0)
-        self.playback.tp = float(params["tp"] or 0.0)
-        self.playback.sl = float(params["sl"] or 0.0)
-        self.playback.position = float(params["position"] or 0.0)
-        self.playback.sizing = str(params["sizing"])
-        self.playback.max_cash = float(params["cash"] or 0.0)
 
     def _describe(self) -> None:
         if not self._launched:

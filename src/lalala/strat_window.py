@@ -90,6 +90,8 @@ class StratWindow(QMainWindow):
         self.download.span_changed.connect(self._sync_playback)
         self.params.changed.connect(self._sync_params)
         self.download.started.connect(self.left.restart)
+        self.left.restarted.connect(self.results.set_session)
+        self.left.advanced.connect(self.results.refresh)
         self._sync_playback()
         self._sync_params()
 

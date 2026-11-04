@@ -260,12 +260,12 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             256 tests: parsing/search/aliases, slug math, candle + book
+tests/             260 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its tiles, the playback walk, the
-                   chart/backtest settings, and the candle store and
-                   downloader
+                   strategy window and its tiles, the playback walk and its
+                   benchmark curves, the chart/backtest settings, and the
+                   candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -286,10 +286,29 @@ from that day and its Download can still finish. A year is complete at 99% of
 its expected minutes, which leaves room for the handful of venue outages even
 a good year has.
 
+## Results tile
+
+Under the parameters, three curves are drawn live as the loop walks:
+**strategy** (amber), **random buy** (indigo) and **buy & hold** (grey dashed),
+each revealed a bar at a time up to the walk's position, with its running
+total in the header. The scale is fixed when the run starts, so the picture
+never rescales as it fills.
+
+Random buy is the benchmark that matters: it opens on a coin flip with the
+same exits, sizing and fees, so an entry rule that cannot beat it has no edge.
+Buy and hold puts the whole book in at the first bar and never sells. Note
+that the two strategies deploy only a fraction of the book per trade, while
+buy and hold is fully exposed — so its swing is much larger, and that is
+honest rather than a plotting artefact.
+
+`Sizing` percentages are read as a share of the **whole book** (held down to
+what `Max cash $` allows), not of the tradable cash: a 10% position on a
+$10,000 book risks $1,000 per trade.
+
 ## Backtest tile
 
 Below the history controls sits a gallery of the run's inputs — three or four
-to a line, wrapping with the tile's width — none of them wired yet:
+to a line, wrapping with the tile's width:
 
 | Field | Meaning |
 | --- | --- |
@@ -307,8 +326,8 @@ and are clamped on the way in — an unknown `sizing` mode falls back to
 `balance`. Numeric fields take a dot as the decimal mark whatever the system
 locale, and are bounded so a percentage cannot exceed the whole book.
 
-Both the history tile and this one keep only the height their content needs;
-the empty results tile below them takes the rest of the column.
+Both the history tile and the parameters tile keep only the height their
+content needs; the results tile below them takes the rest of the column.
 
 Decided and hard-coded for the run (no switches in the UI): fees and slippage
 are fixed, one position is held at a time, and a trade is refused across a

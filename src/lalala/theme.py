@@ -211,6 +211,16 @@ QPushButton#runButton:hover {{
 #venuePanel QCheckBox#paramToggle:hover {{
     color: {TEXT};
 }}
+/* Legends in the results tile: one colour per curve. */
+#venuePanel QLabel#legend_strategy {{
+    color: {ACCENT};
+}}
+#venuePanel QLabel#legend_random {{
+    color: {BAND};
+}}
+#venuePanel QLabel#legend_hold {{
+    color: {TEXT_MUTED};
+}}
 /* Metric values in the results tile, coloured by what they mean. */
 #venuePanel QLabel#metricValue_accent {{
     color: {ACCENT};
