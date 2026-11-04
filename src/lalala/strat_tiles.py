@@ -186,21 +186,32 @@ class DownloadTile(Card):
         self.download_button.setToolTip("Fetch this span of history")
         self.status = QLabel("")
         self.status.setObjectName("coverageLabel")
+        self.status.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self.status.setVisible(False)
+
+        # Start keeps the left half. On the right, the note only takes room
+        # from Download, so the split shifts only when it has something to say.
+        self._right_group = QWidget()
+        right_row = QHBoxLayout(self._right_group)
+        right_row.setContentsMargins(0, 0, 0, 0)
+        right_row.setSpacing(8)
+        right_row.addWidget(self.download_button, 1)
+        right_row.addWidget(self.status, 1)
+
         actions.addWidget(self.start_button, 1)
-        actions.addWidget(self.download_button, 1)
-        actions.addWidget(self.status)
+        actions.addWidget(self._right_group, 1)
         self.body.addLayout(actions)
 
-        # A gentle pulse on Download while the span still needs fetching.
-        self._glow = QGraphicsOpacityEffect(self.download_button)
-        self.download_button.setGraphicsEffect(self._glow)
-        self._blink = QPropertyAnimation(self._glow, b"opacity", self)
-        self._blink.setDuration(1500)
-        self._blink.setKeyValueAt(0.0, 1.0)
-        self._blink.setKeyValueAt(0.5, 0.55)
-        self._blink.setKeyValueAt(1.0, 1.0)
-        self._blink.setLoopCount(-1)
+        # Which of the two is the one to press breathes gently: Download while
+        # the span still needs fetching, Start once it is all there.
+        self._glow_download = QGraphicsOpacityEffect(self.download_button)
+        self.download_button.setGraphicsEffect(self._glow_download)
+        self._pulse_download = self._pulse_animation(self._glow_download)
+        self._glow_start = QGraphicsOpacityEffect(self.start_button)
+        self.start_button.setGraphicsEffect(self._glow_start)
+        self._pulse_start = self._pulse_animation(self._glow_start)
 
         # Re-check coverage the moment the chosen span or resolution changes.
         self.start_year.currentIndexChanged.connect(self.refresh)
@@ -253,8 +264,36 @@ class DownloadTile(Card):
         needs = bool(missing or partial)
         self.download_button.setEnabled(needs)
         self._set_attention(needs)
+        # The actionable one breathes: Download while data is missing, Start
+        # once the span is complete.
+        self._pulse(self._glow_download, self._pulse_download, needs)
+        self._pulse(self._glow_start, self._pulse_start, not needs)
 
     # -- state helpers -----------------------------------------------------
+
+    def _pulse_animation(
+        self, effect: QGraphicsOpacityEffect
+    ) -> QPropertyAnimation:
+        blink = QPropertyAnimation(effect, b"opacity", self)
+        blink.setDuration(1500)
+        blink.setKeyValueAt(0.0, 1.0)
+        blink.setKeyValueAt(0.5, 0.55)
+        blink.setKeyValueAt(1.0, 1.0)
+        blink.setLoopCount(-1)
+        return blink
+
+    def _pulse(
+        self,
+        effect: QGraphicsOpacityEffect,
+        animation: QPropertyAnimation,
+        active: bool,
+    ) -> None:
+        if active:
+            if animation.state() != QPropertyAnimation.State.Running:
+                animation.start()
+        else:
+            animation.stop()
+            effect.setOpacity(1.0)
 
     def _normalize_span(self) -> None:
         """A reversed pick is not an error: flip it back into order.
@@ -289,13 +328,6 @@ class DownloadTile(Card):
         style = self.download_button.style()
         style.unpolish(self.download_button)
         style.polish(self.download_button)
-
-        if flag:
-            if self._blink.state() != QPropertyAnimation.State.Running:
-                self._blink.start()
-        else:
-            self._blink.stop()
-            self._glow.setOpacity(1.0)
 
     def _on_start(self) -> None:
         """Deliberately inert: the backtest is not wired up yet."""

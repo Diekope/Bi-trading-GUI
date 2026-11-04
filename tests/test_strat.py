@@ -182,16 +182,29 @@ def test_the_action_row_is_start_left_download_right(
     assert tile.start_button.text() == "Start backtest"
 
     row = tile.body.itemAt(tile.body.count() - 1).layout()
-    placed = [
-        row.itemAt(i).widget()
-        for i in range(row.count())
-        if row.itemAt(i).widget() is not None
-    ]
-    # Start left, Download right, the coverage note at the far right edge.
-    assert placed == [tile.start_button, tile.download_button, tile.status]
-    # The two buttons still share the whole width between them.
+    # Start keeps the left half; the note can only eat into Download's half.
+    assert row.itemAt(0).widget() is tile.start_button
     assert row.stretch(0) == 1
+    right = row.itemAt(1).widget()
     assert row.stretch(1) == 1
+
+    right_row = right.layout()
+    assert right_row.itemAt(0).widget() is tile.download_button
+    assert right_row.itemAt(1).widget() is tile.status
+    assert right_row.stretch(0) == 1
+    assert right_row.stretch(1) == 1
+
+
+def test_the_note_only_squeezes_download(app: QApplication, window) -> None:
+    tile = window.download
+    assert tile.status.isVisible() is True  # missing years in the empty temp dir
+
+    row = tile.body.itemAt(tile.body.count() - 1).layout()
+    right = row.itemAt(1).widget()
+    # Start keeps its half; on the right, Download and the note share it.
+    assert abs(tile.start_button.width() - right.width()) <= 8
+    assert tile.download_button.width() < right.width()
+    assert tile.status.width() > 0
 
 
 def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
@@ -213,19 +226,25 @@ def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
     assert tile.end_year.currentText() == "2018"
 
 
-def test_download_pulses_while_the_span_needs_fetching(window) -> None:
+def test_the_actionable_button_is_the_one_that_pulses(window) -> None:
     tile = window.download
 
-    assert tile.download_button.graphicsEffect() is tile._glow
-    assert tile._blink.loopCount() == -1
-    assert tile._blink.state() == tile._blink.State.Running
+    # Missing data: Download breathes and carries the amber edge, Start does
+    # not move.
+    assert tile.download_button.graphicsEffect() is tile._glow_download
+    assert tile._pulse_download.loopCount() == -1
+    assert tile._pulse_download.state() == tile._pulse_download.State.Running
+    assert tile._pulse_start.state() == tile._pulse_start.State.Stopped
+    assert tile.download_button.property("attention") is True
 
-    # A complete span stops the pulse and restores full opacity.
+    # A complete span: the pulse hands over to Start, Download goes quiet.
     tile.start_year.setCurrentText("2017")
     tile.end_year.setCurrentText("2017")
     tile.resolution.group.button(2).click()  # 1h
     _write_year(2017, "1h", 365 * 24)
     tile.refresh()
 
-    assert tile._blink.state() == tile._blink.State.Stopped
-    assert tile._glow.opacity() == pytest.approx(1.0)
+    assert tile._pulse_download.state() == tile._pulse_download.State.Stopped
+    assert tile._glow_download.opacity() == pytest.approx(1.0)
+    assert tile._pulse_start.state() == tile._pulse_start.State.Running
+    assert tile.download_button.property("attention") is False
