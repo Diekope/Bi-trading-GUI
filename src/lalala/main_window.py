@@ -30,9 +30,9 @@ from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
 from lalala.market_data import DEFAULT_MARKET, TIMEFRAMES, CandleSeries, Market
 from lalala.panels import MAX_TILES
-from lalala.polymarket_data import PolymarketMarket, window_target
+from lalala.polymarket_data import PolymarketMarket, window_price_points
 from lalala.polymarket_feed import PolymarketFeed
-from lalala.polymarket_panel import PolymarketPanel
+from lalala.polymarket_panel import VIEW_MS, PolymarketPanel
 from lalala.theme import CANVAS, CARD_GAP
 
 log = logging.getLogger(__name__)
@@ -296,17 +296,19 @@ class MainWindow(QMainWindow):
 
     def _on_polymarket_market(self, market: PolymarketMarket) -> None:
         self.polymarket.set_market(market)
-        # The window's bars give the chart its target (the open). The line
-        # itself starts with live samples, so it is not stretched backwards.
-        self.feed.request_window("BTC", market.start_ms, market.end_ms)
+        # The window's bars give the chart its target (the open) and fill the
+        # left of the line before live sampling begins.
+        self.feed.request_window("BTC", market.start_ms, VIEW_MS)
 
     def _on_window_candles(self, series: CandleSeries) -> None:
         market = self.polymarket.market
         if market is None:
             return
-        target = window_target(series.candles, market.start_ms)
+        target, points = window_price_points(
+            series.candles, market.start_ms, VIEW_MS
+        )
         if target is not None:
-            self.polymarket.set_target(target)
+            self.polymarket.set_window_prices(target, points)
 
     def _on_candles(self, series: CandleSeries) -> None:
         for card in self.cards:

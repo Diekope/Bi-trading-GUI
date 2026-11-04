@@ -181,9 +181,9 @@ up/down window that is open right now.
   cursor. The newest 130 seconds take most of the plot width, so the live
   edge advances a few pixels a second instead of crawling sub-pixel; older
   data keeps even spacing and only boundaries clear of that slice are labelled.
-  The line is built from live samples only: it starts where sampling starts
-  (around the middle of the view with the shipped slice) instead of being
-  stretched back to the window open.
+  One-minute bars fill the span before live sampling begins, so the line
+  starts at the left edge of the view from the first second instead of
+  growing in from the right.
   The tip is interpolated between stored samples, then eased, and each sample
   is eased from the one before it, so a one-tick spike reads as a bend instead
   of a needle. The polyline then runs through a quadratic curve at every
@@ -194,8 +194,9 @@ up/down window that is open right now.
 Sources: Gamma for the market and its tokens, CLOB `/book` for the initial
 snapshot, then one WebSocket subscription to both tokens (`book`,
 `price_change`, `last_trade_price`). Separately, one Hyperliquid `1m`
-`candleSnapshot` per window supplies the target (the window open); live BTC
-quotes come from the `bbo` channel, because
+`candleSnapshot` per window supplies the target (the window open) and
+backfills the line across the visible span; live BTC quotes come from the
+`bbo` channel, because
 `allMids` can be several seconds apart on a quiet book. Books and the tape are
 cleared when the window rolls; the price line keeps rolling. The socket
 reconnects within the same window on a drop. Order placement is deliberately
@@ -315,7 +316,7 @@ Public endpoints only, no key, no signing:
   watched (coin, interval) pair, plus a 60s reconcile. Polling this every second
   drew HTTP 429s, which is why the stream carries the live updates. The same
   endpoint, with `interval: "1m"`, supplies the Polymarket window's target
-  once per five-minute rollover.
+  and the line's backfill once per five-minute rollover.
 
 Reconnects with exponential backoff (1s → 10s) and re-subscribes on reconnect.
 

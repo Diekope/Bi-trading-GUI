@@ -41,7 +41,7 @@ from lalala.polymarket_data import (  # noqa: E402
     parse_market,
     parse_price_changes,
     slug_window,
-    window_target,
+    window_price_points,
 )
 from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
 from lalala.polymarket_panel import (  # noqa: E402
@@ -244,39 +244,73 @@ START = 1_793_734_200_000
 END = START + 300_000
 
 
-def test_the_target_is_the_open_of_the_bar_that_contains_the_start() -> None:
-    target = window_target(
+def test_window_prices_give_the_target_and_one_point_per_minute() -> None:
+    target, points = window_price_points(
         (
             _bar(START, 78_000.0, 78_010.0),
             _bar(START + 60_000, 78_010.0, 78_030.0),
         ),
         START,
+        900_000,
+        START + 180_000,
     )
 
     assert target == pytest.approx(78_000.0)
+    assert [(point.timestamp_ms, point.price) for point in points] == [
+        (START + 60_000, pytest.approx(78_010.0)),
+        (START + 120_000, pytest.approx(78_030.0)),
+    ]
+
+
+def test_the_line_reaches_the_left_edge_of_the_lookback() -> None:
+    now = START + 60_000
+    first = now - 180_000
+    target, points = window_price_points(
+        (
+            _bar(START - 120_000, 77_900.0, 77_950.0),
+            _bar(START, 78_000.0, 78_010.0),
+        ),
+        START,
+        180_000,
+        now,
+    )
+
+    assert target == pytest.approx(78_000.0)
+    # A point is pinned to the start of the span, so the line does not begin
+    # a minute short of the left edge.
+    assert points[0].timestamp_ms == first
+    assert points[0].price == pytest.approx(77_900.0)
 
 
 def test_the_target_tolerates_a_bar_that_starts_after_the_window() -> None:
-    target = window_target((_bar(START + 60_000, 78_100.0, 78_200.0),), START)
+    target, _ = window_price_points(
+        (_bar(START + 60_000, 78_100.0, 78_200.0),),
+        START,
+        900_000,
+        START + 120_000,
+    )
 
     assert target == pytest.approx(78_100.0)
 
 
 def test_bars_from_a_previous_window_are_rejected() -> None:
-    target = window_target(
+    target, points = window_price_points(
         (
             _bar(START - 120_000, 77_800.0, 77_810.0),
             _bar(START - 60_000, 77_810.0, 77_820.0),
         ),
         START,
+        900_000,
+        START + 60_000,
     )
 
     assert target is None
+    assert points == ()
 
 
 def test_the_target_tolerates_an_empty_response() -> None:
-    assert window_target((), START) is None
-    assert window_target((object(),), START) is None
+    assert window_price_points((), START, 900_000) == (None, ())
+    assert window_price_points((object(),), START, 900_000) == (None, ())
 
 
 # -- incremental changes ----------------------------------------------------
@@ -681,7 +715,7 @@ def test_the_price_chart_samples_at_most_once_per_interval(
 ) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
-    panel.set_target(100_000.0)
+    panel.set_window_prices(100_000.0, ())
 
     panel.set_btc(100_010.0)
     assert len(panel.points) == 1
@@ -716,32 +750,39 @@ def test_a_sample_after_a_gap_is_not_dragged_toward_stale_data(
     assert panel.points[-1].price == pytest.approx(100_000.0)
 
 
-def test_the_target_does_not_stretch_the_line_back_to_the_window_open(
+def test_window_prices_backfill_and_keep_the_line_sorted(
     window: MainWindow,
 ) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
+    market = panel.market
     panel.set_btc(100_100.0)
 
-    panel.set_target(100_000.0)
+    panel.set_window_prices(
+        100_000.0,
+        (
+            PricePoint(market.start_ms, 100_000.0),
+            PricePoint(market.start_ms + 60_000, 100_040.0),
+        ),
+    )
 
     assert panel.target == pytest.approx(100_000.0)
     assert panel.target_value.text() == "100,000.0"
-    # Only the live sample: no synthetic point at the window open, so the
-    # line starts where sampling started instead of at the left edge.
-    assert len(panel.points) == 1
-    assert panel.points[0].price == pytest.approx(100_100.0)
+    stamps = [point.timestamp_ms for point in panel.points]
+    assert stamps == sorted(stamps)
+    assert panel.points[0].price == pytest.approx(100_000.0)
+    assert panel.points[-1].price == pytest.approx(100_100.0)
     assert panel.move_value.text() == "+0.10%"
 
 
-def test_a_target_is_ignored_without_a_market(window: MainWindow) -> None:
+def test_window_prices_are_ignored_without_a_target(window: MainWindow) -> None:
     panel = window.polymarket
-    panel.set_target(100_000.0)  # no market yet
+    panel.set_window_prices(100_000.0, ())  # no market yet
     assert panel.target is None
 
     panel.set_market(market_from_gamma())
-    panel.set_target(0.0)
-    panel.set_target(None)
+    panel.set_window_prices(0.0, ())
+    panel.set_window_prices(None, ())
     assert panel.target is None
     assert panel.target_value.text() == "—"
 
@@ -908,7 +949,7 @@ def test_a_new_window_clears_the_book_and_tape_but_keeps_the_line(
     panel.set_market(first)
     panel.apply_book(parse_book(book_payload(UP_TOKEN)))
     panel.apply_trade(Trade(UP_TOKEN, 0.6, 10, "BUY", 1_793_734_280_000))
-    panel.set_target(78_000.0)
+    panel.set_window_prices(78_000.0, (PricePoint(first.start_ms, 78_000.0),))
     panel.set_btc(78_100.0)
     assert panel.points
     points, target = panel.points, panel.target
@@ -921,7 +962,7 @@ def test_a_new_window_clears_the_book_and_tape_but_keeps_the_line(
     assert panel.tape.trades == []
     # The line keeps going: the previous points and their target survive.
     assert panel.points is points
-    assert len(panel.points) == 1
+    assert len(panel.points) == 2
     assert panel.points[-1].price == pytest.approx(78_100.0)
     assert panel.target == pytest.approx(78_000.0)
     assert panel.price_chart.market is second
@@ -933,7 +974,7 @@ def test_the_btc_reference_shows_above_and_below_the_target(
 ) -> None:
     panel = window.polymarket
     panel.set_market(market_from_gamma())
-    panel.set_target(100_000.0)
+    panel.set_window_prices(100_000.0, ())
 
     panel.set_btc(100_500.0)
 
@@ -1036,7 +1077,7 @@ def test_the_btc_bbo_is_the_fast_path_into_the_panel(window: MainWindow) -> None
     assert window.polymarket.btc_value.text() == "78,123.5"
 
 
-def test_a_new_market_takes_its_target_from_its_opening_bars(
+def test_a_new_market_fills_the_line_from_its_opening_bars(
     window: MainWindow,
 ) -> None:
     market = market_from_gamma()
@@ -1057,9 +1098,11 @@ def test_a_new_market_takes_its_target_from_its_opening_bars(
 
     assert window.polymarket.target == pytest.approx(78_000.0)
     assert window.polymarket.target_value.text() == "78,000.0"
-    # The bars only supply the target: the line starts with live samples,
-    # not with a backfilled stretch from the window open.
-    assert window.polymarket.points == []
+    # The bars fill the line from the left before live sampling takes over.
+    assert [point.price for point in window.polymarket.points] == [
+        pytest.approx(78_010.0),
+        pytest.approx(78_030.0),
+    ]
 
 
 def test_a_candle_response_for_an_old_window_is_ignored(

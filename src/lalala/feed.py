@@ -188,16 +188,19 @@ class MarketFeed(QObject):
 
         self._runner.submit(self._fetch_older(coin, interval, before_ms, count))
 
-    def request_window(self, coin: str, start_ms: int, end_ms: int) -> None:
+    def request_window(
+        self, coin: str, start_ms: int, lookback_ms: int = 0
+    ) -> None:
         """Ask for the 1m bars covering one Polymarket window.
 
-        Used to seed the reference chart: the open of the bar at the window
-        start is the target price, and the bars before now backfill the line.
-        One request per five-minute rollover.
+        The open of the bar at the window start is the target price. Bars
+        from `lookback_ms` before now backfill the reference line, so it
+        starts at the left edge of the chart instead of at the first live
+        sample. One request per five-minute rollover.
         """
         if not self._started:
             return
-        self._runner.submit(self._fetch_window(coin, start_ms, end_ms))
+        self._runner.submit(self._fetch_window(coin, start_ms, lookback_ms))
 
     # -- asyncio side ------------------------------------------------------
 
@@ -375,7 +378,9 @@ class MarketFeed(QObject):
         )
         return CandleSeries(coin, interval, parse_candles(payload))
 
-    async def _fetch_window(self, coin: str, start_ms: int, end_ms: int) -> None:
+    async def _fetch_window(
+        self, coin: str, start_ms: int, lookback_ms: int
+    ) -> None:
         """The bars around a Polymarket window, for its target and backfill."""
         try:
             # The Polymarket market can resolve before the Hyperliquid client
@@ -387,14 +392,15 @@ class MarketFeed(QObject):
             if self._http is None:
                 return
             now = int(time.time() * 1000)
+            first_ms = now - lookback_ms if lookback_ms > 0 else start_ms
             payload = await self._post(
                 {
                     "type": "candleSnapshot",
                     "req": {
                         "coin": coin,
                         "interval": "1m",
-                        "startTime": start_ms,
-                        "endTime": min(now, end_ms),
+                        "startTime": min(start_ms, first_ms),
+                        "endTime": now,
                     },
                 }
             )

@@ -903,16 +903,24 @@ class PolymarketPanel(Card):
             ),
         )
 
-    def set_target(self, target: float | None) -> None:
-        """Set the window's opening price, the line's reference.
-
-        The line itself is not seeded here: it starts with the first live
-        sample, so it is never drawn back to the window open.
-        """
+    def set_window_prices(
+        self, target: float | None, points: object
+    ) -> None:
+        """Set the target and fill the line's left side before live samples."""
         if self.market is None or target is None or target <= 0:
             return
         self.target = float(target)
         self._set_text(self.target_value, f"{self.target:,.1f}")
+
+        merged: dict[int, PricePoint] = {}
+        for point in points if isinstance(points, (list, tuple)) else ():
+            if isinstance(point, PricePoint):
+                merged[point.timestamp_ms] = point
+        for point in self.points:
+            merged[point.timestamp_ms] = point
+        ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
+        del ordered[:-MAX_POINTS]
+        self.points = ordered
         self.price_chart.set_data(self.points, self.target)
         if self._btc is not None:
             self._update_delta(self._btc)

@@ -264,27 +264,55 @@ class PricePoint:
 BAR_MS = 60_000
 
 
-def window_target(candles: Iterable[Any], start_ms: int) -> float | None:
-    """The opening price a binary window compares its close against.
+def window_price_points(
+    candles: Iterable[Any],
+    start_ms: int,
+    lookback_ms: int,
+    now_ms: int | None = None,
+) -> tuple[float | None, tuple[PricePoint, ...]]:
+    """The target and the pre-launch line for one window.
 
-    The target is the open of the one-minute bar containing the window
-    start. These candles supply nothing else: the chart's line is built from
-    live samples, so it begins where sampling begins instead of being
-    stretched back to the window open. A response entirely older than the
-    window yields None, so a late fetch cannot leak into the next window.
+    The target is the open of the one-minute bar containing the window start
+    — the price the binary market compares its close against. Those same
+    candles backfill the line over `lookback_ms`: each completed bar's close
+    becomes a point, and the oldest point is pinned to the left edge of that
+    span so the line starts at the left of the view instead of waiting for
+    fifteen minutes of live samples. The bar still forming is left to the
+    live sampler, which stamps points at the actual time. A response entirely
+    older than the window yields `(None, ())`, so a late fetch cannot leak
+    into the next window.
     """
     bars = sorted(
         (bar for bar in candles if getattr(bar, "t", None) is not None),
         key=lambda bar: bar.t,
     )
+    target: float | None = None
     for bar in bars:
         if bar.t <= start_ms < bar.t + BAR_MS:
-            return float(bar.o)
-    if bars and bars[0].t >= start_ms:
+            target = float(bar.o)
+            break
+    if target is None and bars and bars[0].t >= start_ms:
         # The venue usually starts exactly on the window; tolerate a minute
         # of slack rather than leaving the target blank.
-        return float(bars[0].o)
-    return None
+        target = float(bars[0].o)
+    if target is None:
+        return None, ()
+
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    first_ms = now_ms - lookback_ms
+    points: list[PricePoint] = []
+    for bar in bars:
+        if bar.t <= first_ms < bar.t + BAR_MS:
+            points.append(PricePoint(first_ms, float(bar.o)))
+            break
+    for bar in bars:
+        stamp = bar.t + BAR_MS
+        if stamp <= first_ms or stamp > now_ms:
+            continue
+        points.append(PricePoint(stamp, float(bar.c)))
+    points.sort(key=lambda point: point.timestamp_ms)
+    return target, tuple(points)
 
 
 def _levels(raw: Any, *, descending: bool) -> tuple[Level, ...]:
