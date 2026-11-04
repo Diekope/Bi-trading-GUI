@@ -185,8 +185,8 @@ class DownloadTile(Card):
         self.start_button.setObjectName("startButton")
         self.start_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_button.setToolTip("Not wired up yet")
-        actions.addWidget(self.download_button, 1)
         actions.addWidget(self.status)
+        actions.addWidget(self.download_button, 1)
         actions.addWidget(self.start_button, 1)
         self.body.addLayout(actions)
 
