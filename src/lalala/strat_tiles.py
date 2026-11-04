@@ -53,7 +53,7 @@ class ResolutionPicker(QWidget):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(8)
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
