@@ -10,6 +10,12 @@ uv sync          # PySide6, httpx, websockets
 uv run lalala
 ```
 
+A second, still blank window is set aside for the backtest/strategy work:
+
+```sh
+uv run lalala-strat
+```
+
 Tests (headless, no network, no sockets):
 
 ```sh
@@ -231,6 +237,8 @@ dependency.
 src/lalala/
   app.py           QApplication bootstrap
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
+  strat.py         entry point for the blank backtest/strategy window
+  strat_window.py  blank second window for backtest + strategy work
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
   panels.py        Card chrome, MAX_TILES
   cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
@@ -245,9 +253,10 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             195 tests: parsing/search/aliases, slug math, candle + book
+tests/             197 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
-                   shortcuts, overlays, the Polymarket panel
+                   shortcuts, overlays, the Polymarket panel, the blank
+                   strategy window
 ```
 
 ## Window layout
