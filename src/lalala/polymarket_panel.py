@@ -490,7 +490,12 @@ class PriceChart(QWidget):
                 painter.fillPath(fill, _alpha(DOWN, 30))
                 painter.restore()
 
+            # The target belongs to the same span as the line: starting it at
+            # the window open would draw a dashed stretch with no price under
+            # it while the first samples are still arriving.
             seg_start = max(start, market.start_ms)
+            if window:
+                seg_start = max(seg_start, window[0][0])
             seg_end = min(end, market.end_ms if market.end_ms > 0 else end)
             if seg_end > seg_start:
                 painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
@@ -898,24 +903,16 @@ class PolymarketPanel(Card):
             ),
         )
 
-    def set_window_prices(
-        self, target: float | None, points: object
-    ) -> None:
-        """Seed the target and the pre-launch part of the price chart."""
+    def set_target(self, target: float | None) -> None:
+        """Set the window's opening price, the line's reference.
+
+        The line itself is not seeded here: it starts with the first live
+        sample, so it is never drawn back to the window open.
+        """
         if self.market is None or target is None or target <= 0:
             return
         self.target = float(target)
         self._set_text(self.target_value, f"{self.target:,.1f}")
-
-        merged: dict[int, PricePoint] = {}
-        for point in points if isinstance(points, (list, tuple)) else ():
-            if isinstance(point, PricePoint):
-                merged[point.timestamp_ms] = point
-        for point in self.points:
-            merged[point.timestamp_ms] = point
-        ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
-        del ordered[:-MAX_POINTS]
-        self.points = ordered
         self.price_chart.set_data(self.points, self.target)
         if self._btc is not None:
             self._update_delta(self._btc)

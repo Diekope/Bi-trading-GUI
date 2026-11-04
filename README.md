@@ -178,9 +178,12 @@ up/down window that is open right now.
   boundaries get a tick and a time label, not a full-height rule, so the line
   stays one unbroken curve. The view ends ~1.5s behind live — more than the
   one-second sample interval — so a fresh sample always lands ahead of the
-  cursor. The newest ninety seconds take a third of the plot width, so the live
+  cursor. The newest 130 seconds take most of the plot width, so the live
   edge advances a few pixels a second instead of crawling sub-pixel; older
   data keeps even spacing and only boundaries clear of that slice are labelled.
+  The line is built from live samples only: it starts where sampling starts
+  (around the middle of the view with the shipped slice) instead of being
+  stretched back to the window open.
   The tip is interpolated between stored samples, then eased, and each sample
   is eased from the one before it, so a one-tick spike reads as a bend instead
   of a needle. The polyline then runs through a quadratic curve at every
@@ -191,8 +194,8 @@ up/down window that is open right now.
 Sources: Gamma for the market and its tokens, CLOB `/book` for the initial
 snapshot, then one WebSocket subscription to both tokens (`book`,
 `price_change`, `last_trade_price`). Separately, one Hyperliquid `1m`
-`candleSnapshot` per window seeds the target and backfills the pre-launch part
-of the price line; live BTC quotes come from the `bbo` channel, because
+`candleSnapshot` per window supplies the target (the window open); live BTC
+quotes come from the `bbo` channel, because
 `allMids` can be several seconds apart on a quiet book. Books and the tape are
 cleared when the window rolls; the price line keeps rolling. The socket
 reconnects within the same window on a drop. Order placement is deliberately
@@ -284,8 +287,8 @@ file is read once at startup.
 | Key | Default | Effect |
 | --- | --- | --- |
 | `view_ms` | `900000` | total span on screen (fifteen minutes) |
-| `focus_ms` | `90000` | length of the fast live slice |
-| `focus_share` | `0.34` | share of the plot width that slice gets |
+| `focus_ms` | `130000` | length of the fast live slice |
+| `focus_share` | `0.85` | share of the plot width that slice gets |
 | `lag_ms` | `1500` | how far behind live the tip sits; must exceed `sample_every_ms` |
 | `sample_every_ms` | `1000` | resolution of the stored line |
 | `smooth` | `0.30` | per-sample damping; lower is rounder |
@@ -294,7 +297,7 @@ file is read once at startup.
 | `frame_ms` | `33` | repaint interval (~30 fps) |
 
 The live edge travels `width × focus_share ÷ (focus_ms / 1000)` pixels a second
-— about 2.2 px/s on a wide column, 1.1 px/s on a narrow one. Every value is
+— about 3.8 px/s on a wide column, 2.0 px/s on a narrow one. Every value is
 clamped to a drawable range, and a corrupt file falls back to the defaults
 instead of refusing to start.
 
@@ -311,8 +314,8 @@ Public endpoints only, no key, no signing:
 - `POST /info {"type":"candleSnapshot", ...}` — initial history for a newly
   watched (coin, interval) pair, plus a 60s reconcile. Polling this every second
   drew HTTP 429s, which is why the stream carries the live updates. The same
-  endpoint, with `interval: "1m"`, seeds the Polymarket window's target and
-  price backfill once per five-minute rollover.
+  endpoint, with `interval: "1m"`, supplies the Polymarket window's target
+  once per five-minute rollover.
 
 Reconnects with exponential backoff (1s → 10s) and re-subscribes on reconnect.
 

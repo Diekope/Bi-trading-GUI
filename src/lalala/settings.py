@@ -30,8 +30,8 @@ TEMPLATE = {
         "edge_px_per_s = width * focus_share / (focus_ms / 1000)"
     ),
     "view_ms": 900_000,
-    "focus_ms": 90_000,
-    "focus_share": 0.34,
+    "focus_ms": 130_000,
+    "focus_share": 0.85,
     "lag_ms": 1_500,
     "sample_every_ms": 1_000,
     "smooth": 0.30,
@@ -48,9 +48,9 @@ def settings_path() -> Path:
 
 @dataclass(frozen=True)
 class Settings:
-    view_ms: int = 900_000          # total span on screen
-    focus_ms: int = 90_000          # length of the fast live slice
-    focus_share: float = 0.34       # fraction of the plot width it occupies
+    view_ms: int = 900_000           # total span on screen
+    focus_ms: int = 130_000          # length of the fast live slice
+    focus_share: float = 0.85        # fraction of the plot width it occupies
     lag_ms: int = 1_500             # how far behind live the tip sits
     sample_every_ms: int = 1_000    # resolution of the stored line
     smooth: float = 0.30            # per-sample damping; lower is rounder
