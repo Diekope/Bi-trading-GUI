@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from lalala import candles  # noqa: E402
 from lalala.candles import append_rows, candle_file  # noqa: E402
 from lalala.panels import Card  # noqa: E402
-from lalala.strat_params import DEFAULTS, ParamsTile  # noqa: E402
+from lalala.strat_params import ParamsTile  # noqa: E402
 from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
 from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
@@ -323,24 +323,73 @@ def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> No
 # -- backtest parameters ---------------------------------------------------
 
 
-def test_the_parameters_start_from_the_defaults(window) -> None:
+def test_the_parameters_start_from_the_settings_file(app: QApplication, window) -> None:
+    from lalala.settings import Settings
+
+    defaults = Settings.load().backtest
     tile = window.params
 
     assert tile.params() == {
-        "tp": 2.0,
-        "sl": 1.0,
-        "position": 10.0,
-        "cash": 20.0,
-        "dynamic_tp": False,
+        "initial_capital": defaults.initial_capital,
+        "sizing": defaults.sizing,
+        "position": defaults.position,
+        "tp": defaults.tp,
+        "sl": defaults.sl,
+        "cash": defaults.cash,
+        "dynamic_tp": defaults.dynamic_tp,
+        "dyn_tp_reverse": defaults.dyn_tp_reverse,
     }
-    assert tile.tp_field.text() == DEFAULTS["tp"]
+
+
+def test_the_gallery_wraps_by_width(app: QApplication, window) -> None:
+    from lalala.strat_params import NARROW_COLUMNS, WIDE_COLUMNS, WIDE_AT
+
+    tile = window.params
+    assert len(tile._elements) == 8
+
+    tile.resize(WIDE_AT + 40, tile.height())
+    app.processEvents()
+    assert tile._columns == WIDE_COLUMNS
+    assert tile._grid.getItemPosition(0)[1] == 0
+    assert tile._grid.getItemPosition(4)[1] == 0  # fifth element starts row 2
+
+    tile.resize(WIDE_AT - 40, tile.height())
+    app.processEvents()
+    assert tile._columns == NARROW_COLUMNS
+    assert tile._grid.getItemPosition(3)[1] == 0  # fourth element starts row 2
+
+
+def test_the_sizing_mode_changes_what_position_means(
+    app: QApplication, window
+) -> None:
+    from PySide6.QtGui import QValidator
+
+    from lalala.strat_params import SIZING_LABELS
+
+    tile = window.params
+    assert tile.sizing_mode() == "balance"
+    assert tile.position_element.caption.text() == "Position %"
+
+    # Fixed dollars: the caption follows, and the cap is no longer 100.
+    tile.sizing.setCurrentText(SIZING_LABELS["fixed"])
+    app.processEvents()
+    assert tile.sizing_mode() == "fixed"
+    assert tile.position_element.caption.text() == "Position $"
+    tile.position.setText("5000")
+    assert tile.position.validator().validate("5000", 0)[0] == QValidator.State.Acceptable
+    assert tile.params()["position"] == 5000.0
+
+    # Back to a share of the book: 5000 is impossible, so it is clamped.
+    tile.sizing.setCurrentText(SIZING_LABELS["balance"])
+    app.processEvents()
+    assert tile.params()["position"] == 100.0
 
 
 def test_the_fields_only_take_numbers(window) -> None:
     from PySide6.QtGui import QValidator
 
     tile = window.params
-    validator = tile.position_field.validator()
+    validator = tile.cash_field.validator()
 
     assert validator.validate("12.5", 0)[0] == QValidator.State.Acceptable
     # Letters never become a number, and a percentage cannot exceed
@@ -349,10 +398,14 @@ def test_the_fields_only_take_numbers(window) -> None:
     assert validator.validate("120", 0)[0] != QValidator.State.Acceptable
 
 
-def test_dynamic_tp_is_a_switch(window) -> None:
+def test_the_reverse_field_follows_the_dynamic_switch(window) -> None:
     tile = window.params
 
     assert tile.dynamic_tp.isChecked() is False
+    assert tile.reverse_element.isEnabled() is False
+
     tile.dynamic_tp.setChecked(True)
+    assert tile.reverse_element.isEnabled() is True
     assert tile.params()["dynamic_tp"] is True
+    assert tile.params()["dyn_tp_reverse"] == 0.5
 

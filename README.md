@@ -241,7 +241,7 @@ src/lalala/
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
-  strat_params.py  the backtest tile: TP, SL, dynamic TP, position and cash %
+  strat_params.py  the backtest tile: a gallery of run inputs
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
@@ -258,11 +258,11 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             229 tests: parsing/search/aliases, slug math, candle + book
+tests/             235 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its tiles, and the candle store and
-                   downloader
+                   strategy window and its tiles, the chart/backtest settings,
+                   and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -285,12 +285,24 @@ a good year has.
 
 ## Backtest tile
 
-Below the history controls sit the run's inputs, none of them wired yet: TP %,
-SL %, a **Dynamic TP** switch, the share of capital a position may use
-(`Position %`), and the share that may sit in cash (`Max cash %`) — anything
-above that cap is meant to be parked in a cold wallet. Numeric fields take a
-dot as the decimal mark whatever the system locale, and are bounded so a
-percentage cannot exceed the whole book.
+Below the history controls sits a gallery of the run's inputs — three or four
+to a line, wrapping with the tile's width — none of them wired yet:
+
+| Field | Meaning |
+| --- | --- |
+| `Initial capital $` | the book the run starts with |
+| `Sizing` | how `Position` is read: `Balance %`, `Fixed $` or `Risk %` |
+| `Position` | the value itself; its caption and its bounds follow `Sizing` |
+| `TP %` / `SL %` | take profit and stop loss, percent from entry |
+| `Max cash %` | cap on the share held in cash; the rest is for a cold wallet |
+| `Dynamic TP` | switch: let the take profit trail |
+| `Reverse % to close` | pull-back from the peak that closes a trailing TP; only live while the switch is on |
+
+Only BTC is in scope. The starting values live in the same
+`~/.config/lalala/settings.json`, under `backtest` (or `LALALA_BACKTEST_*`),
+and are clamped on the way in — an unknown `sizing` mode falls back to
+`balance`. Numeric fields take a dot as the decimal mark whatever the system
+locale, and are bounded so a percentage cannot exceed the whole book.
 ```
 
 ## Window layout

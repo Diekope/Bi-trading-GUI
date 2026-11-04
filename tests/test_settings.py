@@ -7,7 +7,12 @@ from dataclasses import fields
 
 import pytest
 
-from lalala.settings import Settings, ensure_file, settings_path
+from lalala.settings import (
+    BacktestDefaults,
+    Settings,
+    ensure_file,
+    settings_path,
+)
 
 
 def test_the_shipped_window_and_focus_slice_are_consistent() -> None:
@@ -89,7 +94,85 @@ def test_the_first_launch_leaves_a_file_to_edit(tmp_path) -> None:
     loaded = Settings.load(path=path, environ={})
     for field in fields(Settings):
         assert field.name in values
+        if field.name == "backtest":
+            continue
         assert getattr(loaded, field.name) == pytest.approx(values[field.name])
+    for field in fields(BacktestDefaults):
+        assert field.name in values["backtest"]
+        assert getattr(loaded.backtest, field.name) == values["backtest"][field.name]
+
+
+# -- backtest defaults -----------------------------------------------------
+
+
+def test_the_backtest_defaults_load_from_the_file(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backtest": {
+                    "initial_capital": 25_000,
+                    "tp": 3.5,
+                    "sizing": "risk",
+                    "dynamic_tp": True,
+                }
+            }
+        )
+    )
+
+    backtest = Settings.load(path=path, environ={}).backtest
+
+    assert backtest.initial_capital == pytest.approx(25_000.0)
+    assert backtest.tp == pytest.approx(3.5)
+    assert backtest.sizing == "risk"
+    assert backtest.dynamic_tp is True
+    # Untouched keys keep their defaults.
+    assert backtest.sl == pytest.approx(BacktestDefaults().sl)
+
+
+def test_the_backtest_defaults_take_environment_overrides(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"backtest": {"tp": 1.0}}))
+
+    backtest = Settings.load(
+        path=path, environ={"LALALA_BACKTEST_TP": "9", "LALALA_BACKTEST_DYNAMIC_TP": "yes"}
+    ).backtest
+
+    assert backtest.tp == pytest.approx(9.0)
+    assert backtest.dynamic_tp is True
+
+
+def test_backtest_values_are_clamped_and_modes_are_checked(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backtest": {
+                    "initial_capital": -5,
+                    "sl": 900,
+                    "cash": 400,
+                    "sizing": "moon",
+                    "dyn_tp_reverse": 500,
+                }
+            }
+        )
+    )
+
+    backtest = Settings.load(path=path, environ={}).backtest
+
+    assert backtest.initial_capital == 0.0
+    assert backtest.sl == pytest.approx(100.0)
+    assert backtest.cash == pytest.approx(100.0)
+    assert backtest.dyn_tp_reverse == pytest.approx(100.0)
+    # An unknown mode is not a mode.
+    assert backtest.sizing == BacktestDefaults().sizing
+
+
+def test_a_broken_backtest_section_falls_back(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"backtest": "not a section"}))
+
+    assert Settings.load(path=path, environ={}).backtest == BacktestDefaults()
 
 
 def test_the_path_can_be_redirected(monkeypatch, tmp_path) -> None:

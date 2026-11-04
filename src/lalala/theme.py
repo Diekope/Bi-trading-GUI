@@ -76,7 +76,10 @@ QSplitter#stratColumn::handle:vertical {{
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
-#resolutionPicker {{
+#resolutionPicker, #paramsGrid {{
+    background-color: transparent;
+}}
+#venuePanel QCheckBox {{
     background-color: transparent;
 }}
 
@@ -92,6 +95,11 @@ QLineEdit {{
 }}
 QLineEdit:focus {{
     border-color: {ACCENT};
+}}
+QLineEdit:disabled {{
+    background-color: #121216;
+    border-color: #1c1c20;
+    color: #3a3a40;
 }}
 
 QComboBox {{
@@ -174,6 +182,9 @@ QPushButton#startButton:hover {{
 #venuePanel QLabel#fieldLabel {{
     color: {TEXT_FAINT};
     font-size: 10px;
+}}
+#venuePanel QLabel#fieldLabel:disabled {{
+    color: #3a3a40;
 }}
 #venuePanel QLabel#hintLabel {{
     color: {TEXT_FAINT};

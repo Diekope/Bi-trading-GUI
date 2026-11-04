@@ -1,17 +1,21 @@
 """The backtest parameters tile.
 
-Only the inputs so far: take profit, stop loss, an optional dynamic take
-profit, the share of capital a position may use, and the share of capital that
-may sit in cash (everything above it is meant to be parked in a cold wallet).
-Nothing here feeds a run yet.
+A gallery of small labelled fields — three or four to a line depending on
+width — holding what a run would need: the book size, how a position is sized,
+take profit and stop loss, the cash cap, and the dynamic take-profit switch
+with the pull-back that closes it.
+
+Only BTC is in scope, so nothing here names a market. Nothing feeds a run yet;
+the starting values come from `settings.backtest` (see `lalala.settings`).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QLocale, Qt
+from PySide6.QtCore import QLocale, Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QGridLayout,
     QLabel,
     QLineEdit,
@@ -21,85 +25,192 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.panels import Card
+from lalala.settings import SIZING_MODES, Settings
 
-# Field defaults: a couple of percent either way, a tenth of the book per
-# trade, and most of the balance allowed to sit in cash.
-DEFAULTS = {
-    "tp": "2.0",
-    "sl": "1.0",
-    "position": "10.0",
-    "cash": "20.0",
+# What the position value means in each mode: caption, bounds, unit.
+SIZING = {
+    "balance": ("Position %", 0.0, 100.0),
+    "fixed": ("Position $", 0.0, 1e9),
+    "risk": ("Risk %", 0.0, 100.0),
 }
+SIZING_LABELS = {
+    "balance": "Balance %",
+    "fixed": "Fixed $",
+    "risk": "Risk %",
+}
+
+WIDE_COLUMNS = 4
+NARROW_COLUMNS = 3
+WIDE_AT = 520
+
+
+class _Element(QWidget):
+    """One gallery cell: a caption over its control."""
+
+    def __init__(
+        self, caption: str, control: QWidget, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        box = QVBoxLayout(self)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(3)
+
+        self.caption = QLabel(caption)
+        self.caption.setObjectName("fieldLabel")
+        box.addWidget(self.caption)
+        box.addWidget(control)
+
+    def set_caption(self, text: str) -> None:
+        self.caption.setText(text)
+
+    def setEnabled(self, enabled: bool) -> None:  # noqa: N802
+        # Gray the caption with the control it names.
+        super().setEnabled(enabled)
+        self.caption.setEnabled(enabled)
 
 
 class ParamsTile(Card):
-    """Take profit / stop loss / sizing, laid out as labelled fields."""
+    """The run's inputs, laid out as a wrapping gallery."""
+
+    changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        defaults = Settings.load().backtest
 
         title = QLabel("BACKTEST")
         title.setObjectName("tileTitle")
         self.body.addWidget(title)
 
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
-        grid.setColumnStretch(1, 1)
+        self.initial_capital = self._field(
+            defaults.initial_capital, 0.0, 1e12
+        )
+        self.sizing = QComboBox()
+        self.sizing.setObjectName("sizingSelect")
+        self.sizing.addItems([SIZING_LABELS[mode] for mode in SIZING_MODES])
+        self.sizing.setCurrentText(SIZING_LABELS[defaults.sizing])
+        self.sizing.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.position = self._field(defaults.position, 0.0, 100.0)
+        self.tp_field = self._field(defaults.tp, 0.0, 10_000.0)
+        self.sl_field = self._field(defaults.sl, 0.0, 100.0)
+        self.cash_field = self._field(defaults.cash, 0.0, 100.0)
 
-        self.tp_field = self._field("tp", 0.0, 10_000.0)
-        self.sl_field = self._field("sl", 0.0, 100.0)
-        self.position_field = self._field("position", 0.0, 100.0)
-        self.cash_field = self._field("cash", 0.0, 100.0)
-
-        for row, (label, field) in enumerate(
-            (
-                ("TP %", self.tp_field),
-                ("SL %", self.sl_field),
-                ("Position %", self.position_field),
-                ("Max cash %", self.cash_field),
-            )
-        ):
-            grid.addWidget(self._label(label), row, 0)
-            grid.addWidget(field, row, 1)
-
-        self.body.addLayout(grid)
-
-        self.dynamic_tp = QCheckBox("Dynamic TP")
+        self.dynamic_tp = QCheckBox("")
         self.dynamic_tp.setObjectName("paramToggle")
         self.dynamic_tp.setToolTip("Let the take profit trail as price runs")
         self.dynamic_tp.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.body.addWidget(self.dynamic_tp)
+        self.dynamic_tp.setChecked(defaults.dynamic_tp)
+        self.dynamic_tp.setMinimumHeight(24)
+        self.reverse_field = self._field(defaults.dyn_tp_reverse, 0.0, 100.0)
 
-        hint = QLabel("Cash above the cap is meant for the cold wallet.")
+        self._elements = [
+            _Element("Initial capital $", self.initial_capital),
+            _Element("Sizing", self.sizing),
+            _Element(SIZING[defaults.sizing][0], self.position),
+            _Element("TP %", self.tp_field),
+            _Element("SL %", self.sl_field),
+            _Element("Max cash %", self.cash_field),
+            _Element("Dynamic TP", self.dynamic_tp),
+            _Element("Reverse % to close", self.reverse_field),
+        ]
+        self.position_element = self._elements[2]
+        self.reverse_element = self._elements[7]
+
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(12)
+        self._grid.setVerticalSpacing(8)
+        self._columns = 0
+        self._reflow(WIDE_COLUMNS)
+
+        gallery = QWidget()
+        gallery.setObjectName("paramsGrid")
+        gallery.setLayout(self._grid)
+        self.body.addWidget(gallery)
+
+        hint = QLabel(
+            "Cash above the cap is meant for the cold wallet. BTC only."
+        )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         self.body.addWidget(hint)
 
         self.body.addStretch(1)
 
+        self._apply_sizing(defaults.sizing)
+        self._apply_dynamic(defaults.dynamic_tp)
+
+        self.sizing.currentTextChanged.connect(self._on_sizing_changed)
+        self.dynamic_tp.toggled.connect(self._apply_dynamic)
+
     # -- values ------------------------------------------------------------
 
+    def sizing_mode(self) -> str:
+        """The mode whose label the combo is showing."""
+        label = self.sizing.currentText()
+        for mode, text in SIZING_LABELS.items():
+            if text == label:
+                return mode
+        return SIZING_MODES[0]
+
     def params(self) -> dict[str, object]:
-        """What the run would read: numbers, plus the on/off switch."""
+        """What the run would read."""
         return {
+            "initial_capital": _number(self.initial_capital.text()),
+            "sizing": self.sizing_mode(),
+            "position": _number(self.position.text()),
             "tp": _number(self.tp_field.text()),
             "sl": _number(self.sl_field.text()),
-            "position": _number(self.position_field.text()),
             "cash": _number(self.cash_field.text()),
             "dynamic_tp": self.dynamic_tp.isChecked(),
+            "dyn_tp_reverse": _number(self.reverse_field.text()),
         }
+
+    # -- behavior ----------------------------------------------------------
+
+    def _apply_sizing(self, mode: str) -> None:
+        """Swap what the position field means: a share, or dollars."""
+        caption, low, high = SIZING[mode]
+        self.position_element.set_caption(caption)
+        validator = self.position.validator()
+        validator.setRange(low, high)
+        value = _number(self.position.text())
+        if value is not None:
+            self.position.setText(_format(max(low, min(high, value))))
+
+    def _apply_dynamic(self, enabled: bool) -> None:
+        """The reverse field only means anything when the trail is on."""
+        self.reverse_element.setEnabled(enabled)
+
+    def _on_sizing_changed(self, _: str) -> None:
+        self._apply_sizing(self.sizing_mode())
+        self.changed.emit()
+
+    # -- layout ------------------------------------------------------------
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        columns = WIDE_COLUMNS if self.width() >= WIDE_AT else NARROW_COLUMNS
+        if columns != self._columns:
+            self._reflow(columns)
+
+    def _reflow(self, columns: int) -> None:
+        for element in self._elements:
+            self._grid.removeWidget(element)
+        self._columns = columns
+        for index, element in enumerate(self._elements):
+            self._grid.addWidget(element, index // columns, index % columns)
+        for column in range(WIDE_COLUMNS):
+            self._grid.setColumnStretch(
+                column, 1 if column < columns else 0
+            )
 
     # -- widgets -----------------------------------------------------------
 
-    def _label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("fieldLabel")
-        return label
-
-    def _field(self, key: str, low: float, high: float) -> QLineEdit:
-        field = QLineEdit(DEFAULTS[key])
+    def _field(self, value: float, low: float, high: float) -> QLineEdit:
+        field = QLineEdit(_format(value))
         field.setObjectName("paramField")
         validator = QDoubleValidator(low, high, 2, field)
         # Always a dot for the decimal mark, whatever the system locale says,
@@ -116,8 +227,17 @@ class ParamsTile(Card):
         return field
 
 
+def _format(value: float) -> str:
+    """Trim a float to what a person would type."""
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def _number(text: str) -> float | None:
     try:
         return float(text)
     except ValueError:
         return None
+
+
+__all__ = ["ParamsTile", "SIZING", "SIZING_LABELS"]

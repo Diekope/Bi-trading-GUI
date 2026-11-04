@@ -1,4 +1,4 @@
-"""Chart feel, editable without touching the panel.
+"""Chart feel and backtest defaults, editable without touching the source.
 
 Lookup order, lowest priority first:
 
@@ -6,8 +6,9 @@ Lookup order, lowest priority first:
     ~/.config/lalala/settings.json   (written on first launch)
     LALALA_* environment variables
 
-The file exists so the numbers that make the chart move can be tuned by hand.
-Restart the app after a change; nothing reloads at runtime.
+The file exists so the numbers that make the chart move — and the values a
+backtest starts from — can be tuned by hand. Restart the app after a change;
+nothing reloads at runtime.
 
 Every value is clamped to a sane range, and a broken file never stops the app:
 the loader falls back to the defaults.
@@ -21,6 +22,9 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 DEFAULT_PATH = "~/.config/lalala/settings.json"
+
+# Position sizing modes; the tile reads the value as whatever this names.
+SIZING_MODES = ("balance", "fixed", "risk")
 
 # A file in this shape is written when none exists. The underscore keys are
 # ignored by the loader; they are there for the human who opens the file.
@@ -38,12 +42,73 @@ TEMPLATE = {
     "ease_tip": 0.18,
     "ease_range": 0.08,
     "frame_ms": 33,
+    "backtest": {
+        "_comment": "Where a new backtest starts. sizing = balance | fixed | risk",
+        "initial_capital": 10_000.0,
+        "tp": 2.0,
+        "sl": 1.0,
+        "position": 10.0,
+        "cash": 20.0,
+        "dynamic_tp": False,
+        "dyn_tp_reverse": 0.5,
+        "sizing": "balance",
+    },
 }
 
 
 def settings_path() -> Path:
     """Where the tunable file lives, honouring LALALA_SETTINGS."""
     return Path(os.environ.get("LALALA_SETTINGS", DEFAULT_PATH)).expanduser()
+
+
+@dataclass(frozen=True)
+class BacktestDefaults:
+    """The values a fresh backtest form starts from."""
+
+    initial_capital: float = 10_000.0  # book size, in dollars
+    tp: float = 2.0                    # take profit, percent
+    sl: float = 1.0                    # stop loss, percent
+    position: float = 10.0             # read as `sizing` says
+    cash: float = 20.0                 # cap on the share held in cash, percent
+    dynamic_tp: bool = False           # let the take profit trail
+    dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
+    sizing: str = "balance"            # balance % | fixed $ | risk %
+
+    @classmethod
+    def load(
+        cls,
+        raw: object,
+        environment: dict[str, str] | None = None,
+    ) -> "BacktestDefaults":
+        environment = os.environ if environment is None else environment
+        values = dict(raw) if isinstance(raw, dict) else {}
+
+        for field in fields(cls):
+            override = environment.get(f"LALALA_BACKTEST_{field.name.upper()}")
+            if override is not None:
+                values[field.name] = override
+
+        defaults = cls()
+        return cls(
+            initial_capital=_clamp(
+                _number(values.get("initial_capital"), defaults.initial_capital),
+                0.0,
+                1e12,
+            ),
+            tp=_clamp(_number(values.get("tp"), defaults.tp), 0.0, 10_000.0),
+            sl=_clamp(_number(values.get("sl"), defaults.sl), 0.0, 100.0),
+            position=_clamp(
+                _number(values.get("position"), defaults.position), 0.0, 1e9
+            ),
+            cash=_clamp(_number(values.get("cash"), defaults.cash), 0.0, 100.0),
+            dynamic_tp=_flag(values.get("dynamic_tp"), defaults.dynamic_tp),
+            dyn_tp_reverse=_clamp(
+                _number(values.get("dyn_tp_reverse"), defaults.dyn_tp_reverse),
+                0.0,
+                100.0,
+            ),
+            sizing=_choice(values.get("sizing"), defaults.sizing),
+        )
 
 
 @dataclass(frozen=True)
@@ -57,6 +122,7 @@ class Settings:
     ease_tip: float = 0.18          # per-frame glide toward the target
     ease_range: float = 0.08        # per-frame glide of the y-scale
     frame_ms: int = 33              # repaint interval (~30 fps)
+    backtest: BacktestDefaults = BacktestDefaults()
 
     def edge_px_per_s(self, width_px: float) -> float:
         """How fast the live edge travels, for a given plot width."""
@@ -80,6 +146,8 @@ class Settings:
             values.update(loaded)
 
         for field in fields(cls):
+            if field.name == "backtest":
+                continue
             override = environment.get(f"LALALA_{field.name.upper()}")
             if override is not None:
                 values[field.name] = override
@@ -87,6 +155,8 @@ class Settings:
         defaults = cls()
         numbers: dict[str, float] = {}
         for field in fields(cls):
+            if field.name == "backtest":
+                continue
             numbers[field.name] = _number(
                 values.get(field.name), getattr(defaults, field.name)
             )
@@ -122,6 +192,7 @@ class Settings:
             ease_tip=numbers["ease_tip"],
             ease_range=numbers["ease_range"],
             frame_ms=int(numbers["frame_ms"]),
+            backtest=BacktestDefaults.load(values.get("backtest"), environment),
         )
 
 
@@ -145,6 +216,18 @@ def _number(value: object, fallback: float) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return float(fallback)
+
+
+def _flag(value: object, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return fallback
+
+
+def _choice(value: object, fallback: str) -> str:
+    return value if value in SIZING_MODES else fallback
 
 
 def _clamp(value: float, low: float, high: float) -> float:
