@@ -152,6 +152,7 @@ class DownloadTile(Card):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._adjusting = False
         this_year = datetime.now(tz=timezone.utc).year
         years = list(range(FIRST_YEAR, this_year + 1))
 
@@ -186,10 +187,8 @@ class DownloadTile(Card):
         self.status = QLabel("")
         self.status.setObjectName("coverageLabel")
         self.status.setVisible(False)
-        # Start on the left, Download on the right, the note at the far edge.
-        actions.addWidget(self.start_button)
-        actions.addStretch(1)
-        actions.addWidget(self.download_button)
+        actions.addWidget(self.start_button, 1)
+        actions.addWidget(self.download_button, 1)
         actions.addWidget(self.status)
         self.body.addLayout(actions)
 
@@ -241,7 +240,8 @@ class DownloadTile(Card):
         return not missing and not partial
 
     def refresh(self) -> None:
-        """Report coverage, color the note, and flag the Download button."""
+        """Keep the span ordered, report coverage, flag the Download button."""
+        self._normalize_span()
         missing, partial = self.coverage()
         if missing:
             self._set_status(f"missing {format_years(missing)}", DOWN)
@@ -255,6 +255,25 @@ class DownloadTile(Card):
         self._set_attention(needs)
 
     # -- state helpers -----------------------------------------------------
+
+    def _normalize_span(self) -> None:
+        """A reversed pick is not an error: flip it back into order.
+
+        Setting one combo's text re-enters `refresh` through its signal, so
+        the guard keeps the correction to a single pass.
+        """
+        if self._adjusting:
+            return
+        start = int(self.start_year.currentText())
+        end = int(self.end_year.currentText())
+        if start <= end:
+            return
+        self._adjusting = True
+        try:
+            self.start_year.setCurrentText(str(end))
+            self.end_year.setCurrentText(str(start))
+        finally:
+            self._adjusting = False
 
     def _set_status(self, text: str, color: str | None = None) -> None:
         self.status.setText(text)

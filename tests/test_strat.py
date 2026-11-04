@@ -189,7 +189,28 @@ def test_the_action_row_is_start_left_download_right(
     ]
     # Start left, Download right, the coverage note at the far right edge.
     assert placed == [tile.start_button, tile.download_button, tile.status]
-    assert row.itemAt(1).spacerItem() is not None
+    # The two buttons still share the whole width between them.
+    assert row.stretch(0) == 1
+    assert row.stretch(1) == 1
+
+
+def test_a_reversed_range_is_flipped_back(app: QApplication, window) -> None:
+    tile = window.download
+
+    # Ask for 2020 → 2018; the picker quietly reorders it.
+    tile.start_year.setCurrentText("2020")
+    tile.end_year.setCurrentText("2018")
+    app.processEvents()
+
+    assert tile.span()[0] <= tile.span()[1]
+    assert tile.start_year.currentText() == "2018"
+    assert tile.end_year.currentText() == "2020"
+
+    # The other direction works the same way: 2018 → 2017 flips to 2017 → 2018.
+    tile.end_year.setCurrentText("2017")
+    app.processEvents()
+    assert tile.start_year.currentText() == "2017"
+    assert tile.end_year.currentText() == "2018"
 
 
 def test_download_pulses_while_the_span_needs_fetching(window) -> None:
