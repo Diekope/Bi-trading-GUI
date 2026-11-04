@@ -160,6 +160,19 @@ QPushButton#startButton:hover {{
     border-color: {ACCENT};
 }}
 
+/* The compact Run/Restart switch in the playback tile's header. */
+QPushButton#runButton {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 4px;
+    color: {ACCENT};
+    font-size: 10px;
+    padding: 1px 10px;
+}}
+QPushButton#runButton:hover {{
+    border-color: {ACCENT};
+}}
+
 #venuePanel QLabel#tileTitle {{
     color: {TEXT};
     font-size: 10px;

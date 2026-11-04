@@ -27,7 +27,9 @@ from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QGridLayout,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QWidget,
 )
@@ -49,6 +51,9 @@ from lalala.theme import (
 BARS_TO_PLAY = 400
 STEP_MS = 90
 FRAME_MS = 30
+# How fast the price window chases the data. Lower is calmer; the tile is
+# unreadable when the scale snaps on every new extreme.
+EASE_RANGE = 0.14
 # Never read more than this from a file, whatever the resolution needs.
 MAX_READ = 48_000
 FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
@@ -391,6 +396,10 @@ class CandlePlayer(QWidget):
         # chart slides by this much every frame, so it scrolls like a live one
         # instead of hopping a whole slot at a time.
         self.offset = 0.0
+        # The price window eases, so filling the tile does not make it jump.
+        self._low: float | None = None
+        self._high: float | None = None
+        self.message = "press Run to start the backtest"
         self.setMinimumHeight(140)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -398,6 +407,10 @@ class CandlePlayer(QWidget):
 
     def set_offset(self, offset: float) -> None:
         self.offset = max(0.0, min(0.999, offset))
+
+    def reset_range(self) -> None:
+        self._low = None
+        self._high = None
 
     def visible_count(self, width: float) -> int:
         return max(30, int((width - 62.0) / 7.0))
@@ -415,6 +428,16 @@ class CandlePlayer(QWidget):
         if right - left < 40 or bottom - top < 30:
             return
 
+        if not self.playback.candles:
+            painter.setFont(mono_font(9))
+            painter.setPen(QColor(TEXT_FAINT))
+            painter.drawText(
+                QRectF(left, top, right - left, bottom - top),
+                Qt.AlignmentFlag.AlignCenter,
+                self.message,
+            )
+            return
+
         room = self.visible_count(width)
         # The walk can sit one past the end for a frame before it wraps.
         last = min(self.playback.index, len(self.playback.candles) - 1)
@@ -426,8 +449,12 @@ class CandlePlayer(QWidget):
         low = min(bar.low for bar in window)
         high = max(bar.high for bar in window)
         pad = max((high - low) * 0.08, high * 0.0002)
-        low -= pad
-        high += pad
+        if self._low is None:
+            self._low, self._high = low - pad, high + pad
+        else:
+            self._low += (low - pad - self._low) * EASE_RANGE
+            self._high += (high + pad - self._high) * EASE_RANGE
+        low, high = self._low, self._high
 
         slot = (right - left) / room
 
@@ -513,19 +540,31 @@ class PlaybackTile(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self.playback = Playback(sample_candles())
-        self.source = "example"
+        # Nothing runs until Run is pressed: opening the window is not a run.
+        self.playback = Playback([])
+        self.source = "—"
+        self._launched = False
         # What the controls are set to. A change here is not a restart: it is
-        # picked up the next time Start backtest is pressed.
+        # picked up the next time the run is started.
         self._wanted_years: list[int] = []
         self._wanted_resolution = "1m"
         self._wanted_params: dict | None = None
 
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
         title = QLabel("BACKTEST")
         title.setObjectName("tileTitle")
-        self.body.addWidget(title)
+        self.run_button = QPushButton("Run")
+        self.run_button.setObjectName("runButton")
+        self.run_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.run_button.setToolTip("Start the walk over with the current span")
+        header.addWidget(title)
+        header.addStretch(1)
+        header.addWidget(self.run_button)
+        self.body.addLayout(header)
 
-        self.note = QLabel("example loop — placeholder entry rule")
+        self.note = QLabel("idle — press Run")
         self.note.setObjectName("hintLabel")
         self.body.addWidget(self.note)
 
@@ -548,6 +587,7 @@ class PlaybackTile(Card):
         self._timer.setInterval(FRAME_MS)
         self._timer.timeout.connect(self._tick)
         self._elapsed = 0
+        self.run_button.clicked.connect(self.restart)
         self._refresh_metrics()
 
     # -- the loop ----------------------------------------------------------
@@ -586,8 +626,11 @@ class PlaybackTile(Card):
         if self._wanted_params is not None:
             self._adopt_params(self._wanted_params)
         self.playback.reset()
+        self._launched = True
         self._elapsed = 0
         self.player.set_offset(0.0)
+        self.player.reset_range()
+        self.run_button.setText("Restart")
         self._describe()
         self._refresh_metrics()
         self.player.update()
@@ -615,6 +658,9 @@ class PlaybackTile(Card):
         self.playback.max_cash = float(params["cash"] or 0.0)
 
     def _describe(self) -> None:
+        if not self._launched:
+            self.note.setText("idle — press Run")
+            return
         arrow = "placeholder entry rule"
         if self._wanted_years:
             ready = f"{self._wanted_years[-1]} · {self._wanted_resolution}"
@@ -622,8 +668,7 @@ class PlaybackTile(Card):
                 self.note.setText(f"looping {self.source} — {arrow}")
             else:
                 self.note.setText(
-                    f"looping {self.source} — ready {ready}, "
-                    f"press Start backtest"
+                    f"looping {self.source} — ready {ready}, press Run"
                 )
         else:
             self.note.setText(f"{self.source} loop — {arrow}")
@@ -652,8 +697,16 @@ class PlaybackTile(Card):
             )
 
     def _refresh_metrics(self) -> None:
+        if self._launched:
+            rows = self.playback.metrics()
+        else:
+            # Nothing to report yet: the labels are there, the values are not.
+            rows = [
+                (title, "—", "muted")
+                for title, _, _ in self.playback.metrics()
+            ]
         for (caption, value), (title, text, role) in zip(
-            self._metric_labels, self.playback.metrics()
+            self._metric_labels, rows
         ):
             if caption.text() != title:
                 caption.setText(title)

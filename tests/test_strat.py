@@ -310,23 +310,33 @@ def test_finishing_swaps_the_button_to_start(
     assert tile.start_button.isVisible() is True
 
 
-def test_start_backtest_restarts_the_playback(
-    app: QApplication, window
-) -> None:
-    """The button in the history tile is the only thing that starts it over."""
+def test_opening_the_window_starts_no_run(app: QApplication, window) -> None:
+    assert window.left.playing() is False
+    assert window.left.playback.candles == []
+    assert "idle" in window.left.note.text()
+    assert window.left.run_button.text() == "Run"
+
+
+def test_starting_a_run_and_restarting_it(app: QApplication, window) -> None:
+    """Only a button press restarts the walk: the span cannot do it."""
     playback = window.left
+
+    playback.run_button.click()
+    app.processEvents()
+    assert playback.playing() is True
+    assert playback.run_button.text() == "Restart"
     for _ in range(6):
         playback.playback.advance()
     assert playback.playback.index == 6
 
     _pick(window.download, 2017, 2017, "1m")
     app.processEvents()
-    # A span change alone leaves the walk where it is…
+    # A span change alone leaves the walk exactly where it is…
     assert playback.playback.index == 6
 
+    # …and either button starts it over.
     window.download.start_button.click()
     app.processEvents()
-    # …pressing the button is what restarts it.
     assert playback.playback.index == 0
 
 

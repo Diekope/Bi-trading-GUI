@@ -92,7 +92,6 @@ class StratWindow(QMainWindow):
         self.download.started.connect(self.left.restart)
         self._sync_playback()
         self._sync_params()
-        self.left.restart()
 
     def _sync_playback(self) -> None:
         start, end, resolution = self.download.span()

@@ -202,11 +202,14 @@ def test_the_tile_scrolls_between_candles(app: QApplication) -> None:
     tile.show()
     app.processEvents()
 
-    assert tile.source == "example"
+    # Opening the window is not a run.
     assert tile.playing() is False
+    assert tile.playback.candles == []
+    assert "idle" in tile.note.text()
 
-    tile.play()
+    tile.restart()  # nothing on disk in this fixture: the sample steps in
     assert tile.playing() is True
+    assert tile.playback.candles
     start = tile.playback.index
     tile._tick()
     # A frame before the next candle only shifts the picture, it does not step.
@@ -240,7 +243,7 @@ def test_a_change_does_not_restart_the_walk(app: QApplication) -> None:
     # Remembered, not applied: the walk keeps its place.
     assert tile.playback.index == index
     assert tile.source == "example"
-    assert "press Start backtest" in tile.note.text()
+    assert "press Run" in tile.note.text()
     assert tile.playback.tp == pytest.approx(2.0)
     tile.close()
 
