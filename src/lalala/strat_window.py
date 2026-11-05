@@ -1,12 +1,17 @@
 """The backtest/strategy window.
 
-Two halves. The left is still open. The right stacks three tiles: the history
-controls on top, the backtest parameters below them, and an empty tile under
-that, the lower two sharing the space equally. It shares the terminal's theme
-and gap, so the two windows read as one product.
+Two halves. The left is the run: candles, figures, Restart. The right stacks
+four tiles: the history controls on top, then the run's inputs, then the
+strategy, then the results, which take whatever height is left. It shares the
+terminal's theme and gap, so the two windows read as one product.
+
+**Create a strategy** opens a second, blank window — `StrategyBuilderWindow` —
+where a rule will be built. There is one of them at a time.
 """
 
 from __future__ import annotations
+
+import logging
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -18,12 +23,15 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.panels import Card
+from lalala.strat_builder import StrategyBuilderWindow
 from lalala.strat_params import ParamsTile
 from lalala.strat_playback import PlaybackTile
 from lalala.strat_results import ResultsTile
 from lalala.strat_strategy import StrategyTile
 from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
+
+log = logging.getLogger(__name__)
 
 
 class StratWindow(QMainWindow):
@@ -87,12 +95,17 @@ class StratWindow(QMainWindow):
         self.setCentralWidget(canvas)
         self._balanced = False
 
+        # One builder at a time. Pressing the button while it is already open
+        # brings that window forward instead of opening a second one.
+        self.builder: StrategyBuilderWindow | None = None
+
         # The left tile plays whatever the other two are set to. A change of
         # span or parameters only marks the run ready — pressing Start
         # backtest is what actually restarts it.
         self.download.span_changed.connect(self._sync_playback)
         self.params.changed.connect(self._sync_params)
         self.strategy.changed.connect(self.left.set_strategy)
+        self.strategy.create_requested.connect(self.open_builder)
         self.download.started.connect(self.left.restart)
         self.left.restarted.connect(self.results.set_session)
         self.left.advanced.connect(self.results.refresh)
@@ -100,9 +113,22 @@ class StratWindow(QMainWindow):
         self._sync_params()
         self.left.set_strategy(self.strategy.rule())
 
+    def open_builder(self) -> StrategyBuilderWindow:
+        """Show the strategy builder, or bring the open one forward."""
+        if self.builder is None:
+            self.builder = StrategyBuilderWindow(self)
+            log.info("strategy builder opened")
+        else:
+            log.info("strategy builder raised")
+        self.builder.show()
+        self.builder.raise_()
+        self.builder.activateWindow()
+        return self.builder
+
     def _sync_playback(self) -> None:
         start, end, resolution = self.download.span()
         self.left.set_source(list(range(start, end + 1)), resolution)
+
     def _sync_params(self) -> None:
         self.left.set_params(self.params.params())
 

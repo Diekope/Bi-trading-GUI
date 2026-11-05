@@ -245,6 +245,7 @@ src/lalala/
   strat_playback.py the left tile: a streamed walk over the whole span
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
+  strat_builder.py the blank window the Create a strategy button opens
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -262,13 +263,13 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             273 tests: parsing/search/aliases, slug math, candle + book
+tests/             274 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   chart and backtest settings, the silent log, and the candle
-                   store and downloader
+                   strategy builder window, the chart and backtest settings,
+                   the silent log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -292,7 +293,10 @@ a good year has.
 ## Strategy tile
 
 The entry rule the run is pointed at, with a **Create a strategy** button on
-the right — a placeholder for now, wired to nothing. Two rules so far:
+the right that opens a second window, `strat_builder.py` — blank for now, one
+faint line in the middle. It is a top-level window of its own with the same
+canvas and gap, and there is only ever one: pressing the button again brings
+the open one forward rather than stacking another. Two rules so far:
 
 | Rule | What it does |
 | --- | --- |
@@ -499,6 +503,9 @@ dropped.
 
 ## Not implemented yet
 
+- The strategy builder window. **Create a strategy** opens it, but it is blank:
+  nothing defines a rule yet, and nothing it could define would be picked up by
+  the walk.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.

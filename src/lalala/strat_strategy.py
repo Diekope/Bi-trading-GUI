@@ -25,9 +25,10 @@ from lalala.strat_playback import DEFAULT_STRATEGY, STRATEGIES, strategy_label
 
 
 class StrategyTile(Card):
-    """Pick the entry rule, and (later) build a new one."""
+    """Pick the entry rule, and open the builder for a new one."""
 
     changed = Signal(str)
+    create_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -47,12 +48,14 @@ class StrategyTile(Card):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
-        # A placeholder: building a strategy is a bigger job than this tile.
+        # Opens the builder window. The tile does not own it: the window does,
+        # so there is one builder however many times the button is pressed.
         self.create_button = QPushButton("Create a strategy")
         self.create_button.setObjectName("createStrategy")
         self.create_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.create_button.setMinimumHeight(36)
-        self.create_button.setToolTip("Not wired up yet")
+        self.create_button.setToolTip("Open the strategy builder")
+        self.create_button.clicked.connect(self.create_requested)
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
