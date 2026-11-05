@@ -261,7 +261,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             263 tests: parsing/search/aliases, slug math, candle + book
+tests/             264 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -290,7 +290,8 @@ a good year has.
 
 ## Strategy tile
 
-The entry rule the run is pointed at. Two so far:
+The entry rule the run is pointed at, with a **Create a strategy** button on
+the right — a placeholder for now, wired to nothing. Two rules so far:
 
 | Rule | What it does |
 | --- | --- |

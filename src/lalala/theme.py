@@ -173,6 +173,20 @@ QPushButton#runButton:hover {{
     border-color: {ACCENT};
 }}
 
+/* A placeholder for building a strategy, so it reads as a real action. */
+QPushButton#createStrategy {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 4px;
+    color: {ACCENT};
+    font-size: 11px;
+    padding: 6px 20px;
+}}
+QPushButton#createStrategy:hover {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
+
 #venuePanel QLabel#tileTitle {{
     color: {TEXT};
     font-size: 10px;

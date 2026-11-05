@@ -13,9 +13,10 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -24,7 +25,7 @@ from lalala.strat_playback import DEFAULT_STRATEGY, STRATEGIES, strategy_label
 
 
 class StrategyTile(Card):
-    """Pick the entry rule."""
+    """Pick the entry rule, and (later) build a new one."""
 
     changed = Signal(str)
 
@@ -45,7 +46,20 @@ class StrategyTile(Card):
         self.picker.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.body.addWidget(self.picker)
+
+        # A placeholder: building a strategy is a bigger job than this tile.
+        self.create_button = QPushButton("Create a strategy")
+        self.create_button.setObjectName("createStrategy")
+        self.create_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.create_button.setMinimumHeight(36)
+        self.create_button.setToolTip("Not wired up yet")
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        row.addWidget(self.picker, 1)
+        row.addWidget(self.create_button)
+        self.body.addLayout(row)
 
         self.note = QLabel("")
         self.note.setObjectName("hintLabel")

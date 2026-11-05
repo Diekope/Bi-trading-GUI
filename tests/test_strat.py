@@ -326,6 +326,22 @@ def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
     assert "coin flip" in tile.note.text()
 
 
+def test_the_create_strategy_button_is_a_placeholder(
+    app: QApplication, window
+) -> None:
+    tile = window.strategy
+
+    assert tile.create_button.text() == "Create a strategy"
+    assert tile.create_button.isEnabled() is True
+    # Tall enough to read as the tile's main action, and inert on purpose.
+    assert tile.create_button.minimumHeight() >= 30
+
+    before = tile.rule()
+    tile.create_button.click()
+    app.processEvents()
+    assert tile.rule() == before
+
+
 def test_a_strategy_change_waits_for_the_button(
     app: QApplication, window
 ) -> None:
