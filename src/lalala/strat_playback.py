@@ -1,27 +1,34 @@
-"""The playback tile: candles rolling through a backtest, numbers live.
+"""The playback tile: candles rolling through a backtest, figures live.
 
-This is the *preview* of a run, not a run. It walks a series of candles one at
-a time, so the chart scrolls the way a live chart does, and keeps a light
-long-only simulation on top: one position at a time, take profit and stop loss
-from the parameter tile, a fee each way. Every figure above the chart is
-recomputed from that walk.
+This is the run itself. It walks the **whole selected span**, one bar at a
+time, and keeps a long-only simulation on top: one position at a time, take
+profit and stop loss from the parameter tile, a fee each way. Every figure
+above the chart is recomputed from that walk.
 
-Two things are deliberately provisional:
+The span can be years of one-minute bars, so nothing is held in memory that
+does not have to be. Bars are streamed off disk, and only what the picture and
+the figures need is kept:
 
-* The **entry rule** is a placeholder — enter long when a candle closes above
-  the previous close. The real rule belongs to its own tile.
-* The candles come from the local store when the span has any, and from a
-  fixed-seed walk otherwise. The subtitle says which.
+* a rolling window of the most recent bars, for the chart;
+* the most recent entries and exits, to mark on it;
+* running totals, and a running mean/variance for the Sharpe.
 
-Fills are the optimistic kind: the stop and the target are both checked
-against a candle's range, so if one candle touches both, the target wins.
+The walk is also sped up to stay watchable: `stride` bars are consumed per
+tick, chosen so a run over any amount of data takes about `WATCH_MS`. With a
+few hundred bars that is one bar a tick; with years of minutes the trail
+advances in bigger jumps.
+
+The entry rule comes from the strategy tile. Fills are the optimistic kind —
+the stop and the target are both read off one candle's range, so a candle that
+touches both pays the target.
 """
 
 from __future__ import annotations
 
-import math
 import random
-from dataclasses import dataclass
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt, Signal
@@ -38,19 +45,18 @@ from PySide6.QtWidgets import (
 from lalala.candles import candle_file
 from lalala.cards import mono_font
 from lalala.panels import Card
-from lalala.theme import (
-    ACCENT,
-    DOWN,
-    TEXT_FAINT,
-    TEXT_MUTED,
-    UP,
-)
+from lalala.theme import ACCENT, DOWN, TEXT_FAINT, TEXT_MUTED, UP
 
-# Bars the loop walks before it starts over, and how long each one is on screen.
-BARS_TO_PLAY = 400
+# A run is watched over about this long, whatever the span holds.
+WATCH_MS = 120_000
 STEP_MS = 50
 FRAME_MS = 30
-# Never read more than this from a file, whatever the resolution needs.
+MAX_TICKS = max(1, WATCH_MS // STEP_MS)
+
+# What the picture needs, no matter how long the run is.
+CHART_BARS = 600
+MAX_MARKERS = 4000
+
 MAX_READ = 48_000
 FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 
@@ -63,6 +69,8 @@ NARROW_METRICS = 4
 WIDE_AT = 520
 
 SAMPLE_SEED = 11
+# A span with nothing on disk still has something to show.
+SAMPLE_BARS = 400
 
 # The strategies the run can be pointed at. Random buy is the baseline: an
 # entry rule that cannot beat a coin flip has no edge, so it stays in the list
@@ -92,34 +100,6 @@ def strategy_label(rule: str) -> str:
     return STRATEGIES[0][1]
 
 
-def bollinger_bands(
-    candles: list[Candle],
-    period: int = BOLLINGER_PERIOD,
-    deviations: float = BOLLINGER_DEVIATIONS,
-) -> tuple[tuple[float, float, float] | None, ...]:
-    """(middle, upper, lower) per bar, or None until there is enough history."""
-    bands: list[tuple[float, float, float] | None] = []
-    closes: list[float] = []
-    total = 0.0
-    total_squares = 0.0
-    for bar in candles:
-        closes.append(bar.close)
-        total += bar.close
-        total_squares += bar.close * bar.close
-        if len(closes) > period:
-            gone = closes.pop(0)
-            total -= gone
-            total_squares -= gone * gone
-        if len(closes) < period:
-            bands.append(None)
-            continue
-        middle = total / period
-        variance = max(0.0, total_squares / period - middle * middle)
-        spread = variance ** 0.5 * deviations
-        bands.append((middle, middle + spread, middle - spread))
-    return tuple(bands)
-
-
 @dataclass(frozen=True)
 class Candle:
     stamp: int
@@ -130,88 +110,110 @@ class Candle:
     volume: float
 
 
-# -- series ----------------------------------------------------------------
-
-
-def aggregate(candles: list[Candle], factor: int) -> list[Candle]:
+def aggregate(bars: Iterable[Candle], factor: int) -> Iterator[Candle]:
     """Compact bars `factor`-to-one: first open, last close, extremes kept."""
     if factor <= 1:
-        return list(candles)
-    bars: list[Candle] = []
-    for start in range(0, len(candles), factor):
-        group = candles[start : start + factor]
-        if not group:
+        yield from bars
+        return
+    group: list[Candle] = []
+    for bar in bars:
+        group.append(bar)
+        if len(group) < factor:
             continue
-        bars.append(
-            Candle(
-                stamp=group[0].stamp,
-                open=group[0].open,
-                high=max(bar.high for bar in group),
-                low=min(bar.low for bar in group),
-                close=group[-1].close,
-                volume=sum(bar.volume for bar in group),
-            )
+        yield _merge(group)
+        group = []
+    if group:
+        yield _merge(group)
+
+
+def _merge(group: list[Candle]) -> Candle:
+    return Candle(
+        stamp=group[0].stamp,
+        open=group[0].open,
+        high=max(bar.high for bar in group),
+        low=min(bar.low for bar in group),
+        close=group[-1].close,
+        volume=sum(bar.volume for bar in group),
+    )
+
+
+def _parse(line: str) -> Candle | None:
+    parts = line.rstrip("\n").split(",")
+    if len(parts) < 6:
+        return None
+    try:
+        return Candle(
+            stamp=int(parts[0]),
+            open=float(parts[1]),
+            high=float(parts[2]),
+            low=float(parts[3]),
+            close=float(parts[4]),
+            volume=float(parts[5]),
         )
+    except ValueError:
+        return None
+
+
+def _iter_file(path, factor: int) -> Iterator[Candle]:
+    def bars() -> Iterator[Candle]:
+        try:
+            with path.open() as handle:
+                next(handle, None)  # the header
+                for line in handle:
+                    bar = _parse(line)
+                    if bar is not None:
+                        yield bar
+        except OSError:
+            return
+    yield from aggregate(bars(), factor)
+
+
+def iter_candles(years: list[int], resolution: str) -> Iterator[Candle]:
+    """The whole span, one bar at a time, compacted to `resolution`."""
+    factor = FACTOR.get(resolution, 1)
+    for year in sorted(years):
+        path = candle_file(year)
+        if path.exists():
+            yield from _iter_file(path, factor)
+
+
+def count_bars(years: list[int], resolution: str) -> int:
+    """How many bars the span holds at `resolution`.
+
+    Counted per file and rounded up, because bars are compacted within a year:
+    a file whose row count is not a multiple of the factor still yields one
+    more, shorter bar. The total therefore matches what `iter_candles` yields,
+    which matters: progress is measured against it.
+    """
+    factor = FACTOR.get(resolution, 1)
+    bars = 0
+    for year in sorted(years):
+        path = candle_file(year)
+        lines = 0
+        try:
+            with path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1 << 20), b""):
+                    lines += block.count(b"\n")
+        except OSError:
+            continue
+        rows = max(0, lines - 1)  # one header per file
+        bars += -(-rows // factor)
     return bars
 
 
-def _read_head(path, limit: int) -> list[Candle]:
-    """The first `limit` data rows of a store file, header skipped.
-
-    A pair's opening minutes carry no trades — BTCUSDT's first bar is flat at
-    its listing price with zero volume, and a few more follow. They are
-    skipped so the walk starts where the market does; zero-volume bars later
-    on are real quiet minutes and are kept.
-    """
-    rows: list[Candle] = []
-    started = False
-    try:
-        with path.open() as handle:
-            next(handle, None)
-            for line in handle:
-                parts = line.rstrip("\n").split(",")
-                if len(parts) < 6:
-                    continue
-                try:
-                    bar = Candle(
-                        stamp=int(parts[0]),
-                        open=float(parts[1]),
-                        high=float(parts[2]),
-                        low=float(parts[3]),
-                        close=float(parts[4]),
-                        volume=float(parts[5]),
-                    )
-                except ValueError:
-                    continue
-                if not started and (bar.high <= bar.low or bar.volume <= 0):
-                    continue
-                started = True
-                rows.append(bar)
-                if len(rows) >= limit:
-                    break
-    except OSError:
-        return []
-    return rows
-
-
 def load_candles(
-    years: list[int], resolution: str, limit: int = BARS_TO_PLAY
+    years: list[int], resolution: str, limit: int = SAMPLE_BARS
 ) -> list[Candle]:
-    """Play the span's most recent year on disk, compacted as asked.
-
-    The latest year, not the earliest: early BTCUSDT minutes are so thin that
-    most bars have no range at all, which makes for a dull thing to watch.
-    """
-    factor = FACTOR.get(resolution, 1)
-    need = min(limit * factor, MAX_READ)
-    for year in sorted(years, reverse=True):
-        raw = _read_head(candle_file(year), need)
-        if raw:
-            return aggregate(raw, factor)[:limit]
-    return []
+    """The first `limit` bars of the span, for tests and small views."""
+    bars: list[Candle] = []
+    for bar in iter_candles(years, resolution):
+        bars.append(bar)
+        if len(bars) >= limit:
+            break
+    return bars
 
 
-def sample_candles(count: int = BARS_TO_PLAY, seed: int = SAMPLE_SEED) -> list[Candle]:
+def sample_candles(count: int = SAMPLE_BARS, seed: int = SAMPLE_SEED) -> list[Candle]:
     """A fixed-seed walk, for when the store has nothing to show."""
     rng = random.Random(seed)
     price = 78_000.0
@@ -236,15 +238,66 @@ def sample_candles(count: int = BARS_TO_PLAY, seed: int = SAMPLE_SEED) -> list[C
     return bars
 
 
-# -- the walk --------------------------------------------------------------
+def plan_stride(total: int) -> int:
+    """Bars per tick so a run over `total` bars lasts about `WATCH_MS`."""
+    if total <= MAX_TICKS:
+        return 1
+    return max(1, -(-total // MAX_TICKS))
+
+
+def _feed_factory(candles) -> Callable[[], Iterator[Candle]]:
+    if isinstance(candles, (list, tuple)):
+        return lambda: iter(candles)
+    return candles
+
+
+def _bollinger(
+    closes: deque[float],
+    total: float,
+    total_squares: float,
+    period: int,
+    deviations: float,
+) -> tuple[float, float, float] | None:
+    if len(closes) < period:
+        return None
+    middle = total / period
+    variance = max(0.0, total_squares / period - middle * middle)
+    spread = variance ** 0.5 * deviations
+    return middle, middle + spread, middle - spread
+
+
+def bollinger_bands(
+    candles: Iterable[Candle],
+    period: int = BOLLINGER_PERIOD,
+    deviations: float = BOLLINGER_DEVIATIONS,
+) -> tuple[tuple[float, float, float] | None, ...]:
+    """(middle, upper, lower) per bar, or None until there is enough history.
+
+    The walk keeps the same numbers with a rolling window; this version exists
+    for whole series — tests, and anywhere the bars are already in hand.
+    """
+    bands: list[tuple[float, float, float] | None] = []
+    closes: deque[float] = deque(maxlen=period)
+    total = 0.0
+    total_squares = 0.0
+    for bar in candles:
+        if len(closes) == period:
+            gone = closes[0]
+            total -= gone
+            total_squares -= gone * gone
+        closes.append(bar.close)
+        total += bar.close
+        total_squares += bar.close * bar.close
+        bands.append(_bollinger(closes, total, total_squares, period, deviations))
+    return tuple(bands)
 
 
 class Playback:
-    """One position at a time, walked candle by candle."""
+    """One position at a time, walked bar by bar off a stream."""
 
     def __init__(
         self,
-        candles: list[Candle],
+        candles,
         capital: float = 10_000.0,
         tp: float = 2.0,
         sl: float = 1.0,
@@ -256,8 +309,14 @@ class Playback:
         rule: str = DEFAULT_STRATEGY,
         seed: int = 1234,
         entry_chance: float = 0.03,
+        total: int | None = None,
+        stride: int = 1,
     ) -> None:
-        self.candles = list(candles)
+        self._feed_factory = _feed_factory(candles)
+        if total is None:
+            total = len(candles) if isinstance(candles, (list, tuple)) else 0
+        self.total = total
+        self.stride = max(1, stride)
         self.capital = capital
         self.tp = tp
         self.sl = sl
@@ -269,22 +328,21 @@ class Playback:
         self.rule = rule
         self.seed = seed
         self.entry_chance = entry_chance
-        self._bands = (
-            bollinger_bands(self.candles)
-            if rule == "bollinger"
-            else ()
-        )
         self.reset()
 
     # -- state -------------------------------------------------------------
 
     def reset(self) -> None:
         self._rng = random.Random(self.seed)
+        self._feed = self._feed_factory()
+        self._exhausted = False
         self.index = 0
+        self.first_close = 0.0
         self.cash = self.capital
         self.qty = 0.0
         self.entry_price = 0.0
         self.entry_index = 0
+        self.entry_cost = 0.0
         self.peak = self.capital
         self.max_drawdown = 0.0
         self.max_gain = 0.0
@@ -293,23 +351,34 @@ class Playback:
         self.streak = 0          # > 0 wins in a row, < 0 losses in a row
         self.best_win = 0
         self.worst_loss = 0
-        self.markers: list[tuple[int, str, float]] = []
         self.bars_in_market = 0
-        self.entry_cost = 0.0
-        self.equity_curve: list[float] = [self.capital]
+        self.markers: deque[tuple[int, str, float]] = deque(maxlen=MAX_MARKERS)
+        self._window: deque[Candle] = deque(maxlen=CHART_BARS)
+        self._previous: Candle | None = None
+        self._closes: deque[float] = deque(maxlen=BOLLINGER_PERIOD)
+        self._close_total = 0.0
+        self._close_squares = 0.0
+        self._band: tuple[float, float, float] | None = None
+        self._last_equity = self.capital
+        self._returns = 0
+        self._return_mean = 0.0
+        self._return_m2 = 0.0
 
     @property
     def done(self) -> bool:
-        return self.index >= len(self.candles)
+        """True once the feed is spent, or the known total has been walked."""
+        if self._exhausted:
+            return True
+        return self.total > 0 and self.index >= self.total
 
     @property
     def in_position(self) -> bool:
         return self.qty > 0.0
 
     def close_price(self) -> float:
-        if not self.candles:
-            return 0.0
-        return self.candles[min(self.index, len(self.candles) - 1)].close
+        if self._window:
+            return self._window[-1].close
+        return self.first_close
 
     @property
     def equity(self) -> float:
@@ -346,20 +415,12 @@ class Playback:
         trades by the square root of a year and produce a number that says
         nothing. The plain ratio is the honest shape of it.
         """
-        curve = self.equity_curve
-        returns = [
-            curve[i] / curve[i - 1] - 1.0
-            for i in range(1, len(curve))
-            if curve[i - 1] > 0
-        ]
-        if len(returns) < 2:
+        if self._returns < 2 or self._return_m2 <= 0:
             return 0.0
-        mean = sum(returns) / len(returns)
-        variance = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
-        deviation = variance ** 0.5
+        deviation = (self._return_m2 / (self._returns - 1)) ** 0.5
         if deviation == 0:
             return 0.0
-        return mean / deviation
+        return self._return_mean / deviation
 
     @property
     def exposure(self) -> float:
@@ -368,35 +429,78 @@ class Playback:
 
     @property
     def progress(self) -> float:
-        """How much of the series the walk has covered, 0..1."""
-        if not self.candles:
-            return 0.0
-        return min(1.0, self.index / len(self.candles))
+        if not self.total:
+            return 1.0 if self.done else 0.0
+        return min(1.0, self.index / self.total)
+
+    def recent(self) -> list[Candle]:
+        """The bars the chart can draw, newest last."""
+        return list(self._window)
 
     # -- stepping ----------------------------------------------------------
 
     def step(self) -> None:
-        """Advance one candle: manage the open trade, else look for one."""
-        if self.done:
-            return
-        candle = self.candles[self.index]
-        previous = self.candles[self.index - 1] if self.index else candle
+        """Consume `stride` bars: the picture and the figures move together."""
+        for _ in range(self.stride):
+            if not self._advance_one():
+                break
+
+    def advance(self) -> None:
+        self.step()
+
+    def _advance_one(self) -> bool:
+        try:
+            candle = next(self._feed)
+        except StopIteration:
+            self._exhausted = True
+            return False
+
+        if not self.first_close:
+            self.first_close = candle.close
+        self._update_band(candle.close)
 
         if self.in_position:
             self.bars_in_market += 1
             self._manage(candle)
-        elif self._wants_long(candle, previous):
+        elif self._wants_long(candle, self._previous or candle):
             self._enter(candle)
 
-        self.peak = max(self.peak, self.equity)
-        self.max_drawdown = min(self.max_drawdown, self.drawdown())
-        self.max_gain = max(self.max_gain, self.equity / self.capital - 1.0)
-        self.equity_curve.append(self.equity)
+        self._previous = candle
+        self._window.append(candle)
         self.index += 1
 
-    def advance(self) -> None:
-        """One tick of the loop. It stops at the end; starting over is a choice."""
-        self.step()
+        equity = self.equity
+        self.peak = max(self.peak, equity)
+        self.max_drawdown = min(self.max_drawdown, self.drawdown())
+        self.max_gain = max(self.max_gain, equity / self.capital - 1.0)
+        self._observe(equity)
+        return True
+
+    def _observe(self, equity: float) -> None:
+        """Welford, so the Sharpe costs no memory however long the run is."""
+        if self._last_equity > 0:
+            change = equity / self._last_equity - 1.0
+            self._returns += 1
+            delta = change - self._return_mean
+            self._return_mean += delta / self._returns
+            self._return_m2 += delta * (change - self._return_mean)
+        self._last_equity = equity
+
+    def _update_band(self, close: float) -> None:
+        if len(self._closes) == self._closes.maxlen:
+            gone = self._closes[0]
+            self._close_total -= gone
+            self._close_squares -= gone * gone
+        self._closes.append(close)
+        self._close_total += close
+        self._close_squares += close * close
+        self._band = _bollinger(
+            self._closes,
+            self._close_total,
+            self._close_squares,
+            BOLLINGER_PERIOD,
+            BOLLINGER_DEVIATIONS,
+        )
 
     def _wants_long(self, candle: Candle, previous: Candle) -> bool:
         """When to open, per the chosen strategy.
@@ -410,8 +514,7 @@ class Playback:
         if self.rule == "random":
             return self._rng.random() < self.entry_chance
         if self.rule == "bollinger":
-            band = self._bands[self.index] if self.index < len(self._bands) else None
-            return band is not None and candle.close < band[2]
+            return self._band is not None and candle.close < self._band[2]
         return False
 
     def _budget(self) -> float:
@@ -482,7 +585,7 @@ class Playback:
             ("Equity", _money(self.equity), "text"),
             (
                 "Progress",
-                f"{self.progress * 100:,.0f}% · {self.index}/{len(self.candles)}",
+                f"{self.progress * 100:,.0f}% · {self.index:,}/{self.total:,}",
                 "muted",
             ),
             (
@@ -500,7 +603,7 @@ class Playback:
             ("Streak", streak, "accent" if self.streak > 0 else "text"),
             ("Best W", f"{self.best_win}", "accent"),
             ("Worst L", f"{abs(self.worst_loss)}", "down"),
-            ("Trades", f"{self.trades}", "text"),
+            ("Trades", f"{self.trades:,}", "text"),
             ("Win rate", f"{self.win_rate * 100:,.0f}%", "text"),
             ("Fees", _money(self.fees), "muted"),
         ]
@@ -513,62 +616,64 @@ def _money(value: float) -> str:
 # -- the three curves ------------------------------------------------------
 
 
-def benchmark_curve(candles: list[Candle], capital: float) -> tuple[float, ...]:
-    """Buy and hold: all the capital in at the first bar, never sold."""
-    if not candles or candles[0].close <= 0:
-        return (capital,)
-    first = candles[0].close
-    return tuple(capital * bar.close / first for bar in candles)
-
-
-def simulate_curve(
-    candles: list[Candle], settings: dict, rule: str, seed: int = 1234
-) -> tuple[float, ...]:
-    """Run a whole walk and hand back its realised curve.
-
-    Used to fix the scale of the results chart before it draws: the lines are
-    revealed a bar at a time, so their range has to be known up front or the
-    picture would rescale as it fills.
-    """
-    play = Playback(candles, rule=rule, seed=seed, **settings)
-    while not play.done:
-        play.advance()
-    return tuple(play.equity_curve)
-
-
 @dataclass
 class BacktestSession:
-    """One run's worth of data: the live walk, and the curves to compare it to."""
+    """One run: the live walk, the random baseline, and buy and hold.
 
-    candles: list[Candle]
+    The curves are sampled once per tick rather than once per bar — a run can
+    be millions of bars, and the chart cannot use more points than it has
+    pixels.
+    """
+
     strategy: Playback
-    strategy_curve: tuple[float, ...]
-    random_curve: tuple[float, ...]
-    benchmark: tuple[float, ...]
-    low: float
-    high: float
+    random: Playback
+    benchmark: list[float] = field(default_factory=list)
+    strategy_curve: list[float] = field(default_factory=list)
+    random_curve: list[float] = field(default_factory=list)
+    low: float = 0.0
+    high: float = 0.0
 
     @property
     def index(self) -> int:
         return self.strategy.index
 
     @property
+    def total(self) -> int:
+        return self.strategy.total
+
+    @property
     def capital(self) -> float:
         return self.strategy.capital
 
-    def revealed(self, curve: tuple[float, ...]) -> tuple[float, ...]:
-        """The part of a curve the walk has reached, its first point included."""
-        return curve[: min(self.index + 1, len(curve))]
+    def advance(self) -> None:
+        self.strategy.step()
+        self.random.step()
+        self._sample()
 
-    def current(self, curve: tuple[float, ...]) -> float:
-        if not curve:
-            return self.capital
-        return curve[min(self.index, len(curve) - 1)]
+    def _sample(self) -> None:
+        play = self.strategy
+        self.strategy_curve.append(play.equity)
+        self.random_curve.append(self.random.equity)
+        self.benchmark.append(self.buy_and_hold())
+        for curve in (self.strategy_curve, self.random_curve):
+            self._grow(curve[-1])
 
-    def return_of(self, curve: tuple[float, ...]) -> float:
+    def buy_and_hold(self) -> float:
+        play = self.strategy
+        if not play.first_close:
+            return play.capital
+        return play.capital * play.close_price() / play.first_close
+
+    def _grow(self, value: float) -> None:
+        if not self.low:
+            self.low = self.high = self.capital
+        self.low = min(self.low, value)
+        self.high = max(self.high, value)
+
+    def return_of(self, curve: list[float]) -> float:
         if not curve or curve[0] <= 0:
             return 0.0
-        return self.current(curve) / curve[0] - 1.0
+        return curve[-1] / curve[0] - 1.0
 
 
 def _walk_settings(params: dict) -> dict:
@@ -583,31 +688,32 @@ def _walk_settings(params: dict) -> dict:
 
 
 def build_session(
-    candles: list[Candle],
+    years: list[int],
     params: dict,
     rule: str = DEFAULT_STRATEGY,
-    random_seed: int = 1234,
+    resolution: str = "1m",
+    fallback: list[Candle] | None = None,
 ) -> BacktestSession:
-    """The live walk, plus the two curves it is judged against."""
+    """A run over the whole span, streamed rather than loaded."""
     settings = _walk_settings(params)
-    strategy = Playback(candles, rule=rule, **settings)
-    strategy_curve = simulate_curve(candles, settings, rule)
-    random_curve = simulate_curve(candles, settings, "random", random_seed)
-    benchmark = benchmark_curve(candles, settings["capital"])
-
-    values = list(strategy_curve) + list(random_curve) + list(benchmark)
-    low = min(values) if values else settings["capital"]
-    high = max(values) if values else settings["capital"]
-    pad = max((high - low) * 0.06, settings["capital"] * 0.002, 1.0)
-    return BacktestSession(
-        candles=list(candles),
-        strategy=strategy,
-        strategy_curve=strategy_curve,
-        random_curve=random_curve,
-        benchmark=benchmark,
-        low=low - pad,
-        high=high + pad,
+    total = count_bars(years, resolution)
+    if total:
+        feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
+    else:
+        bars = fallback if fallback is not None else sample_candles()
+        total = len(bars)
+        feeds = [lambda: iter(bars) for _ in range(2)]
+    stride = plan_stride(total)
+    strategy = Playback(
+        feeds[0], rule=rule, total=total, stride=stride, **settings
     )
+    random_buy = Playback(
+        feeds[1], rule="random", total=total, stride=stride, **settings
+    )
+    session = BacktestSession(strategy=strategy, random=random_buy)
+    session.low = session.high = settings["capital"]
+    session._sample()
+    return session
 
 
 class CandlePlayer(QWidget):
@@ -638,7 +744,7 @@ class CandlePlayer(QWidget):
         Easing toward the visible slice from a single bar would leave the
         opening candles wildly zoomed until the scale caught up.
         """
-        series = self.playback.candles if candles is None else candles
+        series = self.playback.recent() if candles is None else candles
         if not series:
             self._low = None
             self._high = None
@@ -665,7 +771,8 @@ class CandlePlayer(QWidget):
         if right - left < 40 or bottom - top < 30:
             return
 
-        if not self.playback.candles:
+        bars = self.playback.recent()
+        if not bars:
             painter.setFont(mono_font(9))
             painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
@@ -675,15 +782,15 @@ class CandlePlayer(QWidget):
             )
             return
 
-        room = self.visible_count(width)
-        # The walk can sit one past the end for a frame before it stops.
-        last = min(self.playback.index, len(self.playback.candles) - 1)
-        # A fractional playhead: the newest candle rides just inside the right
-        # edge and slides left, so filling the tile never jumps the picture.
+        # Absolute indices: the window is the tail of a stream, so position in
+        # the list is not position in the run.
+        base = self.playback.index - len(bars)
+        last = base + len(bars) - 1
         playhead = last + self.offset
+        room = self.visible_count(width)
         slot = (right - left) / room
-        first = max(0, int(math.ceil(playhead + 0.5 - room)))
-        window = self.playback.candles[first : last + 1]
+        first = max(base, int(-(-(playhead + 0.5 - room) // 1)))
+        window = bars[first - base :]
         if not window:
             return
 
@@ -706,6 +813,8 @@ class CandlePlayer(QWidget):
         body = max(1.0, slot * 0.6)
         for position, bar in enumerate(window, start=first):
             x = x_of(position)
+            if x < left - slot or x > right + slot:
+                continue
             rising = bar.close >= bar.open
             painter.setPen(QPen(QColor(UP if rising else DOWN), 1))
             painter.drawLine(QPointF(x, y_of(bar.high)), QPointF(x, y_of(bar.low)))
@@ -717,9 +826,9 @@ class CandlePlayer(QWidget):
 
         # Entries and exits, so the trades are visible on the candles.
         for position, kind, price in self.playback.markers:
-            if not (first <= position <= last):
-                continue
             x = x_of(position)
+            if x < left - slot or x > right + slot:
+                continue
             y = y_of(price)
             colour = QColor(ACCENT if kind == "in" else TEXT_MUTED)
             painter.setPen(QPen(colour, 1))
@@ -747,9 +856,9 @@ class CandlePlayer(QWidget):
         if x_of(first) >= left - slot * 0.6:
             stamps.append((first, left, Qt.AlignmentFlag.AlignLeft))
         for position, x, align in stamps:
-            if not 0 <= position < len(self.playback.candles):
+            if not base <= position <= last:
                 continue
-            bar = self.playback.candles[position]
+            bar = bars[position - base]
             stamp = datetime.fromtimestamp(bar.stamp / 1000, tz=timezone.utc)
             painter.drawText(
                 QRectF(x, bottom + 1, 68, 13),
@@ -768,7 +877,7 @@ class PlaybackTile(Card):
         super().__init__(parent)
 
         # Nothing runs until Run is pressed: opening the window is not a run.
-        self.playback = Playback([])
+        self.playback = Playback([], total=0)
         self.session: BacktestSession | None = None
         self.source = "—"
         self._launched = False
@@ -833,14 +942,17 @@ class PlaybackTile(Card):
             self.pause()
             self.run_button.setText("Run")
             self.note.setText(
-                f"finished — {self.playback.trades} trades, "
+                f"finished — {self.playback.trades:,} trades, "
                 f"{self.playback.win_rate * 100:,.0f}% won, press Run to replay"
             )
             return
         self._elapsed += FRAME_MS
         if self._elapsed >= STEP_MS:
             self._elapsed -= STEP_MS
-            self.playback.advance()
+            if self.session is not None:
+                self.session.advance()
+            else:
+                self.playback.advance()
             self._refresh_metrics()
             self.advanced.emit()
         # Every frame, not every candle: this is what makes it scroll.
@@ -858,16 +970,6 @@ class PlaybackTile(Card):
 
     def restart(self) -> None:
         """Adopt the controls and start the walk over. The only way it resets."""
-        bars = load_candles(
-            self._wanted_years, self._wanted_resolution, BARS_TO_PLAY
-        )
-        if bars:
-            played = self._wanted_years[-1] if self._wanted_years else 0
-            self.source = f"{played} · {self._wanted_resolution}"
-        else:
-            self.source = "example"
-            bars = sample_candles()
-
         params = self._wanted_params or {
             "initial_capital": 10_000.0,
             "tp": 2.0,
@@ -876,9 +978,20 @@ class PlaybackTile(Card):
             "sizing": "balance",
             "cash": 2_000.0,
         }
-        self.session = build_session(bars, params, self._wanted_rule)
+        self.session = build_session(
+            self._wanted_years,
+            params,
+            self._wanted_rule,
+            self._wanted_resolution,
+        )
         self.playback = self.session.strategy
         self.player.playback = self.playback
+
+        if self._wanted_years and self.session.total:
+            played = self._wanted_years[-1] if self._wanted_years else 0
+            self.source = f"{played} · {self._wanted_resolution}"
+        else:
+            self.source = "example"
 
         self._launched = True
         self._elapsed = 0
@@ -914,14 +1027,15 @@ class PlaybackTile(Card):
             self.note.setText("idle — press Run")
             return
         name = strategy_label(self._wanted_rule)
+        stride = self.playback.stride
+        pace = "" if stride <= 1 else f" · fast-forward ×{stride:,}"
         if self._wanted_years:
-            ready = f"{self._wanted_years[-1]} · {self._wanted_resolution}"
-            if ready == self.source:
-                self.note.setText(f"{name} on {self.source}")
-            else:
-                self.note.setText(f"{name} on {self.source} — ready {ready}")
+            span = f"{self._wanted_years[0]}–{self._wanted_years[-1]}"
+            self.note.setText(
+                f"{name} on {span} · {self._wanted_resolution}{pace}"
+            )
         else:
-            self.note.setText(f"{name} on {self.source}")
+            self.note.setText(f"{name} on the sample{pace}")
 
     # -- layout ------------------------------------------------------------
 
@@ -984,7 +1098,6 @@ class PlaybackTile(Card):
 
 
 __all__ = [
-    "BARS_TO_PLAY",
     "DEFAULT_STRATEGY",
     "STRATEGIES",
     "BacktestSession",
@@ -993,11 +1106,12 @@ __all__ = [
     "Playback",
     "PlaybackTile",
     "aggregate",
-    "benchmark_curve",
     "bollinger_bands",
     "build_session",
+    "count_bars",
+    "iter_candles",
     "load_candles",
+    "plan_stride",
     "sample_candles",
-    "simulate_curve",
     "strategy_label",
 ]

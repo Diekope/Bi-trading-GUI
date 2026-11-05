@@ -103,7 +103,6 @@ class StratWindow(QMainWindow):
     def _sync_playback(self) -> None:
         start, end, resolution = self.download.span()
         self.left.set_source(list(range(start, end + 1)), resolution)
-
     def _sync_params(self) -> None:
         self.left.set_params(self.params.params())
 

@@ -350,7 +350,8 @@ def test_a_strategy_change_waits_for_the_button(
 
 def test_opening_the_window_starts_no_run(app: QApplication, window) -> None:
     assert window.left.playing() is False
-    assert window.left.playback.candles == []
+    assert window.left.playback.recent() == []
+    assert window.left.playback.total == 0
     assert "idle" in window.left.note.text()
     assert window.left.run_button.text() == "Run"
 

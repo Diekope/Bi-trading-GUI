@@ -241,7 +241,7 @@ src/lalala/
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
-  strat_playback.py the left tile: candles rolling through a run, figures live
+  strat_playback.py the left tile: a streamed walk over the whole span
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
   strat_results.py the results tile: three live curves, legend underneath
@@ -261,12 +261,13 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             265 tests: parsing/search/aliases, slug math, candle + book
+tests/             263 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its tiles, the playback walk, its
-                   strategy picker and its benchmark curves, the chart and
-                   backtest settings, and the candle store and downloader
+                   strategy window and its tiles, the streaming walk over a
+                   whole span, its strategy picker and benchmark curves, the
+                   chart and backtest settings, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -303,16 +304,21 @@ Like the span and the parameters, a change here is only remembered until
 
 Under the parameters, three curves are drawn live as the loop walks:
 **strategy** (amber), **random buy** (indigo) and **buy & hold** (grey dashed),
-each revealed a bar at a time up to the walk's position, with its running
-total in a legend along the bottom. The scale is fixed when the run starts, so
-the picture never rescales as it fills.
+with a running total for each in a legend along the bottom.
 
-Random buy is the benchmark that matters: it opens on a coin flip with the
-same exits, sizing and fees, so an entry rule that cannot beat it has no edge.
-Buy and hold puts the whole book in at the first bar and never sells. Note
-that the two strategies deploy only a fraction of what the cap allows, while
-buy and hold is fully exposed — so its swing is much larger, and that is
-honest rather than a plotting artefact.
+Everything is drawn as **return from the start**, not as a dollar balance. Over
+a long span buy and hold compounds many times over while a strategy that
+deploys a fraction of the book per trade barely moves; in dollars the first
+flattens the others into the axis. In percent the two strategies stay readable,
+and buy and hold is left to run off the top, with its number in the legend and
+a note when it does.
+
+Random buy is the benchmark that matters: it opens on a coin flip with the same
+exits, sizing and fees, so an entry rule that cannot beat it has no edge. Buy
+and hold puts the whole book in at the first bar and never sells.
+
+The curves are sampled **once per tick**, not once per bar — a run can be
+millions of bars and the chart cannot use more points than it has pixels.
 
 `Sizing` percentages are a share of what `Max cash $` allows the run to trade
 with, not of the whole book: with a $2,000 cap, a 10% position is $200 a
@@ -365,13 +371,21 @@ fees.
 - **It stops at the end** of its series rather than looping, and says how the
   run finished. Starting over is a button, never automatic.
 
-**What the loop covers.** Not the whole span. It reads the **most recent year
-in the span that is on disk** — early BTCUSDT minutes are so thin that most
-bars have no range, which makes for a dull thing to watch — takes its **first
-`BARS_TO_PLAY` (400) bars**, compacts them to the chosen resolution, and walks
-those once. With the default span that is 2017–2026's newest available year,
-about six and a half hours of 1m data. A span with nothing on disk falls back
-to a fixed-seed sample and says so.
+**What the loop covers.** The **whole selected span**, streamed off disk bar by
+bar — never loaded into memory. A decade of one-minute bars is 4.8M rows and
+about 240 MB; holding them as objects would cost far more than the walk does,
+so only what the picture and the figures need is kept: a rolling window of the
+last `CHART_BARS` (600) bars, the most recent entries and exits, and running
+totals. The Sharpe is a running mean and variance rather than a stored series.
+Peak memory for a full 2017–2026 walk is around 60 MB.
+
+**It fast-forwards.** A run over any amount of data is watched in about
+`WATCH_MS` (two minutes): `stride` bars are consumed per tick, so a few hundred
+bars play one at a time and a decade of minutes advances in jumps. The note
+says which — `fast-forward ×2,017`. Bar-by-bar over ten years of minutes would
+otherwise take about two and a half days to watch.
+
+A span with nothing on disk falls back to a fixed-seed sample and says so.
 
 Fills are the optimistic kind — the target and the stop are both read off one
 candle's range, so a candle that touches both pays the target.
