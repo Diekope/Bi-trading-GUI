@@ -1,18 +1,25 @@
-"""The strategy builder: a blank window, opened from the STRATEGY tile.
+"""The strategy builder window, launched on its own.
 
-Deliberately empty for now. It exists so the rest of the window can point at
-something real instead of a dead button, and so the parts of a strategy — entry
-rule, exits, filters — have a place to land one at a time. It carries the same
-canvas and gap as the backtest window, so it reads as another sheet of the same
-desk rather than a separate application.
+Blank on purpose, and standalone: nothing in the backtest window opens it yet,
+and nothing in it is wired to the run, the parameters or the candle data. The
+**Create a strategy** button stays a placeholder until the shape of a strategy
+is settled here.
+
+    uv run lalala-builder
+
+It carries the same canvas and gap as the backtest window, so it reads as
+another sheet of the same desk rather than a separate application.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
+import sys
 
-from lalala.theme import CANVAS, CARD_GAP, TEXT_FAINT
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget
+
+from lalala.logs import install_qt_handler, setup
+from lalala.theme import CANVAS, CARD_GAP, TEXT_FAINT, apply_dark_theme
 
 
 class StrategyBuilderWindow(QMainWindow):
@@ -46,4 +53,27 @@ class StrategyBuilderWindow(QMainWindow):
         return self.isVisible()
 
 
-__all__ = ["StrategyBuilderWindow"]
+def run(argv: list[str] | None = None) -> int:
+    """Open the builder on its own. Returns the Qt exit code."""
+    # A file, never the console, like the other windows.
+    setup()
+    install_qt_handler()
+
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+    QApplication.setApplicationName("lalala")
+    QApplication.setOrganizationName("lalala")
+
+    app = QApplication(list(sys.argv if argv is None else argv))
+    apply_dark_theme(app)
+
+    window = StrategyBuilderWindow()
+    window.show()
+    window.raise_()
+    window.activateWindow()
+
+    return app.exec()
+
+
+__all__ = ["StrategyBuilderWindow", "run"]

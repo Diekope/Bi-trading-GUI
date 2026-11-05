@@ -22,6 +22,7 @@ venues = [
 [project.scripts]
 lalala = "lalala.__main__:main"
 lalala-strat = "lalala.strat:run"
+lalala-builder = "lalala.strat_builder:run"
 
 [build-system]
 requires = ["hatchling"]

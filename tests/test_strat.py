@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy  # noqa: E402
 from lalala import candles  # noqa: E402
 from lalala.candles import append_rows, candle_file  # noqa: E402
 from lalala.panels import Card  # noqa: E402
+from lalala.strat_builder import StrategyBuilderWindow  # noqa: E402
 from lalala.strat_params import ParamsTile  # noqa: E402
 from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
@@ -326,42 +327,25 @@ def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
     assert "coin flip" in tile.note.text()
 
 
-def test_the_create_strategy_button_opens_a_blank_window(
+def test_the_create_strategy_button_is_a_placeholder(
     app: QApplication, window
 ) -> None:
     tile = window.strategy
 
     assert tile.create_button.text() == "Create a strategy"
     assert tile.create_button.isEnabled() is True
-    # Tall enough to read as the tile's main action.
+    # Tall enough to read as the tile's main action, and inert on purpose.
     assert tile.create_button.minimumHeight() >= 30
-    assert window.builder is None
 
     before = tile.rule()
     tile.create_button.click()
     app.processEvents()
-
-    builder = window.builder
-    assert builder is not None
-    assert builder.isVisible() is True
-    assert builder.windowTitle() == "lalala · create a strategy"
-    # It is a window of its own, not a panel dropped into the splitter.
-    assert builder.isWindow() is True
-    # Opening it changes nothing about the run's settings.
+    # Nothing opens, and the run is untouched: the builder is not connected.
     assert tile.rule() == before
-    # Blank: one faint line, and no cards.
-    assert builder.centralWidget().findChildren(Card) == []
-    builder.close()
-
-
-def test_one_builder_at_a_time(app: QApplication, window) -> None:
-    window.strategy.create_button.click()
-    first = window.builder
-    window.strategy.create_button.click()
-    app.processEvents()
-
-    assert window.builder is first
-    first.close()
+    assert not any(
+        child.isWindow() and child.isVisible()
+        for child in window.findChildren(StrategyBuilderWindow)
+    )
 
 
 def test_a_strategy_change_waits_for_the_button(

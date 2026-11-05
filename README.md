@@ -17,6 +17,13 @@ backtest/strategy work:
 uv run lalala-strat
 ```
 
+The strategy builder is a third, blank window for now, launched on its own so
+it can be worked on without the backtest window:
+
+```sh
+uv run lalala-builder
+```
+
 Tests (headless, no network, no sockets):
 
 ```sh
@@ -245,7 +252,7 @@ src/lalala/
   strat_playback.py the left tile: a streamed walk over the whole span
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
-  strat_builder.py the blank window the Create a strategy button opens
+  strat_builder.py the blank builder window, launched on its own
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -263,7 +270,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             274 tests: parsing/search/aliases, slug math, candle + book
+tests/             277 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -293,10 +300,9 @@ a good year has.
 ## Strategy tile
 
 The entry rule the run is pointed at, with a **Create a strategy** button on
-the right that opens a second window, `strat_builder.py` — blank for now, one
-faint line in the middle. It is a top-level window of its own with the same
-canvas and gap, and there is only ever one: pressing the button again brings
-the open one forward rather than stacking another. Two rules so far:
+the right. The button is still a placeholder and opens nothing; the builder
+window it will open exists separately (`uv run lalala-builder`). Two rules so
+far:
 
 | Rule | What it does |
 | --- | --- |
@@ -503,9 +509,9 @@ dropped.
 
 ## Not implemented yet
 
-- The strategy builder window. **Create a strategy** opens it, but it is blank:
-  nothing defines a rule yet, and nothing it could define would be picked up by
-  the walk.
+- The strategy builder window. It launches on its own and is blank: nothing
+  defines a rule yet, nothing in the backtest window opens it, and nothing it
+  could define would be picked up by the walk.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.
