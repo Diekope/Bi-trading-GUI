@@ -50,19 +50,74 @@ from lalala.theme import (
 BARS_TO_PLAY = 400
 STEP_MS = 50
 FRAME_MS = 30
-# How fast the price window chases the data. Lower is calmer; the tile is
-# unreadable when the scale snaps on every new extreme.
-EASE_RANGE = 0.14
 # Never read more than this from a file, whatever the resolution needs.
 MAX_READ = 48_000
 FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 
+# How fast the price window chases the data. Lower is calmer; the tile is
+# unreadable when the scale snaps on every new extreme.
+EASE_RANGE = 0.14
 # The metric row wraps like the other galleries.
 WIDE_METRICS = 6
 NARROW_METRICS = 4
 WIDE_AT = 520
 
 SAMPLE_SEED = 11
+
+# The strategies the run can be pointed at. Random buy is the baseline: an
+# entry rule that cannot beat a coin flip has no edge, so it stays in the list
+# as something to measure against.
+STRATEGIES = (
+    (
+        "random",
+        "Random buy",
+        "Opens on a coin flip. The no-edge baseline to measure against.",
+    ),
+    (
+        "bollinger",
+        "Bollinger reversion",
+        "Buys when the close falls below the lower band (20 bars, 2σ).",
+    ),
+)
+DEFAULT_STRATEGY = "bollinger"
+
+BOLLINGER_PERIOD = 20
+BOLLINGER_DEVIATIONS = 2.0
+
+
+def strategy_label(rule: str) -> str:
+    for key, label, _ in STRATEGIES:
+        if key == rule:
+            return label
+    return STRATEGIES[0][1]
+
+
+def bollinger_bands(
+    candles: list[Candle],
+    period: int = BOLLINGER_PERIOD,
+    deviations: float = BOLLINGER_DEVIATIONS,
+) -> tuple[tuple[float, float, float] | None, ...]:
+    """(middle, upper, lower) per bar, or None until there is enough history."""
+    bands: list[tuple[float, float, float] | None] = []
+    closes: list[float] = []
+    total = 0.0
+    total_squares = 0.0
+    for bar in candles:
+        closes.append(bar.close)
+        total += bar.close
+        total_squares += bar.close * bar.close
+        if len(closes) > period:
+            gone = closes.pop(0)
+            total -= gone
+            total_squares -= gone * gone
+        if len(closes) < period:
+            bands.append(None)
+            continue
+        middle = total / period
+        variance = max(0.0, total_squares / period - middle * middle)
+        spread = variance ** 0.5 * deviations
+        bands.append((middle, middle + spread, middle - spread))
+    return tuple(bands)
 
 
 @dataclass(frozen=True)
@@ -198,7 +253,7 @@ class Playback:
         max_cash: float = 2_000.0,
         fee: float = 0.0006,
         max_hold: int = 90,
-        rule: str = "momentum",
+        rule: str = DEFAULT_STRATEGY,
         seed: int = 1234,
         entry_chance: float = 0.03,
     ) -> None:
@@ -214,6 +269,11 @@ class Playback:
         self.rule = rule
         self.seed = seed
         self.entry_chance = entry_chance
+        self._bands = (
+            bollinger_bands(self.candles)
+            if rule == "bollinger"
+            else ()
+        )
         self.reset()
 
     # -- state -------------------------------------------------------------
@@ -306,6 +366,13 @@ class Playback:
         walked = max(1, self.index)
         return min(1.0, self.bars_in_market / walked)
 
+    @property
+    def progress(self) -> float:
+        """How much of the series the walk has covered, 0..1."""
+        if not self.candles:
+            return 0.0
+        return min(1.0, self.index / len(self.candles))
+
     # -- stepping ----------------------------------------------------------
 
     def step(self) -> None:
@@ -332,18 +399,20 @@ class Playback:
         self.step()
 
     def _wants_long(self, candle: Candle, previous: Candle) -> bool:
-        """When to open, per the rule.
+        """When to open, per the chosen strategy.
 
-        `momentum` is the placeholder stand-in for a real entry rule: buy when
-        a candle closes above the one before it. `random` buys on a coin flip,
-        which is the honest benchmark for any entry rule — if a rule cannot
-        beat buying at random, it has no edge.
+        `random` buys on a coin flip: the honest benchmark for any entry rule.
+        `bollinger` buys mean reversion — the close has fallen below the lower
+        band, so the bar is stretched away from its own average.
         """
         if self.index == 0:
             return False
         if self.rule == "random":
             return self._rng.random() < self.entry_chance
-        return candle.close > previous.close
+        if self.rule == "bollinger":
+            band = self._bands[self.index] if self.index < len(self._bands) else None
+            return band is not None and candle.close < band[2]
+        return False
 
     def _budget(self) -> float:
         """How much to put on: a share of what the cap allows us to trade with."""
@@ -411,6 +480,11 @@ class Playback:
         return [
             ("PnL", f"{pnl * 100:+,.2f}%", "accent" if pnl >= 0 else "down"),
             ("Equity", _money(self.equity), "text"),
+            (
+                "Progress",
+                f"{self.progress * 100:,.0f}% · {self.index}/{len(self.candles)}",
+                "muted",
+            ),
             (
                 "Sharpe",
                 f"{self.sharpe:,.2f}" if self.trades else "—",
@@ -509,12 +583,15 @@ def _walk_settings(params: dict) -> dict:
 
 
 def build_session(
-    candles: list[Candle], params: dict, random_seed: int = 1234
+    candles: list[Candle],
+    params: dict,
+    rule: str = DEFAULT_STRATEGY,
+    random_seed: int = 1234,
 ) -> BacktestSession:
     """The live walk, plus the two curves it is judged against."""
     settings = _walk_settings(params)
-    strategy = Playback(candles, rule="momentum", **settings)
-    strategy_curve = simulate_curve(candles, settings, "momentum")
+    strategy = Playback(candles, rule=rule, **settings)
+    strategy_curve = simulate_curve(candles, settings, rule)
     random_curve = simulate_curve(candles, settings, "random", random_seed)
     benchmark = benchmark_curve(candles, settings["capital"])
 
@@ -555,9 +632,21 @@ class CandlePlayer(QWidget):
     def set_offset(self, offset: float) -> None:
         self.offset = max(0.0, min(0.999, offset))
 
-    def reset_range(self) -> None:
-        self._low = None
-        self._high = None
+    def reset_range(self, candles: list[Candle] | None = None) -> None:
+        """Start the price window at the whole series, not at the first bar.
+
+        Easing toward the visible slice from a single bar would leave the
+        opening candles wildly zoomed until the scale caught up.
+        """
+        series = self.playback.candles if candles is None else candles
+        if not series:
+            self._low = None
+            self._high = None
+            return
+        low = min(bar.low for bar in series)
+        high = max(bar.high for bar in series)
+        pad = max((high - low) * 0.08, high * 0.0002)
+        self._low, self._high = low - pad, high + pad
 
     def visible_count(self, width: float) -> int:
         return max(30, int((width - 62.0) / 7.0))
@@ -688,6 +777,7 @@ class PlaybackTile(Card):
         self._wanted_years: list[int] = []
         self._wanted_resolution = "1m"
         self._wanted_params: dict | None = None
+        self._wanted_rule = DEFAULT_STRATEGY
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -786,7 +876,7 @@ class PlaybackTile(Card):
             "sizing": "balance",
             "cash": 2_000.0,
         }
-        self.session = build_session(bars, params)
+        self.session = build_session(bars, params, self._wanted_rule)
         self.playback = self.session.strategy
         self.player.playback = self.playback
 
@@ -814,21 +904,24 @@ class PlaybackTile(Card):
         self._wanted_params = dict(params)
         self._describe()
 
+    def set_strategy(self, rule: str) -> None:
+        """Remember the strategy. Nothing changes until the next restart."""
+        self._wanted_rule = rule
+        self._describe()
+
     def _describe(self) -> None:
         if not self._launched:
             self.note.setText("idle — press Run")
             return
-        arrow = "placeholder entry rule"
+        name = strategy_label(self._wanted_rule)
         if self._wanted_years:
             ready = f"{self._wanted_years[-1]} · {self._wanted_resolution}"
             if ready == self.source:
-                self.note.setText(f"looping {self.source} — {arrow}")
+                self.note.setText(f"{name} on {self.source}")
             else:
-                self.note.setText(
-                    f"looping {self.source} — ready {ready}, press Run"
-                )
+                self.note.setText(f"{name} on {self.source} — ready {ready}")
         else:
-            self.note.setText(f"{self.source} loop — {arrow}")
+            self.note.setText(f"{name} on {self.source}")
 
     # -- layout ------------------------------------------------------------
 
@@ -892,11 +985,19 @@ class PlaybackTile(Card):
 
 __all__ = [
     "BARS_TO_PLAY",
+    "DEFAULT_STRATEGY",
+    "STRATEGIES",
+    "BacktestSession",
     "Candle",
     "CandlePlayer",
     "Playback",
     "PlaybackTile",
     "aggregate",
+    "benchmark_curve",
+    "bollinger_bands",
+    "build_session",
     "load_candles",
     "sample_candles",
+    "simulate_curve",
+    "strategy_label",
 ]

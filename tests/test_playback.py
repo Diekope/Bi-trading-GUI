@@ -119,6 +119,9 @@ def _playback(bars: list[Candle], **overrides) -> Playback:
     settings = dict(
         capital=1_000.0, tp=2.0, sl=1.0, position=100.0, sizing="fixed",
         max_cash=1_000.0, fee=0.0, max_hold=90,
+        # A coin that always says yes: every flat bar takes the trade, which
+        # is what these tests are pinning.
+        rule="random", entry_chance=1.0,
     )
     settings.update(overrides)
     return Playback(bars, **settings)
@@ -263,7 +266,7 @@ def test_a_change_does_not_restart_the_walk(app: QApplication) -> None:
     # Remembered, not applied: the walk keeps its place.
     assert tile.playback.index == index
     assert tile.source == "example"
-    assert "press Run" in tile.note.text()
+    assert "ready" in tile.note.text()
     assert tile.playback.tp == pytest.approx(2.0)
     tile.close()
 

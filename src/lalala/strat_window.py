@@ -21,6 +21,7 @@ from lalala.panels import Card
 from lalala.strat_params import ParamsTile
 from lalala.strat_playback import PlaybackTile
 from lalala.strat_results import ResultsTile
+from lalala.strat_strategy import StrategyTile
 from lalala.strat_tiles import DownloadTile
 from lalala.theme import CANVAS, CARD_GAP
 
@@ -51,25 +52,27 @@ class StratWindow(QMainWindow):
 
         self.left = PlaybackTile(self.splitter)
 
-        # The right side stacks three tiles: the history controls on top, then
-        # backtest parameters and a still-empty results tile, the last two
-        # sharing the space below equally.
+        # The right side stacks four tiles: the history controls on top, then
+        # the run's inputs and its strategy, then the results, which take
+        # whatever height is left.
         self.right = QSplitter(Qt.Orientation.Vertical, self.splitter)
         self.right.setObjectName("stratColumn")
         self.right.setChildrenCollapsible(False)
         self.right.setHandleWidth(CARD_GAP)
         self.download = DownloadTile(self.right)
         self.params = ParamsTile(self.right)
+        self.strategy = StrategyTile(self.right)
         self.results = ResultsTile(self.right)
         self.right.addWidget(self.download)
         self.right.addWidget(self.params)
+        self.right.addWidget(self.strategy)
         self.right.addWidget(self.results)
-        # The controls keep their content height; the results tile takes the
-        # rest, so neither upper tile wastes space on nothing.
+        # The input tiles keep only the height their content needs.
         self.right.setStretchFactor(0, 0)
         self.right.setStretchFactor(1, 0)
-        self.right.setStretchFactor(2, 1)
-        for tile in (self.download, self.params):
+        self.right.setStretchFactor(2, 0)
+        self.right.setStretchFactor(3, 1)
+        for tile in (self.download, self.params, self.strategy):
             tile.setSizePolicy(
                 QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
             )
@@ -89,11 +92,13 @@ class StratWindow(QMainWindow):
         # backtest is what actually restarts it.
         self.download.span_changed.connect(self._sync_playback)
         self.params.changed.connect(self._sync_params)
+        self.strategy.changed.connect(self.left.set_strategy)
         self.download.started.connect(self.left.restart)
         self.left.restarted.connect(self.results.set_session)
         self.left.advanced.connect(self.results.refresh)
         self._sync_playback()
         self._sync_params()
+        self.left.set_strategy(self.strategy.rule())
 
     def _sync_playback(self) -> None:
         start, end, resolution = self.download.span()
@@ -103,12 +108,14 @@ class StratWindow(QMainWindow):
         self.left.set_params(self.params.params())
 
     def showEvent(self, event) -> None:  # noqa: N802
-        """Fit the two upper tiles to their content once the size is known."""
+        """Fit the upper tiles to their content once the real size is known."""
         super().showEvent(event)
         if self._balanced:
             return
         self._balanced = True
-        top = self.download.sizeHint().height()
-        middle = self.params.sizeHint().height()
-        rest = max(2, self.right.height() - top - middle - 2 * CARD_GAP)
-        self.right.setSizes([top, middle, rest])
+        tops = [tile.sizeHint().height() for tile in self._input_tiles()]
+        rest = max(2, self.right.height() - sum(tops) - 3 * CARD_GAP)
+        self.right.setSizes([*tops, rest])
+
+    def _input_tiles(self) -> tuple:
+        return (self.download, self.params, self.strategy)

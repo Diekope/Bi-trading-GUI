@@ -10,8 +10,11 @@ import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala.strat_playback import (  # noqa: E402
+    Candle,
     Playback,
+    PlaybackTile,
     benchmark_curve,
+    bollinger_bands,
     build_session,
     sample_candles,
     simulate_curve,
@@ -123,6 +126,62 @@ def test_the_curve_paints_before_any_run(app: QApplication) -> None:
     app.processEvents()
 
     assert not tile.curve.grab().toImage().isNull()
+    tile.close()
+
+
+def test_bollinger_bands_need_history_before_they_exist() -> None:
+    candles = sample_candles(30)
+    bands = bollinger_bands(candles, period=20, deviations=2.0)
+
+    assert len(bands) == 30
+    assert all(band is None for band in bands[:19])
+    middle, upper, lower = bands[19]
+    assert lower < middle < upper
+    # A flat run of closes has no spread at all.
+    flat = [Candle(index * 60_000, 5.0, 5.0, 5.0, 5.0, 1.0) for index in range(25)]
+    assert bollinger_bands(flat)[24] == (5.0, 5.0, 5.0)
+
+
+def test_bollinger_reversion_waits_for_a_dip() -> None:
+    # Twenty quiet bars, then one that closes far below the band.
+    candles = [
+        Candle(index * 60_000, 100.0, 100.0, 100.0, 100.0, 1.0)
+        for index in range(20)
+    ]
+    candles.append(Candle(20 * 60_000, 100.0, 100.0, 80.0, 80.0, 1.0))
+    play = Playback(
+        candles, rule="bollinger", capital=1_000.0, tp=2.0, sl=1.0,
+        position=100.0, sizing="fixed", max_cash=1_000.0,
+    )
+
+    for _ in range(20):
+        play.step()
+    assert play.in_position is False   # nothing has dipped yet
+
+    play.step()
+    assert play.in_position is True    # the dip bought
+    assert play.entry_price == pytest.approx(80.0)
+
+
+def test_the_tile_reports_how_far_it_has_walked(app: QApplication) -> None:
+    tile = PlaybackTile()
+    tile.playback = Playback(
+        sample_candles(40), rule="random", entry_chance=1.0, capital=1_000.0,
+        position=100.0, sizing="fixed", max_cash=1_000.0,
+    )
+    tile.player.playback = tile.playback
+    tile._launched = True
+
+    tile._refresh_metrics()
+    values = [value.text() for _, value in tile._metric_labels]
+    assert "0% · 0/40" in values
+
+    for _ in range(10):
+        tile.playback.advance()
+    tile._refresh_metrics()
+    values = [value.text() for _, value in tile._metric_labels]
+    assert "25% · 10/40" in values
+    assert tile.playback.progress == pytest.approx(0.25)
     tile.close()
 
 

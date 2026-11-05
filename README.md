@@ -243,7 +243,8 @@ src/lalala/
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
   strat_playback.py the left tile: candles rolling through a run, figures live
   strat_params.py  the backtest tile: a gallery of run inputs
-  strat_results.py the results tile: sample equity curve, drawdown, metrics
+  strat_strategy.py the strategy tile: which entry rule to run
+  strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
   main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
@@ -260,12 +261,12 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             260 tests: parsing/search/aliases, slug math, candle + book
+tests/             265 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
-                   strategy window and its tiles, the playback walk and its
-                   benchmark curves, the chart/backtest settings, and the
-                   candle store and downloader
+                   strategy window and its tiles, the playback walk, its
+                   strategy picker and its benchmark curves, the chart and
+                   backtest settings, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -285,6 +286,18 @@ The 1m store starts when BTCUSDT did (2017-08-17), so 2017 is only expected
 from that day and its Download can still finish. A year is complete at 99% of
 its expected minutes, which leaves room for the handful of venue outages even
 a good year has.
+
+## Strategy tile
+
+The entry rule the run is pointed at. Two so far:
+
+| Rule | What it does |
+| --- | --- |
+| `Random buy` | opens on a coin flip (3% of flat bars). Kept in the list on purpose: it is the baseline an entry rule has to beat, not a fallback. |
+| `Bollinger reversion` | buys when the close falls below the lower band of a 20-bar, 2σ channel. |
+
+Like the span and the parameters, a change here is only remembered until
+**Run** / **Start backtest** is pressed.
 
 ## Results tile
 
@@ -337,8 +350,9 @@ data gap rather than filled through it. The entry rule is a separate tile.
 
 The left half holds the run as a moving picture: bare candles scroll past a
 playhead while a row of figures above recomputes on every candle — PnL,
-equity, Sharpe, drawdown, max drawdown, max gain, the current streak, the best
-winning and worst losing streak, trades, win rate, fees.
+equity, progress (`30% · 120/400`), Sharpe, drawdown, max drawdown, max gain,
+the current streak, the best winning and worst losing streak, trades, win rate,
+fees.
 
 - **Equity is realised only.** An open position is carried at what it cost, so
   entering a trade moves nothing but its fee; the result lands when it closes.
@@ -351,19 +365,22 @@ winning and worst losing streak, trades, win rate, fees.
 - **It stops at the end** of its series rather than looping, and says how the
   run finished. Starting over is a button, never automatic.
 
-Two things are provisional and labelled as such in the tile: the entry rule is
-a placeholder (enter long when a candle closes above the one before it), and
-the candles come from the local store's most recent year in the span when there
-is one, from a fixed-seed walk otherwise. Fills are the optimistic kind — the
-target and the stop are both checked against a candle's range, so if one candle
-touches both, the target wins.
+**What the loop covers.** Not the whole span. It reads the **most recent year
+in the span that is on disk** — early BTCUSDT minutes are so thin that most
+bars have no range, which makes for a dull thing to watch — takes its **first
+`BARS_TO_PLAY` (400) bars**, compacts them to the chosen resolution, and walks
+those once. With the default span that is 2017–2026's newest available year,
+about six and a half hours of 1m data. A span with nothing on disk falls back
+to a fixed-seed sample and says so.
+
+Fills are the optimistic kind — the target and the stop are both read off one
+candle's range, so a candle that touches both pays the target.
 
 Nothing runs when the window opens: the tile sits idle until **Run** (in its
 header) or **Start backtest** (in the history tile) is pressed. A change of
-span, resolution or parameter is only remembered — the walk keeps its place
-and the note says what is ready — so those buttons are the only thing that
-starts a run over.
-```
+span, resolution, strategy or parameter is only remembered — the walk keeps
+its place and the note says what is ready — so those buttons are the only
+thing that starts a run over.
 
 ## Window layout
 

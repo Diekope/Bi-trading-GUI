@@ -80,24 +80,25 @@ def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
     assert image.pixelColor(gap).name() == CANVAS
 
 
-def test_the_right_side_stacks_three_tiles(app: QApplication, window) -> None:
+def test_the_right_side_stacks_four_tiles(app: QApplication, window) -> None:
     column = window.right
     assert column.orientation() == Qt.Orientation.Vertical
-    assert column.count() == 3
+    assert column.count() == 4
     assert column.widget(0) is window.download
     assert column.widget(1) is window.params
-    assert column.widget(2) is window.results
-    assert isinstance(window.download, Card)
-    assert isinstance(window.params, Card)
-    assert isinstance(window.results, Card)
+    assert column.widget(2) is window.strategy
+    assert column.widget(3) is window.results
+    for tile in (window.download, window.params, window.strategy, window.results):
+        assert isinstance(tile, Card)
 
 
-def test_the_upper_tiles_fit_their_content(app: QApplication, window) -> None:
+def test_the_input_tiles_fit_their_content(app: QApplication, window) -> None:
     app.processEvents()
-    _, params, results = window.right.sizes()
+    _, params, strategy, results = window.right.sizes()
 
-    # The controls keep only the height their content needs…
+    # The inputs keep only the height their content needs…
     assert params == pytest.approx(window.params.sizeHint().height(), abs=8)
+    assert strategy == pytest.approx(window.strategy.sizeHint().height(), abs=8)
     # …and the results tile takes everything left over.
     assert results > params
 
@@ -308,6 +309,43 @@ def test_finishing_swaps_the_button_to_start(
     # Narrow the span to the one that is complete; Start takes over.
     _pick(tile, 2017, 2017, "1m")
     assert tile.start_button.isVisible() is True
+
+
+def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
+    from lalala.strat_playback import DEFAULT_STRATEGY, STRATEGIES
+
+    tile = window.strategy
+    labels = [tile.picker.itemText(i) for i in range(tile.picker.count())]
+
+    assert labels == [label for _, label, _ in STRATEGIES]
+    assert tile.rule() == DEFAULT_STRATEGY
+
+    tile.set_rule("random")
+    app.processEvents()
+    assert tile.rule() == "random"
+    assert "coin flip" in tile.note.text()
+
+
+def test_a_strategy_change_waits_for_the_button(
+    app: QApplication, window
+) -> None:
+    playback = window.left
+    playback.run_button.click()
+    app.processEvents()
+    for _ in range(5):
+        playback.playback.advance()
+    index = playback.playback.index
+
+    window.strategy.set_rule("random")
+    app.processEvents()
+    # Remembered, not applied.
+    assert playback.playback.index == index
+    assert playback.playback.rule != "random"
+
+    window.left.run_button.click()
+    app.processEvents()
+    assert playback.playback.index == 0
+    assert playback.playback.rule == "random"
 
 
 def test_opening_the_window_starts_no_run(app: QApplication, window) -> None:
