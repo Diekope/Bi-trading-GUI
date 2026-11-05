@@ -7,6 +7,7 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from lalala.logs import install_qt_handler, setup
 from lalala.settings import ensure_file
 from lalala.strat_window import StratWindow
 from lalala.theme import apply_dark_theme
@@ -14,6 +15,10 @@ from lalala.theme import apply_dark_theme
 
 def run(argv: list[str] | None = None) -> int:
     """Open the blank window. Returns the Qt exit code."""
+    # A file, never the console: this is a GUI, not a command.
+    setup()
+    install_qt_handler()
+
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

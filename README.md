@@ -238,6 +238,7 @@ dependency.
 src/lalala/
   app.py           QApplication bootstrap
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
+  logs.py          the silent log: a rotating file, never the console
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window, split in two, for backtest + strategy work
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
@@ -261,13 +262,13 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             264 tests: parsing/search/aliases, slug math, candle + book
+tests/             273 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   chart and backtest settings, and the candle store and
-                   downloader
+                   chart and backtest settings, the silent log, and the candle
+                   store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -468,7 +469,6 @@ Public endpoints only, no key, no signing:
 Reconnects with exponential backoff (1s → 10s) and re-subscribes on reconnect.
 
 Polymarket, also public:
-
 - `GET https://gamma-api.polymarket.com/markets?slug=…` — one market per
   five-minute window: question, condition id, two CLOB token ids, prices,
   liquidity, tick size, close time.
@@ -477,6 +477,25 @@ Polymarket, also public:
 - `wss://ws-subscriptions-clob.polymarket.com/ws/market` — one subscription to
   both tokens; `book`, `price_change` and `last_trade_price` frames. The socket
   is dropped at the window boundary and reopened on the next slug.
+
+## Logging
+
+Silent by design. The app is a GUI, so anything writing to the terminal it was
+launched from scribbles over work in progress — a stray `print`, a logging
+handler on stderr, or Qt's own chatter. `logs.py` points the root logger at a
+rotating file and routes Qt's messages into it too, so the process stays quiet.
+
+| Variable | Effect |
+| --- | --- |
+| `LALALA_LOG` | path to the file (`~/.local/share/lalala/lalala.log`) |
+| `LALALA_LOG=off` | no file at all |
+| `LALALA_LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+
+The file rotates at a megabyte, keeping three. `httpx`, `websockets` and
+`asyncio` are held at `WARNING` unless the level is `DEBUG`, because their
+output at `INFO` is rarely what is wanted. A second `setup()` is a no-op rather
+than a second handler, and any console handler a library installed first is
+dropped.
 
 ## Not implemented yet
 
