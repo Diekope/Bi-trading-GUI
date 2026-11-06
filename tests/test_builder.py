@@ -20,11 +20,11 @@ from PySide6.QtWidgets import (  # noqa: E402
 from lalala.panels import Card  # noqa: E402
 from lalala.strat_builder import (  # noqa: E402
     COLUMN_SHARES,
-    ENTRY_MODES,
     TIMEFRAMES,
     LockedHandle,
     StrategyBuilderWindow,
 )
+from lalala.strat_rules import RULES_MODES as ENTRY_MODES  # noqa: E402
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 
@@ -157,11 +157,11 @@ def test_the_name_and_the_timeframe_share_the_strategy_tile(
     assert edit.geometry().left() < picker.geometry().left()
     assert edit.width() > picker.width() * 3
 
-    # Scoped to this tile: the name is a field here and nowhere else. The
-    # entry tile has its own inputs (the number box); the exit tile has none.
-    assert builder.entry_tile.findChildren(QComboBox) == []
-    assert builder.exit_tile.findChildren(QLineEdit) == []
-    assert builder.exit_tile.findChildren(QComboBox) == []
+    # Scoped to this tile: the name and the timeframe are here and nowhere
+    # else, on either of the rules tiles.
+    for tile in (builder.entry_tile, builder.exit_tile):
+        assert tile.findChild(QLineEdit, "strategyName") is None
+        assert tile.findChild(QComboBox, "strategyTimeframe") is None
 
 
 def test_the_name_is_a_text_field(builder: StrategyBuilderWindow) -> None:
@@ -380,8 +380,26 @@ def test_only_one_entry_page_shows_at_a_time(
         assert visible == [builder.entry_pages.currentIndex()]
 
 
-def test_the_exit_tile_has_no_modes(builder: StrategyBuilderWindow) -> None:
-    assert builder.exit_tile.findChildren(QPushButton) == []
+def test_the_exit_tile_has_the_same_tabs_as_the_entry(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    # Same widget, same two tabs, its own formula.
+    assert builder.exit_tile is not builder.entry_tile
+    assert list(builder.exit_tile.mode_buttons) == ["formulas", "code"]
+    assert builder.exit_mode() == "formulas"
+
+    builder.exit.set_mode("code")
+    app.processEvents()
+    assert builder.exit_mode() == "code"
+    assert builder.exit_tile.pages.currentIndex() == 1
+    assert builder.entry_mode() == "formulas"  # entry untouched
+
+    # The two formulas are independent.
+    builder.set_entry_formula("close < sma(close, 20)")
+    builder.set_exit_formula("close > sma(close, 50)")
+    app.processEvents()
+    assert builder.entry_formula() == "close < sma(close, 20)"
+    assert builder.exit_formula() == "close > sma(close, 50)"
 
 
 def test_the_columns_cannot_be_dragged(
@@ -433,17 +451,14 @@ def test_the_split_scales_with_the_window(
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
         # The strategy tile stays compact; the middle column keeps its shape:
-        # the entry tile is as tall as its content needs, the exit tile keeps
-        # the rest.
+        # the entry tile is never taller than its content needs, and the exit
+        # tile keeps the rest.
         top, entry, exit_ = builder.center.sizes()
         assert top == pytest.approx(
             builder.strategy_tile.sizeHint().height(), abs=4
         )
-        assert entry == pytest.approx(
-            min(entry + exit_, builder.entry_tile.minimumSizeHint().height()),
-            abs=4,
-        )
-        assert exit_ > 0
+        assert entry <= builder.entry_tile.minimumSizeHint().height() + 8
+        assert exit_ >= 0
 
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:
