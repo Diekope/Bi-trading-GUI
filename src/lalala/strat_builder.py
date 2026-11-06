@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QSplitter,
+    QSplitterHandle,
     QVBoxLayout,
     QWidget,
 )
@@ -42,9 +45,38 @@ COLUMN_SHARES = (0.21, 0.47, 0.32)
 # The bar the strategy reads, one of the compactions the store supports.
 TIMEFRAMES = ("1m", "5m", "15m", "1h")
 
+# How the entry rules can be written: as rows, as a formula, or as code.
+ENTRY_MODES = (("rules", "Rules"), ("formulas", "Formulas"), ("code", "Code"))
+
+
+class LockedHandle(QSplitterHandle):
+    """A splitter handle that swallows a drag instead of moving a column.
+
+    The columns keep the share they were given, at whatever size the window
+    is; only the window itself changes them.
+    """
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        event.ignore()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        event.ignore()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        event.ignore()
+
+
+class LockedSplitter(QSplitter):
+    """A splitter whose panes only move when the window resizes."""
+
+    def createHandle(self) -> QSplitterHandle:  # noqa: N802
+        return LockedHandle(self.orientation(), self)
+
 
 class StrategyBuilderWindow(QMainWindow):
     """Two rails, then a compact strategy tile over the entry and exit rules."""
+
+    entry_mode_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,8 +94,9 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setSpacing(CARD_GAP)
 
         # Vertical split: three tiles side by side, the gap doing the dividing
-        # rather than a drawn line.
-        self.splitter = QSplitter(Qt.Orientation.Horizontal, canvas)
+        # rather than a drawn line. The handles are locked: the 21/47/32 share
+        # is fixed, and changes only when the window does.
+        self.splitter = LockedSplitter(Qt.Orientation.Horizontal, canvas)
         self.splitter.setObjectName("builderSplitter")
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(CARD_GAP)
@@ -112,16 +145,38 @@ class StrategyBuilderWindow(QMainWindow):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
 
-        # Two empty tiles under it, titled for what will go in them.
-        for tile, text in (
-            (self.entry_tile, "ENTRY RULES"),
-            (self.exit_tile, "EXIT RULES"),
-        ):
-            caption = QLabel(text, tile)
-            caption.setObjectName("tileTitle")
-            tile.body.addWidget(caption)
-            # The title stays at the top; the room below it is for rules.
-            tile.body.addStretch(1)
+        # The entry tile's title shares its row with the three ways a rule can
+        # be written: rows, a formula, or code.
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+        entry_title = QLabel("ENTRY RULES", self.entry_tile)
+        entry_title.setObjectName("tileTitle")
+        header.addWidget(entry_title)
+        header.addStretch(1)
+
+        self.entry_modes = QButtonGroup(self.entry_tile)
+        self.entry_modes.setExclusive(True)
+        self.mode_buttons: dict[str, QPushButton] = {}
+        for index, (key, label) in enumerate(ENTRY_MODES):
+            button = QPushButton(label, self.entry_tile)
+            button.setObjectName("modeButton")
+            button.setProperty("mode", key)
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.entry_modes.addButton(button, index)
+            self.mode_buttons[key] = button
+            header.addWidget(button)
+        self.entry_modes.idClicked.connect(self._pick_entry_mode)
+        self.entry_tile.body.addLayout(header)
+        self.entry_tile.body.addStretch(1)
+
+        # The exit tile has only its title for now.
+        exit_title = QLabel("EXIT RULES", self.exit_tile)
+        exit_title.setObjectName("tileTitle")
+        self.exit_tile.body.addWidget(exit_title)
+        self.exit_tile.body.addStretch(1)
 
         for tile in (self.strategy_tile, self.entry_tile, self.exit_tile):
             self.center.addWidget(tile)
@@ -149,6 +204,25 @@ class StrategyBuilderWindow(QMainWindow):
         left = round(usable * COLUMN_SHARES[0])
         middle = round(usable * COLUMN_SHARES[1])
         return [left, middle, usable - left - middle]
+
+    def entry_mode(self) -> str:
+        """Which of the three entry editors is showing."""
+        for index, (key, _) in enumerate(ENTRY_MODES):
+            button = self.entry_modes.button(index)
+            if button is not None and button.isChecked():
+                return key
+        return ENTRY_MODES[0][0]
+
+    def set_entry_mode(self, mode: str) -> None:
+        for index, (key, _) in enumerate(ENTRY_MODES):
+            if key == mode:
+                self.entry_modes.button(index).setChecked(True)
+                self._pick_entry_mode(index)
+                return
+
+    def _pick_entry_mode(self, index: int) -> None:
+        if 0 <= index < len(ENTRY_MODES):
+            self.entry_mode_changed.emit(ENTRY_MODES[index][0])
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Lay the three tiles out once the real width is known."""

@@ -13,12 +13,15 @@ from PySide6.QtWidgets import (  # noqa: E402
     QComboBox,
     QLabel,
     QLineEdit,
+    QPushButton,
 )
 
 from lalala.panels import Card  # noqa: E402
 from lalala.strat_builder import (  # noqa: E402
     COLUMN_SHARES,
+    ENTRY_MODES,
     TIMEFRAMES,
+    LockedHandle,
     StrategyBuilderWindow,
 )
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
@@ -189,6 +192,78 @@ def test_the_columns_are_split_21_47_32(
     left, middle, right = builder.splitter.sizes()
     assert left < middle and right < middle
     assert left < right
+
+
+def test_the_entry_tile_has_three_ways_to_write_a_rule(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    labels = [label for key, label in ENTRY_MODES]
+    assert labels == ["Rules", "Formulas", "Code"]
+
+    buttons = builder.mode_buttons
+    assert list(buttons) == [key for key, _ in ENTRY_MODES]
+    assert [button.text() for button in buttons.values()] == labels
+    for button in buttons.values():
+        assert button.isCheckable() is True
+        assert builder.entry_tile.isAncestorOf(button)
+
+    # One at a time, and the first is the default.
+    assert builder.entry_modes.exclusive() is True
+    assert builder.entry_mode() == "rules"
+    assert buttons["rules"].isChecked() is True
+
+    picked: list[str] = []
+    builder.entry_mode_changed.connect(picked.append)
+    buttons["code"].click()
+    app.processEvents()
+
+    assert builder.entry_mode() == "code"
+    assert buttons["code"].isChecked() is True
+    assert buttons["rules"].isChecked() is False
+    assert picked == ["code"]
+    # Switching the mode changes nothing else yet.
+    assert builder.name_edit.text() == ""
+
+
+def test_the_exit_tile_has_no_modes(builder: StrategyBuilderWindow) -> None:
+    assert builder.exit_tile.findChildren(QPushButton) == []
+
+
+def test_the_columns_cannot_be_dragged(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    builder.splitter.setSizes(builder.column_sizes())
+    app.processEvents()
+    before = builder.splitter.sizes()
+
+    handle = builder.splitter.handle(1)
+    # The handle is the swallowing kind; Qt only starts a splitter drag on an
+    # accepted press, and this one accepts nothing.
+    assert isinstance(handle, LockedHandle)
+    start = handle.rect().center()
+    QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(handle, start + QPoint(120, 0))
+    QTest.mouseRelease(
+        handle, Qt.MouseButton.LeftButton, pos=start + QPoint(120, 0)
+    )
+
+    assert builder.splitter.sizes() == before
+
+
+def test_the_gaps_stay_exactly_the_card_gap(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    for width in (960, 1280, 1600):
+        builder.resize(width, 720)
+        app.processEvents()
+        left, middle, right = builder.left, builder.center, builder.right
+        first = middle.geometry().left() - left.geometry().right() - 1
+        second = right.geometry().left() - middle.geometry().right() - 1
+        assert first == pytest.approx(CARD_GAP, abs=0.5)
+        assert second == pytest.approx(CARD_GAP, abs=0.5)
 
 
 def test_the_split_scales_with_the_window(

@@ -350,6 +350,25 @@ QPushButton#resButton:checked {{
     background-color: {ACCENT_BG};
 }}
 
+/* The entry-rule modes: rows, formula or code, in the same pill shape. */
+QPushButton#modeButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 9px;
+    padding: 2px 8px;
+}}
+QPushButton#modeButton:hover {{
+    color: {TEXT};
+    border-color: {ACCENT_DIM};
+}}
+QPushButton#modeButton:checked {{
+    color: {ACCENT};
+    border-color: {ACCENT_DIM};
+    background-color: {ACCENT_BG};
+}}
+
 #latencyLabel {{
     color: {TEXT_MUTED};
     font-size: 10px;
