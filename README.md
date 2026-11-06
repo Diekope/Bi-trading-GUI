@@ -349,33 +349,38 @@ Nothing is saved yet, and nothing is wired to the walk.
 
 ### The formula builder
 
-The `Formulas` page is a drag-and-drop builder. A subtile holds the sources —
-three rows of draggable **blocks** and a box to type a number into:
+The `Formulas` page is a drag-and-drop builder. A card holds the sources —
+three rows of draggable **blocks**, then a box to type a number into:
 
 | Row | Blocks |
 | --- | --- |
-| `Data` | `close`, `open`, `high`, `low`, `volume` |
-| `Indicators` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands |
-| `Logic & Maths` | `and`, `or`, `not`, `=`, parentheses, comma, arithmetic, comparisons |
-| `Number` | type a value; `Add` drops it on the active line |
+| `DATA` | `close`, `open`, `high`, `low`, `volume` |
+| `INDICATORS` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands |
+| `LOGIC & MATHS` | `AND`, `OR`, `NOT`, `=`, parentheses, comma, arithmetic, comparisons |
+| number box | type a value, `+ Add` puts it on the active line, `↺ Reset` clears every line |
 
-Each row is horizontal and wraps when the tile is narrow, so every block stays
-visible; the rows scroll only if the tile is too short for all of them.
+Each block is a pill with a drag handle, coloured by what it is — data in
+indigo, indicators in amber, `AND`/`OR`/`NOT` in green, maths neutral — and
+each row wraps when the tile is narrow. The rows are **not** scrollable: the
+card takes the height it needs.
 
-Under the palette are the lines, one strip of chips each, read left to right.
-The last line is the condition, the ones above it are named series:
+Under the card are the lines, one strip of chips each, read left to right. The
+last line is captioned `IF` and is the condition; the ones above are `LET` and
+are named series:
 
 ```
-[mid] [=] [sma] [(] [close] [,] [▢] [)]
-[close] [<] [mid]
+LET  [mid] [=] [sma] [(] [close] [,] [▢] [)]
+IF   [close] [<] [mid]
 ```
 
 An indicator drops in with its parentheses and comma already placed and an
 empty **slot** — a dashed chip — where its period goes. Fill a slot by dragging
-a number chip onto it, or by clicking the slot and typing a value in the number
-box. Chips drag to reorder or move between lines, and double-click to remove;
-`+ line` and `− line` add and take away lines (the last one stays). Long lines
-**wrap** rather than clipping.
+a number onto it, or by clicking the slot and typing a value in the number box.
+A chip drags by its handle to reorder or move between lines, and its `×` takes
+it off; `+ add a line` adds a line and each line carries its own `×` to remove
+it (the last one stays). Long lines **wrap** rather than clipping. A blank run
+shows a dashed `drag a block here`, and a live pill reads `✓ valid`,
+`✗ not valid` or `— empty`.
 
 The chips are only an editor. The formula **text** is the truth: it is rebuilt
 from the chips and handed to `lalala.formula.parse`, so the same checker still

@@ -73,7 +73,8 @@ def test_the_palette_is_rows_of_blocks_and_a_number_box(
             assert block.item.tokens, "every block drops something"
 
     assert builder.number_edit is not None
-    assert builder.number_add.text() == "Add"
+    assert "Add" in builder.number_add.text()
+    assert "Reset" in builder.reset_button.text()
 
 
 def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
@@ -81,11 +82,11 @@ def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
 
     apply_dark_theme(QApplication.instance() or app)
     builder = FormulaBuilder()
-    builder.resize(420, 300)
+    builder.resize(620, 320)
     builder.show()
     app.processEvents()
 
-    # The Data blocks share a row: same top, left to right.
+    # The short rows share a row: same top, left to right.
     data = builder.blocks["Data"]
     tops = {block.geometry().top() for block in data}
     assert len(tops) == 1

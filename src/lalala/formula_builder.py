@@ -1,17 +1,19 @@
 """The drag-and-drop formula builder for the ENTRY RULES tile.
 
-A formula is built from chips. A subtile holds the sources — three lists of
-things to drag, `Data`, `Indicators`, `Logic & Maths`, and a box to type a
-number into — and under it the lines you drop them on. Each line is a strip of
-chips read left to right; the last line is the condition, the ones above it are
-named series:
+A formula is built from chips. A card holds the sources — rows of draggable
+**blocks**, `Data`, `Indicators` and `Logic & Maths`, colour-coded by what they
+are, then a box to type a number into. Under the card are the lines you drop
+the blocks on. Each line is a strip of chips read left to right; the last line
+is the condition, the ones above it are named series:
 
     [mid] [=] [sma] [(] [close] [,] [▢] [)]
     [close] [<] [mid]
 
 An indicator drops in with its parentheses and comma already placed and an
 empty **slot** — a dashed chip — where its period goes. Fill a slot by dragging
-a number chip onto it, or by clicking it and typing a value in the number box.
+a number onto it, or by clicking it and typing a value in the number box. A
+chip drags by its handle to reorder or move between lines, and its `×` takes it
+off.
 
 The chips are only an editor. The formula **text** is the truth: it is rebuilt
 from the chips and handed to `lalala.formula.parse`, so the same checker still
@@ -21,11 +23,10 @@ reports `line 2, column 9: unknown name 'clsoe'`.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QColor, QDrag, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -34,18 +35,26 @@ from PySide6.QtWidgets import (
     QLayout,
     QLineEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
     QWidgetItem,
 )
 
-from lalala.formula import FormulaError, parse, scan, tokens_to_text
 from lalala.cards import mono_font
+from lalala.formula import (
+    FIELDS,
+    FUNCTIONS,
+    FormulaError,
+    parse,
+    scan,
+    tokens_to_text,
+)
+from lalala.theme import BORDER, TEXT_FAINT
 
 MIME = "application/x-lalala-chip"
-_NUMBER = re.compile(r"\d+\.\d*|\.\d+|\d+")
+HANDLE = "⠿"
+LOGIC_WORDS = ("and", "or", "not")
 
 
 @dataclass(frozen=True)
@@ -86,9 +95,9 @@ PALETTES: tuple = (
     (
         "Logic & Maths",
         (
-            Item("and", ("and",)),
-            Item("or", ("or",)),
-            Item("not", ("not",)),
+            Item("AND", ("and",)),
+            Item("OR", ("or",)),
+            Item("NOT", ("not",)),
             Item("=", ("=",), "assigns the line above to a name"),
             Item("(", ("(",)),
             Item(")", (")",)),
@@ -108,6 +117,19 @@ PALETTES: tuple = (
         ),
     ),
 )
+
+
+def group_for_token(token) -> str:
+    """Which colour a chip wears: data, indicator, logic or maths."""
+    if token in (None, ""):
+        return ""
+    if token in FIELDS:
+        return "data"
+    if token in FUNCTIONS:
+        return "indicator"
+    if token in LOGIC_WORDS:
+        return "logic"
+    return "maths"
 
 
 def _decode(mime) -> dict | None:
@@ -150,7 +172,7 @@ class FlowLayout(QLayout):
     chip visible instead of clipping the tail.
     """
 
-    def __init__(self, parent=None, margin: int = 0, spacing: int = 3) -> None:
+    def __init__(self, parent=None, margin: int = 0, spacing: int = 4) -> None:
         super().__init__(parent)
         self._items: list = []
         self.setContentsMargins(margin, margin, margin, margin)
@@ -188,9 +210,16 @@ class FlowLayout(QLayout):
     def sizeHint(self) -> QSize:  # noqa: N802
         return self.minimumSize()
 
+    def _visible(self) -> list:
+        return [
+            item
+            for item in self._items
+            if item.widget() is None or not item.widget().isHidden()
+        ]
+
     def minimumSize(self) -> QSize:  # noqa: N802
         size = QSize()
-        for item in self._items:
+        for item in self._visible():
             size = size.expandedTo(item.minimumSize())
         margins = self.contentsMargins()
         return size + QSize(
@@ -219,7 +248,7 @@ class FlowLayout(QLayout):
         )
         spacing = self.spacing()
         x, y, row = inner.x(), inner.y(), 0
-        for item in self._items:
+        for item in self._visible():
             hint = item.sizeHint()
             if x + hint.width() > inner.right() + 1 and row > 0:
                 x, y, row = inner.x(), y + row + spacing, 0
@@ -239,16 +268,22 @@ class PaletteBlock(QFrame):
         self._press: QPoint | None = None
         self.setObjectName("paletteBlock")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("group", group_for_token(item.tokens[0]))
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setToolTip(item.note or f"drag {item.label} onto a line")
 
+        self.handle = QLabel(HANDLE, self)
+        self.handle.setObjectName("dragHandle")
         self.label = QLabel(item.label, self)
-        self.label.setObjectName("paletteBlockLabel")
-        self.label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-        )
+        self.label.setObjectName("blockLabel")
+        for child in (self.handle, self.label):
+            child.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(7, 2, 7, 2)
+        layout.setContentsMargins(9, 3, 11, 3)
+        layout.setSpacing(5)
+        layout.addWidget(self.handle)
         layout.addWidget(self.label)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -277,15 +312,27 @@ class Chip(QFrame):
         self.setObjectName("formulaChip")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
+        self.handle = QLabel(HANDLE, self)
+        self.handle.setObjectName("dragHandle")
         self.label = QLabel(self)
         self.label.setObjectName("chipLabel")
-        # The frame wants the mouse, not the label inside it.
-        self.label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-        )
+        self.remove_button = QPushButton("×", self)
+        self.remove_button.setObjectName("chipRemove")
+        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_button.setToolTip("take this off the line")
+        self.remove_button.clicked.connect(lambda: builder.remove_chip(self))
+        for child in (self.handle, self.label):
+            child.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 1, 6, 1)
+        layout.setContentsMargins(8, 2, 4, 2)
+        layout.setSpacing(4)
+        self._layout = layout
+        layout.addWidget(self.handle)
         layout.addWidget(self.label)
+        layout.addWidget(self.remove_button)
         self._apply()
 
     # -- state -------------------------------------------------------------
@@ -300,19 +347,26 @@ class Chip(QFrame):
         self.setProperty("armed", armed)
         self._repolish()
 
+    def group(self) -> str:
+        return group_for_token(self.token)
+
     def _apply(self) -> None:
-        self.label.setText("▢" if self.token is None else str(self.token))
-        self.setProperty("slot", self.token is None)
-        self.setAcceptDrops(self.token is None)
+        slot = self.token is None
+        self.label.setText("▢" if slot else str(self.token))
+        self.setProperty("slot", slot)
+        self.setProperty("group", self.group())
+        self.handle.setVisible(not slot)
+        self.remove_button.setVisible(not slot)
+        self.setAcceptDrops(slot)
         self.setCursor(
             Qt.CursorShape.PointingHandCursor
-            if self.token is None
+            if slot
             else Qt.CursorShape.OpenHandCursor
         )
         self.setToolTip(
             "empty slot — drop a number in, or click it and type one"
-            if self.token is None
-            else "drag to move · double-click to remove"
+            if slot
+            else "drag by the handle · × takes it off"
         )
         self._repolish()
 
@@ -343,10 +397,6 @@ class Chip(QFrame):
             self.builder.arm_slot(self)
         self._press = None
 
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        if self.token is not None:
-            self.builder.remove_chip(self)
-
     # -- dropping into a slot ---------------------------------------------
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
@@ -364,8 +414,35 @@ class Chip(QFrame):
             event.acceptProposedAction()
 
 
+class DropZone(QWidget):
+    """The blank run of a line, and the dashed hint while it is blank."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("dropZone")
+        self.empty = True
+
+    def set_empty(self, empty: bool) -> None:
+        if empty != self.empty:
+            self.empty = empty
+            self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self.empty:
+            return
+        painter = QPainter(self)
+        pen = QPen(QColor(BORDER), 1, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        painter.drawRoundedRect(rect, 5, 5)
+        painter.setFont(mono_font(9))
+        painter.setPen(QColor(TEXT_FAINT))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "drag a block here")
+
+
 class ChipStrip(QFrame):
-    """A line of chips: the drop target, read left to right."""
+    """A line: a caption, a run of chips, and a way to take the line away."""
 
     def __init__(self, builder: "FormulaBuilder", parent=None) -> None:
         super().__init__(parent)
@@ -373,14 +450,34 @@ class ChipStrip(QFrame):
         self.setObjectName("chipStrip")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAcceptDrops(True)
-        self.setMinimumHeight(30)
+        self.setMinimumHeight(34)
         self._chips: list[Chip] = []
-        self._layout = FlowLayout(self, margin=4, spacing=3)
-        policy = QSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 3, 6, 3)
+        row.setSpacing(8)
+
+        self.caption = QLabel("", self)
+        self.caption.setObjectName("stripCaption")
+        self.caption.setFixedWidth(30)
+        row.addWidget(self.caption, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.zone = DropZone(self)
+        self.zone.setAcceptDrops(True)  # so drags reach us via the zone
+        self._flow = FlowLayout(self.zone, margin=0, spacing=4)
+        row.addWidget(self.zone, 1)
+
+        self.remove_button = QPushButton("×", self)
+        self.remove_button.setObjectName("stripRemove")
+        self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_button.setToolTip("take this line away")
+        self.remove_button.clicked.connect(lambda: builder.remove_strip(self))
+        row.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # The zone must not swallow the drag before we can handle it.
+        self.zone.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
         )
-        policy.setHeightForWidth(True)
-        self.setSizePolicy(policy)
 
     # -- contents ----------------------------------------------------------
 
@@ -396,21 +493,26 @@ class ChipStrip(QFrame):
     def has_empty_slots(self) -> bool:
         return any(chip.token is None for chip in self._chips)
 
+    def set_caption(self, text: str) -> None:
+        self.caption.setText(text)
+
     def add_chip(self, token, index: int | None = None) -> Chip:
-        chip = Chip(token, self.builder, self)
+        chip = Chip(token, self.builder, self.zone)
         chip.strip = self
         at = len(self._chips) if index is None else max(0, min(index, len(self._chips)))
         self._chips.insert(at, chip)
-        self._layout.insertWidget(at, chip)
+        self._flow.insertWidget(at, chip)
+        self.zone.set_empty(False)
         return chip
 
     def remove_chip(self, chip: Chip) -> None:
         if chip not in self._chips:
             return
         self._chips.remove(chip)
-        self._layout.removeWidget(chip)
+        self._flow.removeWidget(chip)
         chip.setParent(None)
         chip.deleteLater()
+        self.zone.set_empty(not self._chips)
 
     def set_tokens(self, tokens) -> None:
         for chip in list(self._chips):
@@ -455,7 +557,7 @@ class ChipStrip(QFrame):
 
 
 class FormulaBuilder(QWidget):
-    """The palettes, the lines, and the text they add up to."""
+    """The palette card, the lines, and the text they add up to."""
 
     changed = Signal()
 
@@ -475,35 +577,28 @@ class FormulaBuilder(QWidget):
 
         self.add_strip()
 
-    # -- the palette subtile ----------------------------------------------
+    # -- the palette card --------------------------------------------------
 
     def _palettes(self) -> QWidget:
         box = QFrame(self)
         box.setObjectName("formulaPalette")
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(box)
-        outer.setContentsMargins(8, 6, 8, 6)
-        outer.setSpacing(4)
-
-        # The rows scroll if there is not room for all of them, so a block is
-        # never cut off.
-        scroll = QScrollArea(box)
-        scroll.setObjectName("paletteScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        inner = QWidget()
-        inner.setObjectName("paletteInner")
-        rows = QVBoxLayout(inner)
-        rows.setContentsMargins(0, 0, 0, 0)
-        rows.setSpacing(5)
+        outer.setContentsMargins(10, 8, 10, 8)
+        outer.setSpacing(7)
 
         self.blocks: dict[str, list[PaletteBlock]] = {}
         for title, items in PALETTES:
-            rows.addLayout(self._palette_row(inner, title, items))
-        rows.addLayout(self._number_row(inner))
-        rows.addStretch(1)
-        scroll.setWidget(inner)
-        outer.addWidget(scroll, 1)
+            outer.addLayout(self._palette_row(box, title, items))
+
+        rule = QFrame(box)
+        rule.setObjectName("paletteRule")
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setFixedHeight(1)
+        outer.addWidget(rule)
+
+        outer.addLayout(self._number_row(box))
         return box
 
     def _palette_row(
@@ -511,15 +606,15 @@ class FormulaBuilder(QWidget):
     ) -> QHBoxLayout:
         """A caption, then the blocks of one group, side by side and wrapping."""
         row = QHBoxLayout()
-        row.setSpacing(8)
-        caption = QLabel(title, parent)
+        row.setSpacing(10)
+        caption = QLabel(title.upper(), parent)
         caption.setObjectName("paletteTitle")
-        caption.setFixedWidth(84)
+        caption.setFixedWidth(76)
         row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
 
         holder = QWidget(parent)
         holder.setObjectName("paletteBlocks")
-        flow = FlowLayout(holder, margin=0, spacing=4)
+        flow = FlowLayout(holder, margin=0, spacing=5)
         blocks: list[PaletteBlock] = []
         for item in items:
             block = PaletteBlock(item, holder)
@@ -532,26 +627,30 @@ class FormulaBuilder(QWidget):
     def _number_row(self, parent: QWidget) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
-        caption = QLabel("Number", parent)
-        caption.setObjectName("paletteTitle")
-        caption.setFixedWidth(84)
-        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
-
         self.number_edit = QLineEdit(parent)
         self.number_edit.setObjectName("numberEdit")
-        self.number_edit.setPlaceholderText("20")
-        self.number_edit.setFixedWidth(72)
+        self.number_edit.setPlaceholderText(
+            "a number, e.g. 20 or 0.05"
+        )
         self.number_edit.setToolTip(
             "type a value; Enter adds it, or fills the armed slot"
         )
         self.number_edit.returnPressed.connect(self.add_number)
-        self.number_add = QPushButton("Add", parent)
+
+        self.number_add = QPushButton("+  Add", parent)
         self.number_add.setObjectName("numberAdd")
         self.number_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.number_add.clicked.connect(self.add_number)
-        row.addWidget(self.number_edit)
+
+        self.reset_button = QPushButton("↺  Reset", parent)
+        self.reset_button.setObjectName("formulaReset")
+        self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_button.setToolTip("clear every line")
+        self.reset_button.clicked.connect(self.reset)
+
+        row.addWidget(self.number_edit, 1)
         row.addWidget(self.number_add)
-        row.addStretch(1)
+        row.addWidget(self.reset_button)
         return row
 
     # -- the canvas --------------------------------------------------------
@@ -563,36 +662,23 @@ class FormulaBuilder(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        tools = QHBoxLayout()
-        tools.setSpacing(6)
-        caption = QLabel("formula", box)
-        caption.setObjectName("paletteTitle")
-        tools.addWidget(caption)
-        tools.addStretch(1)
-        self.add_line_button = QPushButton("+ line", box)
-        self.drop_line_button = QPushButton("− line", box)
-        for button in (self.add_line_button, self.drop_line_button):
-            button.setObjectName("lineButton")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            tools.addWidget(button)
-        self.add_line_button.clicked.connect(lambda: self.add_strip())
-        self.drop_line_button.clicked.connect(self.remove_active_strip)
-        layout.addLayout(tools)
-
-        self.strip_area = QScrollArea(box)
-        self.strip_area.setObjectName("stripArea")
-        self.strip_area.setWidgetResizable(True)
-        self.strip_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.strip_area.setMinimumHeight(64)
-        holder = QWidget()
-        holder.setObjectName("stripHolder")
-        self.strip_layout = QVBoxLayout(holder)
+        self.strip_layout = QVBoxLayout()
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
         self.strip_layout.addStretch(1)
-        self.strip_area.setWidget(holder)
-        layout.addWidget(self.strip_area, 1)
+        layout.addLayout(self.strip_layout, 1)
 
+        self.add_line_button = QPushButton("+  add a line", box)
+        self.add_line_button.setObjectName("addLine")
+        self.add_line_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_line_button.setToolTip(
+            "another line: the last one is the condition"
+        )
+        self.add_line_button.clicked.connect(lambda: self.add_strip())
+        layout.addWidget(self.add_line_button)
+
+        bottom = QHBoxLayout()
+        bottom.setSpacing(8)
         self.preview_label = QLabel(box)
         self.preview_label.setObjectName("formulaPreview")
         self.preview_label.setFont(mono_font(9))
@@ -600,17 +686,23 @@ class FormulaBuilder(QWidget):
         self.preview_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
+        self.status = QLabel(box)
+        self.status.setObjectName("formulaStatus")
+        self.status.setProperty("state", "idle")
+        bottom.addWidget(self.preview_label, 1)
+        bottom.addWidget(self.status, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(bottom)
+
         self.error_label = QLabel(box)
         self.error_label.setObjectName("formulaError")
         self.error_label.setWordWrap(True)
-        layout.addWidget(self.preview_label)
         layout.addWidget(self.error_label)
         return box
 
     # -- lines -------------------------------------------------------------
 
     def add_strip(self, tokens=None, at: int | None = None) -> ChipStrip:
-        strip = ChipStrip(self, self.strip_area.widget())
+        strip = ChipStrip(self, self)
         if tokens:
             strip.set_tokens(tokens)
         index = len(self.strips) if at is None else at
@@ -637,6 +729,16 @@ class FormulaBuilder(QWidget):
 
     def set_active(self, strip: ChipStrip) -> None:
         self.active = strip
+
+    def reset(self) -> None:
+        """Clear every line back to a single empty one."""
+        for strip in list(self.strips):
+            self.strips.remove(strip)
+            self.strip_layout.removeWidget(strip)
+            strip.setParent(None)
+            strip.deleteLater()
+        self.add_strip()
+        self.changed.emit()
 
     # -- chips -------------------------------------------------------------
 
@@ -693,7 +795,7 @@ class FormulaBuilder(QWidget):
         for strip in self.strips:
             for chip in strip.chips():
                 chip.set_armed(False)
-        self.number_edit.setPlaceholderText("20")
+        self.number_edit.setPlaceholderText("a number, e.g. 20 or 0.05")
 
     def fill_slot(self, chip: Chip, token: str, mime=None) -> None:
         if mime is not None:
@@ -758,24 +860,46 @@ class FormulaBuilder(QWidget):
         self._refresh()
 
     def _refresh(self) -> None:
+        # Series lines read "LET", the last line reads "IF".
+        for index, strip in enumerate(self.strips):
+            last = index == len(self.strips) - 1
+            strip.set_caption("IF" if last else "LET")
+            strip.remove_button.setVisible(len(self.strips) > 1)
+
         text = self.formula_text()
-        self.preview_label.setText(text if text else "— drop items onto a line below")
-        self.drop_line_button.setEnabled(len(self.strips) > 1)
+        self.preview_label.setText(text if text else "— drop a block onto a line")
+        self.add_line_button.setEnabled(len(self.strips) < 6)
+
         if any(strip.has_empty_slots() for strip in self.strips):
             self._parsed = None
+            self._set_state("error")
             self.error_label.setText("fill the empty slot before this can be read")
             return
         if not text.strip():
             self._parsed = None
+            self._set_state("idle")
             self.error_label.setText("")
             return
         try:
             self._parsed = parse(text)
         except FormulaError as exc:
             self._parsed = None
+            self._set_state("error")
             self.error_label.setText(str(exc))
         else:
+            self._set_state("ok")
             self.error_label.setText("")
+
+    def _set_state(self, state: str) -> None:
+        self.status.setText(
+            {"ok": "✓ valid", "error": "✗ not valid"}.get(state, "— empty")
+        )
+        if self.status.property("state") == state:
+            return
+        self.status.setProperty("state", state)
+        style = self.status.style()
+        style.unpolish(self.status)
+        style.polish(self.status)
 
 
 __all__ = [
@@ -783,8 +907,10 @@ __all__ = [
     "PALETTES",
     "Chip",
     "ChipStrip",
+    "DropZone",
     "FlowLayout",
     "FormulaBuilder",
     "Item",
     "PaletteBlock",
+    "group_for_token",
 ]

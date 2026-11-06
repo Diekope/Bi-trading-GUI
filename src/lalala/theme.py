@@ -81,68 +81,153 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 /* Plain containers inside a card must not paint the canvas colour. */
 #resolutionPicker, #paramsGrid, #entryPages, #entryPage,
 #formulaBuilder, #formulaCanvas, #stripArea, #stripHolder,
-#paletteScroll, #paletteInner, #paletteBlocks {{
+#paletteInner, #paletteBlocks, #dropZone {{
     background-color: transparent;
 }}
 
-/* The palette subtile: an inset well on the card, holding the sources. */
+/* The palette card: the sources, colour-coded by what they are. */
 #formulaPalette {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
 }}
 QLabel#paletteTitle {{
     color: {TEXT_MUTED};
     font-size: 9px;
     font-weight: bold;
 }}
-
-/* A palette block: one draggable thing, sitting in a horizontal row. */
-#paletteBlock {{
-    background-color: {PANEL};
-    border: 1px solid {BORDER};
-    border-radius: 3px;
+#paletteRule {{
+    background-color: {BORDER};
+    border: none;
 }}
-#paletteBlock:hover {{
-    border-color: {ACCENT_DIM};
-}}
-QLabel#paletteBlockLabel {{
-    color: {TEXT};
+QLabel#dragHandle {{
+    color: {TEXT_FAINT};
     font-size: 10px;
 }}
 
-/* A chip on a line, and an empty slot waiting to be filled. */
-#formulaChip {{
+/* A palette block and a chip: one pill, coloured by group. */
+#paletteBlock, #formulaChip {{
+    border-radius: 11px;
+}}
+#paletteBlock:hover {{
+    border-width: 1px;
+}}
+QLabel#blockLabel, QLabel#chipLabel {{
+    font-size: 10px;
+    font-weight: bold;
+}}
+
+/* Data: the bar's own fields, in the indigo the bands already use. */
+#paletteBlock[group="data"], #formulaChip[group="data"] {{
+    background-color: #1b2340;
+    border: 1px solid #2f3c63;
+}}
+#paletteBlock[group="data"] QLabel, #formulaChip[group="data"] QLabel {{
+    color: #aebdf0;
+}}
+
+/* Indicators: amber, the app's accent. */
+#paletteBlock[group="indicator"], #formulaChip[group="indicator"] {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+}}
+#paletteBlock[group="indicator"] QLabel, #formulaChip[group="indicator"] QLabel {{
+    color: {ACCENT};
+}}
+
+/* Logic: the words, in the up colour. */
+#paletteBlock[group="logic"], #formulaChip[group="logic"] {{
+    background-color: #12251a;
+    border: 1px solid #1f4530;
+}}
+#paletteBlock[group="logic"] QLabel, #formulaChip[group="logic"] QLabel {{
+    color: {UP};
+}}
+
+/* Maths and everything else: neutral. */
+#paletteBlock[group="maths"], #formulaChip[group="maths"] {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 3px;
+}}
+#paletteBlock[group="maths"] QLabel, #formulaChip[group="maths"] QLabel {{
+    color: {TEXT};
 }}
 #formulaChip[slot="true"] {{
     background-color: {CANVAS};
     border: 1px dashed {ACCENT_DIM};
 }}
+#formulaChip[slot="true"] QLabel {{
+    color: {TEXT_FAINT};
+}}
 #formulaChip[armed="true"] {{
     border: 1px solid {ACCENT};
 }}
-QLabel#chipLabel {{
-    color: {TEXT};
-    font-size: 10px;
-}}
-#formulaChip[slot="true"] QLabel#chipLabel {{
+QPushButton#chipRemove, QPushButton#stripRemove {{
+    border: none;
+    background: transparent;
     color: {TEXT_FAINT};
+    font-size: 11px;
+    padding: 0px;
+}}
+QPushButton#chipRemove {{
+    max-width: 12px;
+}}
+QPushButton#chipRemove:hover, QPushButton#stripRemove:hover {{
+    color: {DOWN};
 }}
 
-/* A line: the drop target. */
+/* A line: caption, the run of chips, a remove button. */
 #chipStrip {{
-    background-color: {CANVAS};
+    background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
+}}
+QLabel#stripCaption {{
+    color: {ACCENT};
+    font-size: 9px;
+    font-weight: bold;
+}}
+QPushButton#addLine {{
+    background-color: transparent;
+    border: 1px dashed {BORDER};
+    border-radius: 6px;
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 7px;
+}}
+QPushButton#addLine:hover {{
+    border-color: {ACCENT_DIM};
+    color: {TEXT};
+}}
+QPushButton#addLine:disabled {{
+    color: {TEXT_FAINT};
 }}
 
 /* The formula text and the checker's word on it. */
 QLabel#formulaPreview {{
-    color: {TEXT_MUTED};
+    color: {TEXT};
     font-size: 10px;
+}}
+QLabel#formulaStatus {{
+    border-radius: 9px;
+    font-size: 9px;
+    font-weight: bold;
+    padding: 2px 9px;
+}}
+QLabel#formulaStatus[state="ok"] {{
+    background-color: #12251a;
+    border: 1px solid #1f4530;
+    color: {UP};
+}}
+QLabel#formulaStatus[state="error"] {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {DOWN};
+    color: {DOWN};
+}}
+QLabel#formulaStatus[state="idle"] {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    color: {TEXT_FAINT};
 }}
 QLabel#formulaError {{
     color: {DOWN};
@@ -150,31 +235,27 @@ QLabel#formulaError {{
 }}
 
 QLineEdit#numberEdit {{
-    background-color: {PANEL};
+    background-color: {CANVAS};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     color: {TEXT};
     font-size: 10px;
-    padding: 2px 5px;
+    padding: 5px 8px;
 }}
 QLineEdit#numberEdit:focus {{
     border-color: {ACCENT};
 }}
-QPushButton#numberAdd, QPushButton#lineButton {{
-    background-color: {PANEL_ALT};
+QPushButton#numberAdd, QPushButton#formulaReset {{
+    background-color: {PANEL};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     color: {TEXT_MUTED};
-    font-size: 9px;
-    padding: 2px 6px;
+    font-size: 10px;
+    padding: 5px 12px;
 }}
-QPushButton#numberAdd:hover, QPushButton#lineButton:hover {{
+QPushButton#numberAdd:hover, QPushButton#formulaReset:hover {{
     color: {TEXT};
     border-color: {ACCENT_DIM};
-}}
-QPushButton#lineButton:disabled {{
-    color: {TEXT_FAINT};
-    border-color: {BORDER};
 }}
 
 /* Slim scrollbars, so the palette's lists do not wear OS-default chrome. */
