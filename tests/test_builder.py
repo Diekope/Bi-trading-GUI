@@ -1,4 +1,4 @@
-"""The strategy builder window: two rails, and a middle column split in two."""
+"""The strategy builder window: two rails, a compact STRATEGY tile, one below."""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QComboBox,
+    QLabel,
+    QLineEdit,
+)
 
 from lalala.panels import Card  # noqa: E402
 from lalala.strat_builder import (  # noqa: E402
@@ -68,36 +73,86 @@ def test_the_window_holds_three_columns(
     assert isinstance(builder.right, Card)
 
 
-def test_the_middle_column_is_two_tiles_not_one_split_tile(
+def test_the_middle_column_is_two_tiles_one_above_the_other(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     column = builder.center
 
-    # A tile is a card. The middle column is a splitter holding two of them,
-    # each with its own chrome — the column itself is not a card.
+    # The column itself is not a card: it holds two of them.
     assert isinstance(column, Card) is False
     assert column.count() == 2
     assert column.orientation() == Qt.Orientation.Vertical
     assert column.handleWidth() == CARD_GAP
     assert column.childrenCollapsible() is False
-    assert column.widget(0) is builder.name_tile
-    assert column.widget(1) is builder.timeframe_tile
-    assert isinstance(builder.name_tile, Card)
-    assert isinstance(builder.timeframe_tile, Card)
-    # Each keeps its own surface, rather than being a well cut into the other.
-    assert builder.name_tile.objectName() == "venuePanel"
-    assert builder.timeframe_tile.objectName() == "venuePanel"
-
-    top, bottom = column.sizes()
-    assert top == pytest.approx(bottom, abs=2)
-    assert builder.name_tile.width() == builder.timeframe_tile.width()
+    assert column.widget(0) is builder.strategy_tile
+    assert column.widget(1) is builder.lower_tile
+    assert isinstance(builder.strategy_tile, Card)
+    assert isinstance(builder.lower_tile, Card)
 
     gap = (
-        builder.timeframe_tile.geometry().top()
-        - builder.name_tile.geometry().bottom()
+        builder.lower_tile.geometry().top()
+        - builder.strategy_tile.geometry().bottom()
         - 1
     )
     assert gap == pytest.approx(CARD_GAP, abs=1)
+
+
+def test_the_strategy_tile_is_titled_and_compact(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    tile = builder.strategy_tile
+
+    assert [label.text() for label in tile.findChildren(QLabel)] == ["STRATEGY"]
+    title = tile.findChildren(QLabel)[0]
+    assert title.objectName() == "tileTitle"
+
+    # Only the height its title and row need, not half the column.
+    top, rest = builder.center.sizes()
+    assert top == pytest.approx(tile.sizeHint().height(), abs=2)
+    assert rest > top
+    assert top < builder.center.height() / 2
+
+
+def test_the_name_and_the_timeframe_share_the_strategy_tile(
+    builder: StrategyBuilderWindow
+) -> None:
+    tile = builder.strategy_tile
+    edit = builder.name_edit
+    picker = builder.timeframe
+
+    assert tile.isAncestorOf(edit)
+    assert tile.isAncestorOf(picker)
+    # One row: the name takes the slack, the timeframe keeps its own width,
+    # and they sit at the same height.
+    assert edit.geometry().top() == pytest.approx(picker.geometry().top(), abs=2)
+    assert edit.geometry().left() < picker.geometry().left()
+    assert edit.width() > picker.width() * 3
+
+    # Scoped to this tile, and one empty tile below with neither field.
+    assert builder.lower_tile.findChildren(QLineEdit) == []
+    assert builder.lower_tile.findChildren(QComboBox) == []
+
+
+def test_the_name_is_a_text_field(builder: StrategyBuilderWindow) -> None:
+    edit = builder.name_edit
+
+    assert edit.placeholderText() == "name"
+    assert edit.text() == ""
+
+    edit.setText("lower band dip")
+    assert edit.text() == "lower band dip"
+
+
+def test_the_timeframe_is_a_dropdown(builder: StrategyBuilderWindow) -> None:
+    picker = builder.timeframe
+
+    assert [picker.itemText(index) for index in range(picker.count())] == list(
+        TIMEFRAMES
+    )
+    assert picker.currentText() == "1m"
+
+    picker.setCurrentText("1h")
+    assert picker.currentText() == "1h"
 
 
 def test_the_columns_are_split_21_47_32(
@@ -127,8 +182,10 @@ def test_the_split_scales_with_the_window(
         assert shares[1] == pytest.approx(COLUMN_SHARES[1], abs=0.01)
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
-        top, bottom = builder.center.sizes()
-        assert top == pytest.approx(bottom, abs=2)
+        # The strategy tile stays compact; the empty one takes the space.
+        top, rest = builder.center.sizes()
+        assert top == pytest.approx(builder.strategy_tile.sizeHint().height(), abs=4)
+        assert rest > top
 
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:
@@ -146,8 +203,8 @@ def test_the_middle_tiles_fill_their_column(
     app.processEvents()
 
     column = builder.center
-    top = builder.name_tile
-    bottom = builder.timeframe_tile
+    top = builder.strategy_tile
+    bottom = builder.lower_tile
     # Both cards span the column, less the transparent splitter handle.
     assert top.width() == pytest.approx(column.width() - 2, abs=2)
     assert bottom.width() == pytest.approx(column.width() - 2, abs=2)
@@ -169,38 +226,10 @@ def test_both_gaps_show_the_canvas(
     assert second == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_name_is_a_text_field(builder: StrategyBuilderWindow) -> None:
-    edit = builder.name_edit
-
-    assert edit.placeholderText() == "name"
-    assert edit.text() == ""
-    # In the top middle tile, and the only thing in it.
-    assert builder.name_tile.isAncestorOf(edit)
-    assert builder.name_tile.findChildren(QLabel) == []
-    assert builder.name_tile.body.count() == 1
-
-    edit.setText("lower band dip")
-    assert edit.text() == "lower band dip"
-
-
-def test_the_timeframe_is_a_dropdown(builder: StrategyBuilderWindow) -> None:
-    picker = builder.timeframe
-
-    assert [picker.itemText(index) for index in range(picker.count())] == list(
-        TIMEFRAMES
-    )
-    assert picker.currentText() == "1m"
-    assert builder.timeframe_tile.isAncestorOf(picker)
-    assert builder.timeframe_tile.findChildren(QLabel) == []
-    assert builder.timeframe_tile.body.count() == 1
-
-    picker.setCurrentText("1h")
-    assert picker.currentText() == "1h"
-
-
-def test_the_side_rails_stay_empty(builder: StrategyBuilderWindow) -> None:
-    # Only the middle column has fields so far.
-    for tile in (builder.left, builder.right):
+def test_the_side_rails_and_the_lower_tile_stay_empty(
+    builder: StrategyBuilderWindow
+) -> None:
+    for tile in (builder.left, builder.lower_tile, builder.right):
         assert tile.findChildren(QLabel) == []
         assert tile.findChildren(QLineEdit) == []
         assert tile.findChildren(QComboBox) == []

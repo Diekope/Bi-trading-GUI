@@ -2,8 +2,8 @@
 
 Three vertical tiles side by side, splitting the width 21 / 47 / 32: a narrow
 rail on the left, a middle column, and a wider rail on the right. The middle
-column holds two tiles stacked one above the other — the strategy name on top,
-the timeframe it acts on below — both still empty, to be filled in later.
+column holds a compact **STRATEGY** tile on top — the strategy's name and the
+timeframe it acts on, side by side — with an empty tile under it.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -22,8 +22,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMainWindow,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -41,7 +44,7 @@ TIMEFRAMES = ("1m", "5m", "15m", "1h")
 
 
 class StrategyBuilderWindow(QMainWindow):
-    """Four empty tiles: two rails and a middle column split in two."""
+    """Two rails, and a compact strategy tile over an empty middle one."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,33 +76,47 @@ class StrategyBuilderWindow(QMainWindow):
         self.center.setChildrenCollapsible(False)
         self.center.setHandleWidth(CARD_GAP)
 
-        self.name_tile = Card(self.center)
-        self.timeframe_tile = Card(self.center)
+        self.strategy_tile = Card(self.center)
+        self.lower_tile = Card(self.center)
         self.right = Card(self.splitter)
 
-        # No caption above either field: the tile is the label. The card's
-        # padding is the only space around them, and both sit at the top.
-        self.name_edit = QLineEdit(self.name_tile)
+        # One tile, one row: the strategy's name and the timeframe it acts on.
+        # The tile is titled, and nothing else is spaced around them.
+        title = QLabel("STRATEGY", self.strategy_tile)
+        title.setObjectName("tileTitle")
+        self.strategy_tile.body.addWidget(title)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.name_edit = QLineEdit(self.strategy_tile)
         self.name_edit.setObjectName("strategyName")
         self.name_edit.setPlaceholderText("name")
-        self.name_tile.body.addWidget(
-            self.name_edit, 0, Qt.AlignmentFlag.AlignTop
-        )
 
-        self.timeframe = QComboBox(self.timeframe_tile)
+        self.timeframe = QComboBox(self.strategy_tile)
         self.timeframe.setObjectName("strategyTimeframe")
         self.timeframe.addItems(TIMEFRAMES)
-        self.timeframe_tile.body.addWidget(
-            self.timeframe, 0, Qt.AlignmentFlag.AlignTop
+        self.timeframe.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
 
-        for tile in (self.name_tile, self.timeframe_tile):
+        row.addWidget(self.name_edit, 1)
+        row.addWidget(self.timeframe)
+        self.strategy_tile.body.addLayout(row)
+
+        # The tile is only as tall as its title and row; the tile under it
+        # takes the rest of the column.
+        self.strategy_tile.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+
+        for tile in (self.strategy_tile, self.lower_tile):
             self.center.addWidget(tile)
             tile.setMinimumWidth(120)
-            tile.setMinimumHeight(80)
-        for row in range(2):
-            self.center.setStretchFactor(row, 1)
-        self.center.setSizes([1, 1])
+        self.center.setStretchFactor(0, 0)
+        self.center.setStretchFactor(1, 1)
+        self._column_set = False
 
         for column in (self.left, self.center, self.right):
             self.splitter.addWidget(column)
@@ -126,8 +143,13 @@ class StrategyBuilderWindow(QMainWindow):
         if not self._proportions_set:
             self._proportions_set = True
             self.splitter.setSizes(self.column_sizes())
-            # Two equal tiles in the middle column, once the height is real.
-            self.center.setSizes([1, 1])
+        if not self._column_set:
+            # The strategy tile keeps only the height its content needs; the
+            # tile under it takes the rest.
+            self._column_set = True
+            top = self.strategy_tile.sizeHint().height()
+            rest = max(0, self.center.height() - top - CARD_GAP)
+            self.center.setSizes([top, rest])
 
     def is_open(self) -> bool:
         return self.isVisible()
