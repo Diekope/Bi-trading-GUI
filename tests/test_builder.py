@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QComboBox,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
 )
 
@@ -104,18 +105,18 @@ def test_the_middle_column_is_three_tiles_stacked(
 def test_the_entry_and_exit_tiles_are_titled(
     builder: StrategyBuilderWindow
 ) -> None:
-    assert [label.text() for label in builder.entry_tile.findChildren(QLabel)] == [
-        "ENTRY RULES"
-    ]
-    assert [label.text() for label in builder.exit_tile.findChildren(QLabel)] == [
-        "EXIT RULES"
-    ]
-    for tile in (builder.entry_tile, builder.exit_tile):
-        title = tile.findChildren(QLabel)[0]
+    entry_title = builder.entry_tile.findChildren(QLabel)[0]
+    exit_title = builder.exit_tile.findChildren(QLabel)[0]
+    assert entry_title.text() == "ENTRY RULES"
+    assert exit_title.text() == "EXIT RULES"
+    for title in (entry_title, exit_title):
         assert title.objectName() == "tileTitle"
         assert title.geometry().top() < 20  # at the top, not centred
-        # The title and a stretch, nothing else yet.
-        assert tile.body.count() == 2
+
+    # The entry tile has its header row and the pages; the exit tile only its
+    # title and a stretch.
+    assert builder.entry_tile.body.count() == 2
+    assert builder.exit_tile.body.count() == 2
 
 
 def test_the_strategy_tile_is_titled_and_compact(
@@ -223,6 +224,82 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
     assert picked == ["code"]
     # Switching the mode changes nothing else yet.
     assert builder.name_edit.text() == ""
+
+
+def test_the_formulas_page_edits_and_checks_a_formula(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    # The page only exists once Formulas is picked.
+    builder.mode_buttons["formulas"].click()
+    app.processEvents()
+
+    assert builder.entry_pages.currentIndex() == 1
+    edit = builder.formula_edit
+    assert builder.entry_tile.isAncestorOf(edit)
+    assert edit.placeholderText() == "close < bollinger_lower(close, 20, 2)"
+    # Empty is not an error; there is simply no formula yet.
+    assert builder.entry_formula_error() == ""
+    assert builder.entry_formula_parsed() is None
+
+    # A good formula parses and clears the error line.
+    builder.set_entry_formula("mid = sma(close, 20)\nclose < mid")
+    app.processEvents()
+    assert builder.entry_formula() == "mid = sma(close, 20)\nclose < mid"
+    assert builder.entry_formula_error() == ""
+    parsed = builder.entry_formula_parsed()
+    assert parsed is not None
+    assert parsed.series_names == ("mid",)
+
+    # A typo is reported with its place, and there is nothing parsed.
+    builder.set_entry_formula("close < clsoe")
+    app.processEvents()
+    assert builder.entry_formula_error() == (
+        "line 1, column 9: unknown name 'clsoe'"
+    )
+    assert builder.entry_formula_parsed() is None
+    assert edit.property("state") == "error"
+
+    # Correcting it clears the error again.
+    builder.set_entry_formula("close < 10")
+    app.processEvents()
+    assert builder.entry_formula_error() == ""
+    assert builder.entry_formula_parsed() is not None
+    assert edit.property("state") == "ok"
+
+
+def test_the_rules_and_code_pages_are_placeholders(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.mode_buttons["rules"].click()
+    app.processEvents()
+    assert builder.entry_pages.currentIndex() == 0
+
+    builder.mode_buttons["code"].click()
+    app.processEvents()
+    assert builder.entry_pages.currentIndex() == 2
+
+    # Neither is the formula editor, and neither pretends to work: one faint
+    # note each, no editor.
+    for index in (0, 2):
+        page = builder.entry_pages.widget(index)
+        notes = [label.text() for label in page.findChildren(QLabel)]
+        assert len(notes) == 1
+        assert "yet" in notes[0]
+        assert page.findChildren(QPlainTextEdit) == []
+
+
+def test_only_one_entry_page_shows_at_a_time(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    for key in ("rules", "formulas", "code"):
+        builder.mode_buttons[key].click()
+        app.processEvents()
+        visible = [
+            index
+            for index in range(builder.entry_pages.count())
+            if builder.entry_pages.widget(index).isVisible()
+        ]
+        assert visible == [builder.entry_pages.currentIndex()]
 
 
 def test_the_exit_tile_has_no_modes(builder: StrategyBuilderWindow) -> None:

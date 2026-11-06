@@ -79,8 +79,30 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
-#resolutionPicker, #paramsGrid {{
+#resolutionPicker, #paramsGrid, #entryPages, #entryPage {{
     background-color: transparent;
+}}
+
+/* The formula editor: monospace, and a red edge the moment it is wrong. */
+QPlainTextEdit#formulaEdit {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 4px 6px;
+    selection-background-color: {ACCENT};
+    selection-color: {CANVAS};
+}}
+QPlainTextEdit#formulaEdit:focus {{
+    border-color: {ACCENT};
+}}
+QPlainTextEdit#formulaEdit[state="error"] {{
+    border-color: {DOWN};
+}}
+QLabel#formulaError {{
+    color: {DOWN};
+    font-size: 9px;
 }}
 #venuePanel QCheckBox {{
     background-color: transparent;

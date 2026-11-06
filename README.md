@@ -253,7 +253,8 @@ src/lalala/
   strat_playback.py the left tile: a streamed walk over the whole span
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
-  strat_builder.py the blank builder window, launched on its own
+  strat_builder.py the builder window: strategy, entry and exit rules
+  formula.py       the entry/exit formula language: parse and check (no Qt)
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -271,15 +272,15 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             293 tests: parsing/search/aliases, slug math, candle + book
+tests/             323 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the entry mode pills and the two
-                   rules tiles, the chart and backtest settings, the silent
-                   log, and the candle store and downloader
+                   compact STRATEGY tile, the entry/exit tiles and the formula
+                   editor, the formula language itself, the chart and backtest
+                   settings, the silent log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -339,9 +340,41 @@ width, defaulting to `1m`. It is only as tall as the title and that row.
 Under it, two tiles share the rest of the column: **ENTRY RULES** and
 **EXIT RULES**. The entry tile's title row also carries the three ways a rule
 can be written — `Rules`, `Formulas`, `Code`, exclusive pills defaulting to
-`Rules`. Nothing is behind them yet; the exit tile has only its title.
+`Rules`. Only **Formulas** does anything yet; the other two say so. The exit
+tile has only its title.
 
 Nothing is saved yet, and nothing is wired to the walk.
+
+### The formula language
+
+The `Formulas` page is a monospace editor. The text is parsed and checked as
+you type: a sound formula gets a clean border, a typo gets a red one and the
+first problem with its place, `line 2, column 9: unknown name 'clsoe'`.
+
+A formula is a list of lines. All but the last define named series; the last is
+the condition, evaluated once per bar:
+
+```
+mid = sma(close, 20)
+close < bollinger_lower(close, 20, 2) and volume > 2 * sma(volume, 50)
+```
+
+The names are the bar's own fields — `open`, `high`, `low`, `close`, `volume` —
+plus anything a line above defined. Operators, loosest first: `or`, `and`,
+`not`, the comparisons (`< <= > >= == !=`), then `+ -`, `* / %`, a
+right-associative `^`, and a unary minus. `#` starts a comment and `;` separates
+lines. The functions are `sma`, `ema`, `rsi`, `highest`, `lowest`, `change`,
+`shift`, `bollinger_lower`, `bollinger_middle`, `bollinger_upper`, `abs`, `min`,
+`max`, `sqrt`.
+
+The checker reports syntax errors, unknown names, unknown functions, the wrong
+number of arguments, reassigning a field, redefining a name, and a line that is
+not the last but holds the condition. It does **not** type-check: a number where
+a truth belongs is the author's business, and it evaluates nothing — that is the
+walk's job, later.
+
+`formula.py` has no Qt and no candle data, so the same parser can drive the
+walk when the two are joined.
 
 ## Results tile
 
@@ -540,10 +573,10 @@ dropped.
 
 ## Not implemented yet
 
-- The strategy builder window. It launches on its own and splits into three
-  empty vertical tiles at 21 / 47 / 32: nothing defines a rule yet, nothing in
-  the backtest window opens it, and nothing it could define would be picked up
-  by the walk.
+- The strategy builder window. It launches on its own and divides into three
+  locked columns: the formula editor checks a rule but nothing defines or runs
+  one yet, and nothing in the backtest window opens it. The `Rules` and `Code`
+  entry pages are placeholders, and the **EXIT RULES** tile is empty.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.
