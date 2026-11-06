@@ -143,7 +143,6 @@ QLabel#chipLabel {{
 QLabel#formulaPreview {{
     color: {TEXT_MUTED};
     font-size: 10px;
-    font-family: monospace;
 }}
 QLabel#formulaError {{
     color: {DOWN};

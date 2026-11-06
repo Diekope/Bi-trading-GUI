@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.formula import FormulaError, parse, scan, tokens_to_text
+from lalala.cards import mono_font
 
 MIME = "application/x-lalala-chip"
 _NUMBER = re.compile(r"\d+\.\d*|\.\d+|\d+")
@@ -554,6 +555,7 @@ class FormulaBuilder(QWidget):
 
         self.preview_label = QLabel(box)
         self.preview_label.setObjectName("formulaPreview")
+        self.preview_label.setFont(mono_font(9))
         self.preview_label.setWordWrap(True)
         self.preview_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
