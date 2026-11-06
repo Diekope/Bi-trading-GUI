@@ -1,8 +1,9 @@
 """The strategy builder window, launched on its own.
 
-Split into two vertical tiles, side by side, sharing the height. Both are
-empty for now: this is where a strategy gets described, and the shape of that
-description has not been decided yet.
+Three vertical tiles side by side, splitting the width 21 / 47 / 32: a narrow
+rail on the left, the working area in the middle, and a wider rail on the
+right. All three are empty for now — the shape of a strategy description has
+not been decided yet.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -30,15 +31,18 @@ from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
+# The three columns, as a share of the width the tiles share between them.
+COLUMN_SHARES = (0.21, 0.47, 0.32)
+
 
 class StrategyBuilderWindow(QMainWindow):
-    """Two empty tiles, side by side, to build a strategy on."""
+    """Three empty tiles, 21 / 47 / 32, to build a strategy on."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("lalala · create a strategy")
-        self.setMinimumSize(520, 420)
-        self.resize(880, 640)
+        self.setMinimumSize(560, 420)
+        self.resize(1280, 720)
 
         canvas = QWidget(self)
         canvas.setObjectName("builderCanvas")
@@ -49,7 +53,7 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setContentsMargins(CARD_GAP, CARD_GAP, CARD_GAP, CARD_GAP)
         layout.setSpacing(CARD_GAP)
 
-        # A vertical split: two tiles side by side, the gap doing the dividing
+        # Vertical split: three tiles side by side, the gap doing the dividing
         # rather than a drawn line.
         self.splitter = QSplitter(Qt.Orientation.Horizontal, canvas)
         self.splitter.setObjectName("builderSplitter")
@@ -57,15 +61,33 @@ class StrategyBuilderWindow(QMainWindow):
         self.splitter.setHandleWidth(CARD_GAP)
 
         self.left = Card(self.splitter)
+        self.center = Card(self.splitter)
         self.right = Card(self.splitter)
-        self.splitter.addWidget(self.left)
-        self.splitter.addWidget(self.right)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([1, 1])
+        for tile in (self.left, self.center, self.right):
+            self.splitter.addWidget(tile)
+            # The card's default floor is too high for a 21% rail: it would
+            # win the argument with the proportions at ordinary widths.
+            tile.setMinimumWidth(120)
+        for column in range(3):
+            self.splitter.setStretchFactor(column, 1)
+        self._proportions_set = False
 
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
+
+    def column_sizes(self) -> list[int]:
+        """Pixel widths that satisfy `COLUMN_SHARES`, in the current width."""
+        usable = max(3, self.splitter.width() - 2 * CARD_GAP)
+        left = round(usable * COLUMN_SHARES[0])
+        middle = round(usable * COLUMN_SHARES[1])
+        return [left, middle, usable - left - middle]
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Lay the three tiles out once the real width is known."""
+        super().showEvent(event)
+        if not self._proportions_set:
+            self._proportions_set = True
+            self.splitter.setSizes(self.column_sizes())
 
     def is_open(self) -> bool:
         return self.isVisible()

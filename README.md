@@ -17,9 +17,9 @@ backtest/strategy work:
 uv run lalala-strat
 ```
 
-The strategy builder is a third window for now, split into two vertical tiles
-side by side and launched on its own so it can be worked on without the
-backtest window:
+The strategy builder is a third window for now, split into three vertical tiles
+at 21 / 47 / 32 of the width and launched on its own so it can be worked on
+without the backtest window:
 
 ```sh
 uv run lalala-builder
@@ -271,14 +271,14 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             279 tests: parsing/search/aliases, slug math, candle + book
+tests/             281 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   strategy builder window and its two tiles, the chart and
-                   backtest settings, the silent log, and the candle store and
-                   downloader
+                   strategy builder window and its 21/47/32 split, the chart
+                   and backtest settings, the silent log, and the candle store
+                   and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -323,9 +323,12 @@ nothing in it:
 uv run lalala-builder
 ```
 
-Two vertical tiles side by side, sharing the height, separated by the same
-8 px gap and nothing else — no drawn divider. Both are empty: the shape of a
-strategy has not been decided yet.
+Three vertical tiles side by side, splitting the width **21 / 47 / 32** — a
+narrow rail, the working area, a wider rail — sharing the height and separated
+by the same 8 px gap and nothing else, no drawn divider. All three are empty:
+the shape of a strategy has not been decided yet. The tiles lower their minimum
+width to 120 px so the 21% rail is not clamped by the card default at ordinary
+window sizes; the proportions hold when the window is resized.
 
 ## Results tile
 
@@ -524,9 +527,10 @@ dropped.
 
 ## Not implemented yet
 
-- The strategy builder window. It launches on its own and splits into two empty
-  vertical tiles: nothing defines a rule yet, nothing in the backtest window
-  opens it, and nothing it could define would be picked up by the walk.
+- The strategy builder window. It launches on its own and splits into three
+  empty vertical tiles at 21 / 47 / 32: nothing defines a rule yet, nothing in
+  the backtest window opens it, and nothing it could define would be picked up
+  by the walk.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.
