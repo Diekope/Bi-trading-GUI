@@ -2,8 +2,8 @@
 
 Three vertical tiles side by side, splitting the width 21 / 47 / 32: a narrow
 rail on the left, a middle column, and a wider rail on the right. The middle
-column holds a compact **STRATEGY** tile on top — the strategy's name and the
-timeframe it acts on, side by side — with an empty tile under it.
+column stacks three tiles: a compact **STRATEGY** tile with the strategy's name
+and the timeframe it acts on, then **ENTRY RULES**, then **EXIT RULES**.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -44,7 +44,7 @@ TIMEFRAMES = ("1m", "5m", "15m", "1h")
 
 
 class StrategyBuilderWindow(QMainWindow):
-    """Two rails, and a compact strategy tile over an empty middle one."""
+    """Two rails, then a compact strategy tile over the entry and exit rules."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -69,7 +69,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.splitter.setHandleWidth(CARD_GAP)
 
         self.left = Card(self.splitter)
-        # The middle column is a vertical split of two tiles, not one tile
+        # The middle column is a vertical split of three tiles, not one tile
         # divided: each has its own card chrome, separated by the same gap.
         self.center = QSplitter(Qt.Orientation.Vertical, self.splitter)
         self.center.setObjectName("builderMiddleSplit")
@@ -77,7 +77,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.center.setHandleWidth(CARD_GAP)
 
         self.strategy_tile = Card(self.center)
-        self.lower_tile = Card(self.center)
+        self.entry_tile = Card(self.center)
+        self.exit_tile = Card(self.center)
         self.right = Card(self.splitter)
 
         # One tile, one row: the strategy's name and the timeframe it acts on.
@@ -105,17 +106,29 @@ class StrategyBuilderWindow(QMainWindow):
         row.addWidget(self.timeframe)
         self.strategy_tile.body.addLayout(row)
 
-        # The tile is only as tall as its title and row; the tile under it
-        # takes the rest of the column.
+        # The strategy tile is only as tall as its title and row; the two
+        # below it share whatever is left.
         self.strategy_tile.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
 
-        for tile in (self.strategy_tile, self.lower_tile):
+        # Two empty tiles under it, titled for what will go in them.
+        for tile, text in (
+            (self.entry_tile, "ENTRY RULES"),
+            (self.exit_tile, "EXIT RULES"),
+        ):
+            caption = QLabel(text, tile)
+            caption.setObjectName("tileTitle")
+            tile.body.addWidget(caption)
+            # The title stays at the top; the room below it is for rules.
+            tile.body.addStretch(1)
+
+        for tile in (self.strategy_tile, self.entry_tile, self.exit_tile):
             self.center.addWidget(tile)
             tile.setMinimumWidth(120)
         self.center.setStretchFactor(0, 0)
         self.center.setStretchFactor(1, 1)
+        self.center.setStretchFactor(2, 1)
         self._column_set = False
 
         for column in (self.left, self.center, self.right):
@@ -145,11 +158,12 @@ class StrategyBuilderWindow(QMainWindow):
             self.splitter.setSizes(self.column_sizes())
         if not self._column_set:
             # The strategy tile keeps only the height its content needs; the
-            # tile under it takes the rest.
+            # two under it split the rest evenly.
             self._column_set = True
             top = self.strategy_tile.sizeHint().height()
-            rest = max(0, self.center.height() - top - CARD_GAP)
-            self.center.setSizes([top, rest])
+            rest = max(0, self.center.height() - top - 2 * CARD_GAP)
+            first = rest // 2
+            self.center.setSizes([top, first, rest - first])
 
     def is_open(self) -> bool:
         return self.isVisible()

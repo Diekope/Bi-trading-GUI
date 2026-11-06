@@ -271,14 +271,15 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             288 tests: parsing/search/aliases, slug math, candle + book
+tests/             289 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its 21/47/32 columns, its compact
-                   STRATEGY tile, the chart and backtest settings, the silent
-                   log, and the candle store and downloader
+                   STRATEGY tile and the two rules tiles, the chart and
+                   backtest settings, the silent log, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -329,11 +330,13 @@ by the same 8 px gap and nothing else, no drawn divider. The tiles lower their
 minimum width to 120 px so the 21% rail is not clamped by the card default at
 ordinary window sizes; the proportions hold when the window is resized.
 
-The middle column holds a compact **STRATEGY** tile on top, with an empty tile
-under it. The tile is titled `STRATEGY` and contains one row: a text field
-(`name` as its placeholder) taking the slack, and a dropdown of `1m`, `5m`,
-`15m` and `1h` at its own width, defaulting to `1m`. It is only as tall as the
-title and that row — the empty tile below takes the rest of the column.
+The middle column stacks three tiles. The compact **STRATEGY** tile on top is
+titled `STRATEGY` and holds one row: a text field (`name` as its placeholder)
+taking the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own
+width, defaulting to `1m`. It is only as tall as the title and that row.
+
+Under it, two empty tiles share the rest of the column: **ENTRY RULES** and
+**EXIT RULES**, titles at the top, their bodies waiting for the rules.
 
 Nothing is saved yet, and nothing is wired to the walk.
 
