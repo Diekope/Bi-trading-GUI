@@ -355,3 +355,90 @@ def test_the_chip_carries_its_token() -> None:
 
 def test_the_mime_type_is_private_to_the_builder() -> None:
     assert MIME == "application/x-lalala-chip"
+
+
+# -- the drag picture and the colours --------------------------------------
+
+
+def test_a_drag_carries_a_picture_of_what_is_moving(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    from lalala.formula_builder import drag_pixmap
+
+    block = builder.blocks["Data"][0]
+    picture = drag_pixmap(block)
+
+    assert picture.isNull() is False
+    # The picture is the block itself, not the tile behind it.
+    assert picture.size() == block.size()
+    assert picture.width() < builder.width()
+    assert picture.height() < builder.height()
+
+
+def test_blocks_and_chips_are_coloured_by_what_they_are(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    from lalala.formula_builder import group_for_token
+
+    assert group_for_token("close") == "data"
+    assert group_for_token("volume") == "data"
+    assert group_for_token("sma") == "indicator"
+    assert group_for_token("bollinger_lower") == "indicator"
+    assert group_for_token("and") == "logic"
+    assert group_for_token("not") == "logic"
+    assert group_for_token("+") == "maths"
+    assert group_for_token(None) == ""
+
+    assert builder.blocks["Data"][0].property("group") == "data"
+    assert builder.blocks["Indicators"][0].property("group") == "indicator"
+
+    # A chip wears its own group.
+    strip = builder.strips[0]
+    _drop(builder, strip, _tokens("Indicators", "SMA"))
+    app.processEvents()
+    groups = {chip.token: chip.property("group") for chip in strip.chips()}
+    assert groups["sma"] == "indicator"
+    assert groups["close"] == "data"
+    assert groups["("] == "maths"
+
+
+def test_a_line_shows_as_the_drop_target_while_dragging(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.strips[0]
+    assert bool(strip.property("target")) is False
+
+    # Qt calls these when a drag is over the widget.
+    class _Mime:
+        def hasFormat(self, _):  # noqa: ANN001
+            return True
+
+        def data(self, _):  # noqa: ANN001
+            from PySide6.QtCore import QByteArray
+
+            return QByteArray(b'{"tokens": ["close"], "from": null}')
+
+    class _Event:
+        def mimeData(self):  # noqa: ANN201
+            return _Mime()
+
+        def acceptProposedAction(self):  # noqa: ANN201
+            pass
+
+    strip.dragEnterEvent(_Event())
+    assert bool(strip.property("target")) is True
+    strip.dragLeaveEvent(_Event())
+    assert bool(strip.property("target")) is False
+
+
+def test_a_blank_line_shows_the_dashed_hint(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.strips[0]
+    assert strip.zone.empty is True
+
+    _drop(builder, strip, ("close",))
+    assert strip.zone.empty is False
+
+    builder.remove_chip(strip.chips()[0])
+    assert strip.zone.empty is True

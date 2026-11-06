@@ -39,7 +39,10 @@ def app() -> QApplication:
 def builder(app: QApplication) -> StrategyBuilderWindow:
     window = StrategyBuilderWindow()
     window.show()
-    app.processEvents()
+    # Two passes: the first lays the columns out, the second settles the
+    # middle column now that the entry tile knows how tall it wants to be.
+    for _ in range(3):
+        app.processEvents()
     yield window
     window.close()
 

@@ -151,8 +151,17 @@ def _single(mime) -> str | None:
     return None
 
 
-def _begin_drag(widget: QWidget, tokens: list, source=None) -> None:
-    """Start a drag carrying `tokens`; `source` marks an internal chip move."""
+def drag_pixmap(widget: QWidget):
+    """The picture a drag carries: the widget itself, no bigger."""
+    return widget.grab()
+
+
+def _begin_drag(widget: QWidget, tokens: list, source=None, hotspot=None) -> None:
+    """Start a drag carrying `tokens`; `source` marks an internal chip move.
+
+    The drag carries a picture of the widget itself, so what is being moved is
+    visible under the cursor — the block, not a blank rectangle.
+    """
     data = QMimeData()
     data.setData(
         MIME,
@@ -160,6 +169,15 @@ def _begin_drag(widget: QWidget, tokens: list, source=None) -> None:
     )
     drag = QDrag(widget)
     drag.setMimeData(data)
+    picture = drag_pixmap(widget)
+    drag.setPixmap(picture)
+    if hotspot is not None:
+        drag.setHotSpot(
+            QPoint(
+                max(0, min(hotspot.x(), picture.width() - 1)),
+                max(0, min(hotspot.y(), picture.height() - 1)),
+            )
+        )
     drag.exec(
         Qt.DropAction.CopyAction if source is None else Qt.DropAction.MoveAction
     )
@@ -281,8 +299,8 @@ class PaletteBlock(QFrame):
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(9, 3, 11, 3)
-        layout.setSpacing(5)
+        layout.setContentsMargins(7, 2, 9, 2)
+        layout.setSpacing(4)
         layout.addWidget(self.handle)
         layout.addWidget(self.label)
 
@@ -296,8 +314,9 @@ class PaletteBlock(QFrame):
         moved = (event.position().toPoint() - self._press).manhattanLength()
         if moved < QApplication.startDragDistance():
             return
+        hotspot = self._press
         self._press = None
-        _begin_drag(self, list(self.item.tokens))
+        _begin_drag(self, list(self.item.tokens), hotspot=hotspot)
 
 
 class Chip(QFrame):
@@ -388,8 +407,9 @@ class Chip(QFrame):
         moved = (event.position().toPoint() - self._press).manhattanLength()
         if moved < QApplication.startDragDistance():
             return
+        hotspot = self._press
         self._press = None
-        self.builder.start_chip_drag(self)
+        self.builder.start_chip_drag(self, hotspot)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._press is not None and self.token is None:
@@ -415,12 +435,28 @@ class Chip(QFrame):
 
 
 class DropZone(QWidget):
-    """The blank run of a line, and the dashed hint while it is blank."""
+    """The blank run of a line: the chips' flow, and the dashed hint."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("dropZone")
         self.empty = True
+        self.flow = FlowLayout(self, margin=0, spacing=4)
+        policy = QSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self.flow.heightForWidth(width)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        width = self.width() or 240
+        return QSize(width, self.flow.heightForWidth(width))
 
     def set_empty(self, empty: bool) -> None:
         if empty != self.empty:
@@ -435,10 +471,34 @@ class DropZone(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         rect = self.rect().adjusted(1, 1, -1, -1)
-        painter.drawRoundedRect(rect, 5, 5)
+        painter.drawRoundedRect(rect, 11, 11)
         painter.setFont(mono_font(9))
         painter.setPen(QColor(TEXT_FAINT))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "drag a block here")
+
+
+class FlowHolder(QWidget):
+    """A widget whose height follows how its row of blocks wraps."""
+
+    def __init__(self, parent=None, spacing: int = 5) -> None:
+        super().__init__(parent)
+        self.setObjectName("paletteBlocks")
+        self.flow = FlowLayout(self, margin=0, spacing=spacing)
+        policy = QSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self.flow.heightForWidth(width)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        width = self.width() or 460
+        return QSize(width, self.flow.heightForWidth(width))
 
 
 class ChipStrip(QFrame):
@@ -463,8 +523,7 @@ class ChipStrip(QFrame):
         row.addWidget(self.caption, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.zone = DropZone(self)
-        self.zone.setAcceptDrops(True)  # so drags reach us via the zone
-        self._flow = FlowLayout(self.zone, margin=0, spacing=4)
+        self._flow = self.zone.flow
         row.addWidget(self.zone, 1)
 
         self.remove_button = QPushButton("×", self)
@@ -473,11 +532,6 @@ class ChipStrip(QFrame):
         self.remove_button.setToolTip("take this line away")
         self.remove_button.clicked.connect(lambda: builder.remove_strip(self))
         row.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        # The zone must not swallow the drag before we can handle it.
-        self.zone.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
-        )
 
     # -- contents ----------------------------------------------------------
 
@@ -541,19 +595,33 @@ class ChipStrip(QFrame):
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if _decode(event.mimeData()) is not None:
+            self._set_target(True)
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802
         if _decode(event.mimeData()) is not None:
+            self._set_target(True)
             event.acceptProposedAction()
 
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._set_target(False)
+
     def dropEvent(self, event) -> None:  # noqa: N802
+        self._set_target(False)
         payload = _decode(event.mimeData())
         if payload is None:
             return
         index = self._insert_index(event.position().toPoint())
         self.builder.drop_tokens(payload, self, index)
         event.acceptProposedAction()
+
+    def _set_target(self, active: bool) -> None:
+        if bool(self.property("target")) == active:
+            return
+        self.setProperty("target", active)
+        style = self.style()
+        style.unpolish(self)
+        style.polish(self)
 
 
 class FormulaBuilder(QWidget):
@@ -585,8 +653,8 @@ class FormulaBuilder(QWidget):
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(box)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(7)
+        outer.setContentsMargins(10, 7, 10, 7)
+        outer.setSpacing(6)
 
         self.blocks: dict[str, list[PaletteBlock]] = {}
         for title, items in PALETTES:
@@ -609,16 +677,14 @@ class FormulaBuilder(QWidget):
         row.setSpacing(10)
         caption = QLabel(title.upper(), parent)
         caption.setObjectName("paletteTitle")
-        caption.setFixedWidth(76)
+        caption.setFixedWidth(72)
         row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
 
-        holder = QWidget(parent)
-        holder.setObjectName("paletteBlocks")
-        flow = FlowLayout(holder, margin=0, spacing=5)
+        holder = FlowHolder(parent, spacing=4)
         blocks: list[PaletteBlock] = []
         for item in items:
             block = PaletteBlock(item, holder)
-            flow.addWidget(block)
+            holder.flow.addWidget(block)
             blocks.append(block)
         self.blocks[title] = blocks
         row.addWidget(holder, 1)
@@ -742,7 +808,7 @@ class FormulaBuilder(QWidget):
 
     # -- chips -------------------------------------------------------------
 
-    def start_chip_drag(self, chip: Chip) -> None:
+    def start_chip_drag(self, chip: Chip, hotspot=None) -> None:
         strip = chip.strip
         if strip is None or chip.token is None:
             return
@@ -750,6 +816,7 @@ class FormulaBuilder(QWidget):
             chip,
             [chip.token],
             source=[self.strips.index(strip), strip.chips().index(chip)],
+            hotspot=hotspot,
         )
 
     def remove_chip(self, chip: Chip) -> None:
@@ -908,9 +975,11 @@ __all__ = [
     "Chip",
     "ChipStrip",
     "DropZone",
+    "FlowHolder",
     "FlowLayout",
     "FormulaBuilder",
     "Item",
     "PaletteBlock",
+    "drag_pixmap",
     "group_for_token",
 ]

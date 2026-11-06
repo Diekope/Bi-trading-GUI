@@ -255,7 +255,7 @@ src/lalala/
   strat_strategy.py the strategy tile: which entry rule to run
   strat_builder.py the builder window: strategy, entry and exit rules
   formula.py       the entry/exit formula language: parse and check (no Qt)
-  formula_builder.py the drag-and-drop formula builder (palettes, chips, slots)
+  formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -273,7 +273,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             342 tests: parsing/search/aliases, slug math, candle + book
+tests/             347 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -362,7 +362,7 @@ three rows of draggable **blocks**, then a box to type a number into:
 Each block is a pill with a drag handle, coloured by what it is — data in
 indigo, indicators in amber, `AND`/`OR`/`NOT` in green, maths neutral — and
 each row wraps when the tile is narrow. The rows are **not** scrollable: the
-card takes the height it needs.
+card is only as tall as the rows it holds.
 
 Under the card are the lines, one strip of chips each, read left to right. The
 last line is captioned `IF` and is the condition; the ones above are `LET` and
@@ -378,9 +378,11 @@ empty **slot** — a dashed chip — where its period goes. Fill a slot by dragg
 a number onto it, or by clicking the slot and typing a value in the number box.
 A chip drags by its handle to reorder or move between lines, and its `×` takes
 it off; `+ add a line` adds a line and each line carries its own `×` to remove
-it (the last one stays). Long lines **wrap** rather than clipping. A blank run
-shows a dashed `drag a block here`, and a live pill reads `✓ valid`,
-`✗ not valid` or `— empty`.
+it (the last one stays). A drag carries a picture of the block itself, so what
+is moving is visible under the cursor, and the line it is over lights up as the
+drop target. Long lines **wrap** rather than clipping. A blank run shows a
+dashed `drag a block here`, and a live pill reads `✓ valid`, `✗ not valid` or
+`— empty`.
 
 The chips are only an editor. The formula **text** is the truth: it is rebuilt
 from the chips and handed to `lalala.formula.parse`, so the same checker still

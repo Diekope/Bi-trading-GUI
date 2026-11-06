@@ -89,7 +89,7 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 #formulaPalette {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 6px;
+    border-radius: 12px;
 }}
 QLabel#paletteTitle {{
     color: {TEXT_MUTED};
@@ -107,7 +107,7 @@ QLabel#dragHandle {{
 
 /* A palette block and a chip: one pill, coloured by group. */
 #paletteBlock, #formulaChip {{
-    border-radius: 11px;
+    border-radius: 13px;
 }}
 #paletteBlock:hover {{
     border-width: 1px;
@@ -180,7 +180,11 @@ QPushButton#chipRemove:hover, QPushButton#stripRemove:hover {{
 #chipStrip {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 6px;
+    border-radius: 12px;
+}}
+#chipStrip[target="true"] {{
+    border: 1px solid {ACCENT};
+    background-color: {ACCENT_BG};
 }}
 QLabel#stripCaption {{
     color: {ACCENT};
@@ -190,7 +194,7 @@ QLabel#stripCaption {{
 QPushButton#addLine {{
     background-color: transparent;
     border: 1px dashed {BORDER};
-    border-radius: 6px;
+    border-radius: 12px;
     color: {TEXT_MUTED};
     font-size: 10px;
     padding: 7px;

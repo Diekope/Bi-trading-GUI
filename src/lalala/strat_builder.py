@@ -46,6 +46,31 @@ from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
+
+class PageStack(QStackedWidget):
+    """A stack of pages whose size hints follow the page on show.
+
+    A plain `QStackedWidget` reports the largest hint over *all* its pages
+    whether or not they are visible, so the tall formula page would inflate
+    the tile's minimum while the Rules page was the one on screen.
+    """
+
+    def _current(self):
+        widget = self.currentWidget()
+        return widget if widget is not None else None
+
+    def minimumSizeHint(self):  # noqa: N802
+        current = self._current()
+        return (
+            current.minimumSizeHint()
+            if current is not None
+            else super().minimumSizeHint()
+        )
+
+    def sizeHint(self):  # noqa: N802
+        current = self._current()
+        return current.sizeHint() if current is not None else super().sizeHint()
+
 # The three columns, as a share of the width the tiles share between them.
 COLUMN_SHARES = (0.21, 0.47, 0.32)
 
@@ -181,13 +206,14 @@ class StrategyBuilderWindow(QMainWindow):
 
         # One page per mode. The formula page is the one that works today; the
         # other two say so, rather than pretending.
-        self.entry_pages = QStackedWidget(self.entry_tile)
+        self.entry_pages = PageStack(self.entry_tile)
         self.entry_pages.setObjectName("entryPages")
         self.entry_pages.addWidget(self._rules_page())
         self.entry_pages.addWidget(self._formula_page())
         self.entry_pages.addWidget(self._code_page())
         self.entry_tile.body.addWidget(self.entry_pages, 1)
         self.entry_pages.setCurrentIndex(0)
+        self.entry_pages.currentChanged.connect(self._pages_changed)
 
         # The exit tile has only its title for now.
         exit_title = QLabel("EXIT RULES", self.exit_tile)
@@ -298,6 +324,11 @@ class StrategyBuilderWindow(QMainWindow):
                 self._pick_entry_mode(index)
                 return
 
+    def _pages_changed(self) -> None:
+        """A new page may want a different height; let the tiles settle."""
+        self.entry_pages.updateGeometry()
+        self.entry_tile.updateGeometry()
+
     def _pick_entry_mode(self, index: int) -> None:
         if not 0 <= index < len(ENTRY_MODES):
             return
@@ -314,12 +345,16 @@ class StrategyBuilderWindow(QMainWindow):
             self.splitter.setSizes(self.column_sizes())
         if not self._column_set:
             # The strategy tile keeps only the height its content needs; the
-            # two under it split the rest evenly.
+            # entry tile takes what it asks for, and the exit tile keeps a
+            # fair share of the rest.
             self._column_set = True
             top = self.strategy_tile.sizeHint().height()
-            rest = max(0, self.center.height() - top - 2 * CARD_GAP)
-            first = rest // 2
-            self.center.setSizes([top, first, rest - first])
+            available = max(0, self.center.height() - top - 2 * CARD_GAP)
+            wanted = self.entry_tile.sizeHint().height()
+            floor = self.entry_tile.minimumSizeHint().height()
+            entry = max(floor, min(wanted, available - 140))
+            entry = min(entry, available)
+            self.center.setSizes([top, entry, max(0, available - entry)])
 
     def is_open(self) -> bool:
         return self.isVisible()
