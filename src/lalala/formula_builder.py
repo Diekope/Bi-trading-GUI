@@ -442,21 +442,26 @@ class DropZone(QWidget):
         self.setObjectName("dropZone")
         self.empty = True
         self.flow = FlowLayout(self, margin=0, spacing=4)
-        policy = QSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        self.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        policy.setHeightForWidth(True)
-        self.setSizePolicy(policy)
 
-    def hasHeightForWidth(self) -> bool:  # noqa: N802
-        return True
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.sync_height()
 
-    def heightForWidth(self, width: int) -> int:  # noqa: N802
-        return self.flow.heightForWidth(width)
+    def sync_height(self) -> None:
+        """Hold just the height the flow wraps to at the width we have.
 
-    def sizeHint(self) -> QSize:  # noqa: N802
-        width = self.width() or 240
-        return QSize(width, self.flow.heightForWidth(width))
+        `heightForWidth` does not survive the chain of nested layouts between
+        here and the tile, so the height is pinned instead: the parent layout
+        then has a number to lay out with, and a new width re-pins it.
+        """
+        if self.width() <= 0:
+            return
+        wanted = self.flow.heightForWidth(self.width())
+        if self.minimumHeight() != wanted:
+            self.setFixedHeight(wanted)
 
     def set_empty(self, empty: bool) -> None:
         if empty != self.empty:
@@ -478,27 +483,31 @@ class DropZone(QWidget):
 
 
 class FlowHolder(QWidget):
-    """A widget whose height follows how its row of blocks wraps."""
+    """A row of blocks that pins its height to what it wraps to."""
 
     def __init__(self, parent=None, spacing: int = 5) -> None:
         super().__init__(parent)
         self.setObjectName("paletteBlocks")
         self.flow = FlowLayout(self, margin=0, spacing=spacing)
-        policy = QSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        self.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        policy.setHeightForWidth(True)
-        self.setSizePolicy(policy)
 
-    def hasHeightForWidth(self) -> bool:  # noqa: N802
-        return True
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.sync_height()
 
-    def heightForWidth(self, width: int) -> int:  # noqa: N802
-        return self.flow.heightForWidth(width)
+    def sync_height(self) -> None:
+        """Hold just the height the row wraps to at the width we have."""
+        if self.width() <= 0:
+            return
+        wanted = self.flow.heightForWidth(self.width())
+        if self.minimumHeight() != wanted:
+            self.setFixedHeight(wanted)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        width = self.width() or 460
-        return QSize(width, self.flow.heightForWidth(width))
+        width = self.width() or 240
+        return QSize(width, max(1, self.flow.heightForWidth(width)))
 
 
 class ChipStrip(QFrame):
@@ -557,6 +566,7 @@ class ChipStrip(QFrame):
         self._chips.insert(at, chip)
         self._flow.insertWidget(at, chip)
         self.zone.set_empty(False)
+        self.zone.sync_height()
         return chip
 
     def remove_chip(self, chip: Chip) -> None:
@@ -567,6 +577,11 @@ class ChipStrip(QFrame):
         chip.setParent(None)
         chip.deleteLater()
         self.zone.set_empty(not self._chips)
+        self.zone.sync_height()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.zone.sync_height()
 
     def set_tokens(self, tokens) -> None:
         for chip in list(self._chips):

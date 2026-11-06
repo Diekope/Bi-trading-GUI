@@ -134,7 +134,12 @@ def test_the_strategy_tile_is_titled_and_compact(
     # Only the height its title and row need, not a share of the column.
     top, entry, exit_ = builder.center.sizes()
     assert top == pytest.approx(tile.sizeHint().height(), abs=2)
-    assert entry > top and exit_ > top
+    # The entry tile takes the least height its content needs; the exit tile
+    # takes whatever is left.
+    assert entry == pytest.approx(
+        min(entry + exit_, builder.entry_tile.minimumSizeHint().height()), abs=4
+    )
+    assert exit_ > 0
 
 
 def test_the_name_and_the_timeframe_share_the_strategy_tile(
@@ -394,14 +399,17 @@ def test_the_split_scales_with_the_window(
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
         # The strategy tile stays compact; the middle column keeps its shape:
-        # the entry tile is tall enough for the builder, the exit tile keeps
+        # the entry tile is as tall as its content needs, the exit tile keeps
         # the rest.
         top, entry, exit_ = builder.center.sizes()
         assert top == pytest.approx(
             builder.strategy_tile.sizeHint().height(), abs=4
         )
-        assert entry > top and exit_ > top
-        assert entry >= builder.entry_tile.minimumSizeHint().height() - 4
+        assert entry == pytest.approx(
+            min(entry + exit_, builder.entry_tile.minimumSizeHint().height()),
+            abs=4,
+        )
+        assert exit_ > 0
 
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:

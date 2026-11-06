@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -225,9 +225,11 @@ class StrategyBuilderWindow(QMainWindow):
             self.center.addWidget(tile)
             tile.setMinimumWidth(120)
         self.center.setStretchFactor(0, 0)
-        self.center.setStretchFactor(1, 1)
-        self.center.setStretchFactor(2, 1)
+        self.center.setStretchFactor(1, 0)   # entry: only the height it needs
+        self.center.setStretchFactor(2, 1)   # exit: takes the rest
         self._column_set = False
+        self._fit_pending = False
+        self.entry_tile.installEventFilter(self)
 
         for column in (self.left, self.center, self.right):
             self.splitter.addWidget(column)
@@ -282,8 +284,9 @@ class StrategyBuilderWindow(QMainWindow):
         return page
 
     def _formula_changed(self) -> None:
-        """The builder's text changed; pass the word on."""
+        """The builder's text changed; pass the word on and re-fit the tile."""
         self.entry_formula_changed.emit()
+        self._schedule_fit()
 
     # -- the formula -------------------------------------------------------
 
@@ -325,9 +328,10 @@ class StrategyBuilderWindow(QMainWindow):
                 return
 
     def _pages_changed(self) -> None:
-        """A new page may want a different height; let the tiles settle."""
+        """A new page may want a different height; fit the tile to it."""
         self.entry_pages.updateGeometry()
         self.entry_tile.updateGeometry()
+        self._schedule_fit()
 
     def _pick_entry_mode(self, index: int) -> None:
         if not 0 <= index < len(ENTRY_MODES):
@@ -344,17 +348,55 @@ class StrategyBuilderWindow(QMainWindow):
             self._proportions_set = True
             self.splitter.setSizes(self.column_sizes())
         if not self._column_set:
-            # The strategy tile keeps only the height its content needs; the
-            # entry tile takes what it asks for, and the exit tile keeps a
-            # fair share of the rest.
             self._column_set = True
-            top = self.strategy_tile.sizeHint().height()
-            available = max(0, self.center.height() - top - 2 * CARD_GAP)
-            wanted = self.entry_tile.sizeHint().height()
-            floor = self.entry_tile.minimumSizeHint().height()
-            entry = max(floor, min(wanted, available - 140))
-            entry = min(entry, available)
-            self.center.setSizes([top, entry, max(0, available - entry)])
+            self._schedule_fit()
+
+    def _schedule_fit(self) -> None:
+        """Fit the column once Qt has settled, not mid-change.
+
+        The entry tile's minimum only reflects the newly shown page after the
+        stack has laid it out, and that lands a turn later. Rather than guess,
+        the tile's own layout requests drive the fit: every time its layout
+        changes, we re-check. `_maybe_fit` only resizes when the height really
+        differs, so the loop stops as soon as it settles.
+        """
+        self._fit_pending = True
+        QTimer.singleShot(0, self._maybe_fit)
+
+    def _maybe_fit(self) -> None:
+        self._fit_pending = False
+        top = self.strategy_tile.sizeHint().height()
+        available = max(0, self.center.height() - top - 2 * CARD_GAP)
+        entry = min(available, self.entry_tile.minimumSizeHint().height())
+        sizes = self.center.sizes()
+        if len(sizes) == 3 and abs(sizes[1] - entry) <= 1:
+            return
+        self.center.setSizes([top, entry, max(0, available - entry)])
+
+    def _fit_column(self) -> None:
+        """The entry tile takes the least height its content needs.
+
+        The strategy tile keeps only what it needs too, and the exit tile takes
+        whatever is left. The entry tile's height is therefore fixed by its
+        content, not by a share of the column — but it still follows the
+        content, which rewraps as the window changes width.
+        """
+        self._maybe_fit()
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if (
+            obj is self.entry_tile
+            and self._column_set
+            and event.type() == QEvent.Type.LayoutRequest
+        ):
+            self._maybe_fit()
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # A new width rewraps the palette rows, so the least height changes.
+        if self._column_set:
+            self._schedule_fit()
 
     def is_open(self) -> bool:
         return self.isVisible()

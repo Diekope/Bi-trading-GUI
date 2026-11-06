@@ -334,11 +334,15 @@ def test_a_long_line_wraps_instead_of_clipping(
     # Enough chips to run past the width.
     for token in _tokens("Indicators", "Boll low") + ["and"] * 20:
         _drop(builder, strip, [token])
-    builder.resize(360, 320)
+    builder.resize(360, 360)
     app.processEvents()
 
-    one_row = strip.chips()[0].height() + 8
-    assert strip.heightForWidth(builder.width() - 40) > one_row
+    # The chips wrap onto more than one row, and the flow asks for the room.
+    rows = {chip.geometry().top() for chip in strip.chips()}
+    assert len(rows) > 1
+    assert strip.zone.flow.heightForWidth(strip.zone.width()) > (
+        strip.chips()[0].height() + 4
+    )
 
 
 def test_the_chip_carries_its_token() -> None:

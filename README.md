@@ -364,9 +364,16 @@ indigo, indicators in amber, `AND`/`OR`/`NOT` in green, maths neutral — and
 each row wraps when the tile is narrow. The rows are **not** scrollable: the
 card is only as tall as the rows it holds.
 
+The entry tile is **only as tall as its content needs** and the exit tile takes
+the rest of the column. That height is fixed by the content and follows it as
+the window changes: narrow the window and the palette wraps onto more rows, so
+the entry tile grows and the exit tile gives up the difference. It never
+stretches just to fill the column.
+
 Under the card are the lines, one strip of chips each, read left to right. The
 last line is captioned `IF` and is the condition; the ones above are `LET` and
-are named series:
+are named series. A line wraps rather than clipping, and the entry tile grows
+to hold however many rows the lines take:
 
 ```
 LET  [mid] [=] [sma] [(] [close] [,] [▢] [)]
