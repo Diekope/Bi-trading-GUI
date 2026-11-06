@@ -17,8 +17,9 @@ backtest/strategy work:
 uv run lalala-strat
 ```
 
-The strategy builder is a third, blank window for now, launched on its own so
-it can be worked on without the backtest window:
+The strategy builder is a third window for now, split into two vertical tiles
+side by side and launched on its own so it can be worked on without the
+backtest window:
 
 ```sh
 uv run lalala-builder
@@ -270,13 +271,14 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             277 tests: parsing/search/aliases, slug math, candle + book
+tests/             279 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   strategy builder window, the chart and backtest settings,
-                   the silent log, and the candle store and downloader
+                   strategy builder window and its two tiles, the chart and
+                   backtest settings, the silent log, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -311,6 +313,19 @@ far:
 
 Like the span and the parameters, a change here is only remembered until
 **Run** / **Start backtest** is pressed.
+
+## Strategy builder
+
+A window of its own, not opened by the backtest window and connected to
+nothing in it:
+
+```sh
+uv run lalala-builder
+```
+
+Two vertical tiles side by side, sharing the height, separated by the same
+8 px gap and nothing else — no drawn divider. Both are empty: the shape of a
+strategy has not been decided yet.
 
 ## Results tile
 
@@ -509,9 +524,9 @@ dropped.
 
 ## Not implemented yet
 
-- The strategy builder window. It launches on its own and is blank: nothing
-  defines a rule yet, nothing in the backtest window opens it, and nothing it
-  could define would be picked up by the walk.
+- The strategy builder window. It launches on its own and splits into two empty
+  vertical tiles: nothing defines a rule yet, nothing in the backtest window
+  opens it, and nothing it could define would be picked up by the walk.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.

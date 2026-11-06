@@ -65,13 +65,14 @@ QStatusBar::item {{ border: none; }}
     color: {TEXT_MUTED};
 }}
 QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter,
-QSplitter#stratColumn {{
+QSplitter#stratColumn, QSplitter#builderSplitter {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
 QSplitter#tileSplitter::handle:vertical,
 QSplitter#stratSplitter::handle:horizontal,
-QSplitter#stratColumn::handle:vertical {{
+QSplitter#stratColumn::handle:vertical,
+QSplitter#builderSplitter::handle:horizontal {{
     background-color: transparent;
 }}
 

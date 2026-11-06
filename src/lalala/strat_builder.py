@@ -1,13 +1,15 @@
 """The strategy builder window, launched on its own.
 
-Blank on purpose, and standalone: nothing in the backtest window opens it yet,
-and nothing in it is wired to the run, the parameters or the candle data. The
-**Create a strategy** button stays a placeholder until the shape of a strategy
-is settled here.
+Split into two vertical tiles, side by side, sharing the height. Both are
+empty for now: this is where a strategy gets described, and the shape of that
+description has not been decided yet.
+
+Standalone on purpose: nothing in the backtest window opens it, and nothing in
+it is wired to the run, the parameters or the candle data.
 
     uv run lalala-builder
 
-It carries the same canvas and gap as the backtest window, so it reads as
+It carries the same canvas, cards and gap as the other windows, so it reads as
 another sheet of the same desk rather than a separate application.
 """
 
@@ -16,14 +18,21 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from lalala.logs import install_qt_handler, setup
-from lalala.theme import CANVAS, CARD_GAP, TEXT_FAINT, apply_dark_theme
+from lalala.panels import Card
+from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 
 class StrategyBuilderWindow(QMainWindow):
-    """An empty sheet to build a strategy on."""
+    """Two empty tiles, side by side, to build a strategy on."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -40,13 +49,22 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setContentsMargins(CARD_GAP, CARD_GAP, CARD_GAP, CARD_GAP)
         layout.setSpacing(CARD_GAP)
 
-        # One line, faint and centred: the window is the point, not its text.
-        self.placeholder = QLabel("nothing here yet")
-        self.placeholder.setObjectName("builderPlaceholder")
-        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder.setStyleSheet(f"color: {TEXT_FAINT};")
-        layout.addWidget(self.placeholder, 1)
+        # A vertical split: two tiles side by side, the gap doing the dividing
+        # rather than a drawn line.
+        self.splitter = QSplitter(Qt.Orientation.Horizontal, canvas)
+        self.splitter.setObjectName("builderSplitter")
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(CARD_GAP)
 
+        self.left = Card(self.splitter)
+        self.right = Card(self.splitter)
+        self.splitter.addWidget(self.left)
+        self.splitter.addWidget(self.right)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([1, 1])
+
+        layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
 
     def is_open(self) -> bool:

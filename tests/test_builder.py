@@ -1,4 +1,4 @@
-"""The strategy builder window, launched on its own."""
+"""The strategy builder window, split into two vertical tiles."""
 
 from __future__ import annotations
 
@@ -35,17 +35,47 @@ def test_it_is_a_window_of_its_own(builder: StrategyBuilderWindow) -> None:
     assert builder.windowTitle() == "lalala · create a strategy"
     assert builder.isWindow() is True
     assert builder.isVisible() is True
-    # Big enough to hold a form later, small enough to sit beside the other.
+    # Big enough for two tiles, small enough to sit beside the other windows.
     assert builder.minimumWidth() >= 480
     assert builder.minimumHeight() >= 380
 
 
-def test_it_is_blank(builder: StrategyBuilderWindow) -> None:
-    # One faint line and no cards: nothing has been decided about the shape of
-    # a strategy yet.
-    assert builder.centralWidget().findChildren(Card) == []
-    lines = builder.centralWidget().findChildren(QLabel)
-    assert [line.text() for line in lines] == ["nothing here yet"]
+def test_it_splits_into_two_vertical_tiles(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    splitter = builder.splitter
+
+    assert splitter.count() == 2
+    # A vertical split: the handle runs top to bottom, the tiles sit side by
+    # side and share the height.
+    assert splitter.orientation() == Qt.Orientation.Horizontal
+    assert splitter.handleWidth() == CARD_GAP
+    assert splitter.childrenCollapsible() is False
+    assert splitter.widget(0) is builder.left
+    assert splitter.widget(1) is builder.right
+    assert isinstance(builder.left, Card)
+    assert isinstance(builder.right, Card)
+
+    left, right = splitter.sizes()
+    assert left == pytest.approx(right, abs=2)
+    assert builder.left.height() == builder.right.height()
+
+
+def test_both_tiles_are_empty(builder: StrategyBuilderWindow) -> None:
+    for tile in (builder.left, builder.right):
+        # Nothing has been decided about the shape of a strategy yet.
+        assert tile.findChildren(QLabel) == []
+        assert tile.body.count() == 0
+
+
+def test_the_gap_separates_the_tiles(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    left, right = builder.left, builder.right
+    gap = right.geometry().left() - left.geometry().right() - 1
+
+    # The canvas shows through between them, the same gap as the other windows.
+    assert gap == pytest.approx(CARD_GAP, abs=1)
 
 
 def test_it_uses_the_same_desk_as_the_other_windows(
@@ -59,13 +89,10 @@ def test_it_uses_the_same_desk_as_the_other_windows(
     layout = canvas.layout()
     assert layout.contentsMargins().left() == CARD_GAP
     assert layout.contentsMargins().top() == CARD_GAP
+    assert not builder.grab().toImage().isNull()
 
 
-def test_it_opens_centred_and_does_not_run_anything(
-    app: QApplication, builder: StrategyBuilderWindow
-) -> None:
+def test_it_does_not_run_anything(builder: StrategyBuilderWindow) -> None:
     # Nothing in it starts a walk or touches the candle store.
     assert not hasattr(builder, "playback")
     assert not hasattr(builder, "session")
-    assert builder.placeholder.alignment() & Qt.AlignmentFlag.AlignHCenter
-    assert not builder.grab().toImage().isNull()
