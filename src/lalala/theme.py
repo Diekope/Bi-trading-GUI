@@ -65,20 +65,30 @@ QStatusBar::item {{ border: none; }}
     color: {TEXT_MUTED};
 }}
 QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter,
-QSplitter#stratColumn, QSplitter#builderSplitter {{
+QSplitter#stratColumn, QSplitter#builderSplitter,
+QSplitter#builderMiddleSplit {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
 QSplitter#tileSplitter::handle:vertical,
 QSplitter#stratSplitter::handle:horizontal,
 QSplitter#stratColumn::handle:vertical,
-QSplitter#builderSplitter::handle:horizontal {{
+QSplitter#builderSplitter::handle:horizontal,
+QSplitter#builderMiddleSplit::handle:horizontal {{
     background-color: transparent;
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
 #resolutionPicker, #paramsGrid {{
     background-color: transparent;
+}}
+
+/* The two halves of the builder's middle tile read as inset wells, so the
+   split is visible before either has a field in it. */
+#builderPane {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
 }}
 #venuePanel QCheckBox {{
     background-color: transparent;
