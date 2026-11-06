@@ -2,8 +2,9 @@
 
 Three vertical tiles side by side, splitting the width 21 / 47 / 32: a narrow
 rail on the left, the working area in the middle, and a wider rail on the
-right. The middle tile is itself split in two, side by side, for the strategy
-name and the timeframe it acts on — both still empty, to be filled in later.
+right. The middle tile is itself split horizontally, one above the other, for
+the strategy name and the timeframe it acts on — both still empty, to be
+filled in later.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -72,10 +73,11 @@ class StrategyBuilderWindow(QMainWindow):
             self.splitter.setStretchFactor(column, 1)
         self._proportions_set = False
 
-        # The middle tile divides in two, side by side: the strategy's name on
-        # one side, the timeframe it acts on the other. Both panes are empty
-        # until those fields are added, and the gap is the only divider.
-        self.middle_split = QSplitter(Qt.Orientation.Horizontal, self.center)
+        # The middle tile divides horizontally, one above the other: the
+        # strategy's name on top, the timeframe it acts on below. Both panes
+        # are empty until those fields are added, and the gap is the only
+        # divider.
+        self.middle_split = QSplitter(Qt.Orientation.Vertical, self.center)
         self.middle_split.setObjectName("builderMiddleSplit")
         self.middle_split.setChildrenCollapsible(False)
         self.middle_split.setHandleWidth(CARD_GAP)
@@ -86,7 +88,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.timeframe_pane.setObjectName("builderPane")
         for pane in (self.name_pane, self.timeframe_pane):
             self.middle_split.addWidget(pane)
-            pane.setMinimumWidth(80)
+            pane.setMinimumHeight(80)
         for column in range(2):
             self.middle_split.setStretchFactor(column, 1)
         self.middle_split.setSizes([1, 1])

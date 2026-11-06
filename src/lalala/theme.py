@@ -74,7 +74,7 @@ QSplitter#tileSplitter::handle:vertical,
 QSplitter#stratSplitter::handle:horizontal,
 QSplitter#stratColumn::handle:vertical,
 QSplitter#builderSplitter::handle:horizontal,
-QSplitter#builderMiddleSplit::handle:horizontal {{
+QSplitter#builderMiddleSplit::handle:vertical {{
     background-color: transparent;
 }}
 

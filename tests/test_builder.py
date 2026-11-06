@@ -95,7 +95,6 @@ def test_the_split_scales_with_the_window(
         first, second = builder.middle_split.sizes()
         assert first == pytest.approx(second, abs=2)
 
-
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:
     # 21% of the default window is below the Card default of 220 px; the tiles
     # lower their own floor so the proportions win.
@@ -123,8 +122,9 @@ def test_the_middle_tile_splits_in_two(
     split = builder.middle_split
 
     assert split.count() == 2
-    # A vertical split again: name and timeframe sit side by side.
-    assert split.orientation() == Qt.Orientation.Horizontal
+    # A horizontal split: name and timeframe sit one above the other, sharing
+    # the width.
+    assert split.orientation() == Qt.Orientation.Vertical
     assert split.handleWidth() == CARD_GAP
     assert split.childrenCollapsible() is False
     assert split.widget(0) is builder.name_pane
@@ -134,13 +134,13 @@ def test_the_middle_tile_splits_in_two(
     assert not builder.left.isAncestorOf(split)
     assert not builder.right.isAncestorOf(split)
 
-    first, second = split.sizes()
-    assert first == pytest.approx(second, abs=2)
-    assert builder.name_pane.height() == builder.timeframe_pane.height()
+    top, bottom = split.sizes()
+    assert top == pytest.approx(bottom, abs=2)
+    assert builder.name_pane.width() == builder.timeframe_pane.width()
 
     gap = (
-        builder.timeframe_pane.geometry().left()
-        - builder.name_pane.geometry().right()
+        builder.timeframe_pane.geometry().top()
+        - builder.name_pane.geometry().bottom()
         - 1
     )
     assert gap == pytest.approx(CARD_GAP, abs=1)
@@ -153,11 +153,14 @@ def test_the_middle_panes_stay_inside_the_middle_tile(
     app.processEvents()
 
     left, centre, right = builder.splitter.sizes()
-    # The inner split fills the middle card's body: two 12 px margins and a
-    # 1 px border each side. The panes never spill into the rails.
+    # The inner split fills the middle card's body: a 12 px margin each side
+    # and a 1 px border each side. The panes never spill into the rails.
     assert builder.middle_split.width() == pytest.approx(centre - 26, abs=2)
+    assert builder.middle_split.height() == pytest.approx(
+        builder.center.height() - 22, abs=2
+    )
     assert sum(builder.middle_split.sizes()) == pytest.approx(
-        builder.middle_split.width() - CARD_GAP, abs=2
+        builder.middle_split.height() - CARD_GAP, abs=2
     )
     assert left + centre + right == pytest.approx(
         builder.splitter.width() - 2 * CARD_GAP, abs=2

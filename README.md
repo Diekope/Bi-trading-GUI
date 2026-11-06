@@ -329,11 +329,11 @@ by the same 8 px gap and nothing else, no drawn divider. The tiles lower their
 minimum width to 120 px so the 21% rail is not clamped by the card default at
 ordinary window sizes; the proportions hold when the window is resized.
 
-The middle tile is itself split in two, side by side, for the **strategy name**
-and the **timeframe it acts on** — both still empty, to be filled in later. The
-two halves are inset wells (one shade lighter than the card, 1 px border), so
-the split is visible before either has a field. They stay 50/50 as the window
-changes size.
+The middle tile is itself split in two, one above the other, for the
+**strategy name** on top and the **timeframe it acts on** below — both still
+empty, to be filled in later. The two halves are inset wells (one shade lighter
+than the card, 1 px border), so the split is visible before either has a field.
+They stay 50/50 as the window changes size.
 
 ## Results tile
 
