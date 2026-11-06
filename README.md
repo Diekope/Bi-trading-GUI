@@ -276,9 +276,10 @@ tests/             284 tests: parsing/search/aliases, slug math, candle + book
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   strategy builder window and its 21/47/32 split and nested
-                   middle split, the chart and backtest settings, the silent
-                   log, and the candle store and downloader
+                   strategy builder window, its 21/47/32 columns and the two
+                   tiles stacked in the middle, the chart and backtest
+                   settings, the silent log, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -329,11 +330,10 @@ by the same 8 px gap and nothing else, no drawn divider. The tiles lower their
 minimum width to 120 px so the 21% rail is not clamped by the card default at
 ordinary window sizes; the proportions hold when the window is resized.
 
-The middle tile is itself split in two, one above the other, for the
-**strategy name** on top and the **timeframe it acts on** below — both still
-empty, to be filled in later. The two halves are inset wells (one shade lighter
-than the card, 1 px border), so the split is visible before either has a field.
-They stay 50/50 as the window changes size.
+The middle column holds two separate tiles one above the other — the
+**strategy name** on top and the **timeframe it acts on** below. They are two
+cards with their own chrome, not one tile split in two, and both are still
+empty. The two stay 50/50 as the window changes size.
 
 ## Results tile
 

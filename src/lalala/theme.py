@@ -82,14 +82,6 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 #resolutionPicker, #paramsGrid {{
     background-color: transparent;
 }}
-
-/* The two halves of the builder's middle tile read as inset wells, so the
-   split is visible before either has a field in it. */
-#builderPane {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
-    border-radius: 4px;
-}}
 #venuePanel QCheckBox {{
     background-color: transparent;
 }}

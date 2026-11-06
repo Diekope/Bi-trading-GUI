@@ -1,10 +1,9 @@
 """The strategy builder window, launched on its own.
 
 Three vertical tiles side by side, splitting the width 21 / 47 / 32: a narrow
-rail on the left, the working area in the middle, and a wider rail on the
-right. The middle tile is itself split horizontally, one above the other, for
-the strategy name and the timeframe it acts on — both still empty, to be
-filled in later.
+rail on the left, a middle column, and a wider rail on the right. The middle
+column holds two tiles stacked one above the other — the strategy name on top,
+the timeframe it acts on below — both still empty, to be filled in later.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -37,7 +36,7 @@ COLUMN_SHARES = (0.21, 0.47, 0.32)
 
 
 class StrategyBuilderWindow(QMainWindow):
-    """Three empty tiles, 21 / 47 / 32, to build a strategy on."""
+    """Four empty tiles: two rails and a middle column split in two."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,37 +61,33 @@ class StrategyBuilderWindow(QMainWindow):
         self.splitter.setHandleWidth(CARD_GAP)
 
         self.left = Card(self.splitter)
-        self.center = Card(self.splitter)
+        # The middle column is a vertical split of two tiles, not one tile
+        # divided: each has its own card chrome, separated by the same gap.
+        self.center = QSplitter(Qt.Orientation.Vertical, self.splitter)
+        self.center.setObjectName("builderMiddleSplit")
+        self.center.setChildrenCollapsible(False)
+        self.center.setHandleWidth(CARD_GAP)
+
+        self.name_tile = Card(self.center)
+        self.timeframe_tile = Card(self.center)
         self.right = Card(self.splitter)
-        for tile in (self.left, self.center, self.right):
-            self.splitter.addWidget(tile)
+
+        for tile in (self.name_tile, self.timeframe_tile):
+            self.center.addWidget(tile)
+            tile.setMinimumWidth(120)
+            tile.setMinimumHeight(80)
+        for row in range(2):
+            self.center.setStretchFactor(row, 1)
+        self.center.setSizes([1, 1])
+
+        for column in (self.left, self.center, self.right):
+            self.splitter.addWidget(column)
             # The card's default floor is too high for a 21% rail: it would
             # win the argument with the proportions at ordinary widths.
-            tile.setMinimumWidth(120)
+            column.setMinimumWidth(120)
         for column in range(3):
             self.splitter.setStretchFactor(column, 1)
         self._proportions_set = False
-
-        # The middle tile divides horizontally, one above the other: the
-        # strategy's name on top, the timeframe it acts on below. Both panes
-        # are empty until those fields are added, and the gap is the only
-        # divider.
-        self.middle_split = QSplitter(Qt.Orientation.Vertical, self.center)
-        self.middle_split.setObjectName("builderMiddleSplit")
-        self.middle_split.setChildrenCollapsible(False)
-        self.middle_split.setHandleWidth(CARD_GAP)
-
-        self.name_pane = QWidget(self.middle_split)
-        self.name_pane.setObjectName("builderPane")
-        self.timeframe_pane = QWidget(self.middle_split)
-        self.timeframe_pane.setObjectName("builderPane")
-        for pane in (self.name_pane, self.timeframe_pane):
-            self.middle_split.addWidget(pane)
-            pane.setMinimumHeight(80)
-        for column in range(2):
-            self.middle_split.setStretchFactor(column, 1)
-        self.middle_split.setSizes([1, 1])
-        self.center.body.addWidget(self.middle_split, 1)
 
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(canvas)
@@ -110,6 +105,8 @@ class StrategyBuilderWindow(QMainWindow):
         if not self._proportions_set:
             self._proportions_set = True
             self.splitter.setSizes(self.column_sizes())
+            # Two equal tiles in the middle column, once the height is real.
+            self.center.setSizes([1, 1])
 
     def is_open(self) -> bool:
         return self.isVisible()

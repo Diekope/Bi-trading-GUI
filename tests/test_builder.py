@@ -1,4 +1,4 @@
-"""The strategy builder window: three vertical tiles, 21 / 47 / 32."""
+"""The strategy builder window: two rails, and a middle column split in two."""
 
 from __future__ import annotations
 
@@ -46,13 +46,13 @@ def test_it_is_a_window_of_its_own(builder: StrategyBuilderWindow) -> None:
     assert builder.minimumHeight() >= 380
 
 
-def test_it_splits_into_three_vertical_tiles(
+def test_the_window_holds_three_columns(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     splitter = builder.splitter
 
     assert splitter.count() == 3
-    # A vertical split: the handles run top to bottom, the tiles sit side by
+    # A vertical split: the handles run top to bottom, the columns sit side by
     # side and share the height.
     assert splitter.orientation() == Qt.Orientation.Horizontal
     assert splitter.handleWidth() == CARD_GAP
@@ -60,12 +60,43 @@ def test_it_splits_into_three_vertical_tiles(
     assert splitter.widget(0) is builder.left
     assert splitter.widget(1) is builder.center
     assert splitter.widget(2) is builder.right
-    for tile in (builder.left, builder.center, builder.right):
-        assert isinstance(tile, Card)
-        assert tile.height() == builder.left.height()
+    assert isinstance(builder.left, Card)
+    assert isinstance(builder.right, Card)
 
 
-def test_the_width_is_split_21_47_32(
+def test_the_middle_column_is_two_tiles_not_one_split_tile(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    column = builder.center
+
+    # A tile is a card. The middle column is a splitter holding two of them,
+    # each with its own chrome — the column itself is not a card.
+    assert isinstance(column, Card) is False
+    assert column.count() == 2
+    assert column.orientation() == Qt.Orientation.Vertical
+    assert column.handleWidth() == CARD_GAP
+    assert column.childrenCollapsible() is False
+    assert column.widget(0) is builder.name_tile
+    assert column.widget(1) is builder.timeframe_tile
+    assert isinstance(builder.name_tile, Card)
+    assert isinstance(builder.timeframe_tile, Card)
+    # Each keeps its own surface, rather than being a well cut into the other.
+    assert builder.name_tile.objectName() == "venuePanel"
+    assert builder.timeframe_tile.objectName() == "venuePanel"
+
+    top, bottom = column.sizes()
+    assert top == pytest.approx(bottom, abs=2)
+    assert builder.name_tile.width() == builder.timeframe_tile.width()
+
+    gap = (
+        builder.timeframe_tile.geometry().top()
+        - builder.name_tile.geometry().bottom()
+        - 1
+    )
+    assert gap == pytest.approx(CARD_GAP, abs=1)
+
+
+def test_the_columns_are_split_21_47_32(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     builder.splitter.setSizes(builder.column_sizes())
@@ -92,8 +123,9 @@ def test_the_split_scales_with_the_window(
         assert shares[1] == pytest.approx(COLUMN_SHARES[1], abs=0.01)
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
-        first, second = builder.middle_split.sizes()
-        assert first == pytest.approx(second, abs=2)
+        top, bottom = builder.center.sizes()
+        assert top == pytest.approx(bottom, abs=2)
+
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:
     # 21% of the default window is below the Card default of 220 px; the tiles
@@ -101,6 +133,23 @@ def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:
     window = StrategyBuilderWindow()
     assert window.left.minimumWidth() < 220
     window.close()
+
+
+def test_the_middle_tiles_fill_their_column(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.splitter.setSizes(builder.column_sizes())
+    app.processEvents()
+
+    column = builder.center
+    top = builder.name_tile
+    bottom = builder.timeframe_tile
+    # Both cards span the column, less the transparent splitter handle.
+    assert top.width() == pytest.approx(column.width() - 2, abs=2)
+    assert bottom.width() == pytest.approx(column.width() - 2, abs=2)
+    assert top.height() + bottom.height() + CARD_GAP == pytest.approx(
+        column.height(), abs=2
+    )
 
 
 def test_both_gaps_show_the_canvas(
@@ -116,64 +165,16 @@ def test_both_gaps_show_the_canvas(
     assert second == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_middle_tile_splits_in_two(
-    app: QApplication, builder: StrategyBuilderWindow
-) -> None:
-    split = builder.middle_split
-
-    assert split.count() == 2
-    # A horizontal split: name and timeframe sit one above the other, sharing
-    # the width.
-    assert split.orientation() == Qt.Orientation.Vertical
-    assert split.handleWidth() == CARD_GAP
-    assert split.childrenCollapsible() is False
-    assert split.widget(0) is builder.name_pane
-    assert split.widget(1) is builder.timeframe_pane
-    # It lives inside the middle card, not beside it.
-    assert builder.center.isAncestorOf(split)
-    assert not builder.left.isAncestorOf(split)
-    assert not builder.right.isAncestorOf(split)
-
-    top, bottom = split.sizes()
-    assert top == pytest.approx(bottom, abs=2)
-    assert builder.name_pane.width() == builder.timeframe_pane.width()
-
-    gap = (
-        builder.timeframe_pane.geometry().top()
-        - builder.name_pane.geometry().bottom()
-        - 1
-    )
-    assert gap == pytest.approx(CARD_GAP, abs=1)
-
-
-def test_the_middle_panes_stay_inside_the_middle_tile(
-    app: QApplication, builder: StrategyBuilderWindow
-) -> None:
-    builder.splitter.setSizes(builder.column_sizes())
-    app.processEvents()
-
-    left, centre, right = builder.splitter.sizes()
-    # The inner split fills the middle card's body: a 12 px margin each side
-    # and a 1 px border each side. The panes never spill into the rails.
-    assert builder.middle_split.width() == pytest.approx(centre - 26, abs=2)
-    assert builder.middle_split.height() == pytest.approx(
-        builder.center.height() - 22, abs=2
-    )
-    assert sum(builder.middle_split.sizes()) == pytest.approx(
-        builder.middle_split.height() - CARD_GAP, abs=2
-    )
-    assert left + centre + right == pytest.approx(
-        builder.splitter.width() - 2 * CARD_GAP, abs=2
-    )
-
-
-def test_all_three_tiles_are_empty(builder: StrategyBuilderWindow) -> None:
-    for tile in (builder.left, builder.center, builder.right):
+def test_every_tile_is_empty(builder: StrategyBuilderWindow) -> None:
+    for tile in (
+        builder.left,
+        builder.name_tile,
+        builder.timeframe_tile,
+        builder.right,
+    ):
         # Nothing has been decided about the shape of a strategy yet.
         assert tile.findChildren(QLabel) == []
-    # The middle tile holds only the split and its two empty panes.
-    for pane in (builder.name_pane, builder.timeframe_pane):
-        assert pane.findChildren(QLabel) == []
+        assert tile.body.count() == 0
 
 
 def test_it_uses_the_same_desk_as_the_other_windows(
