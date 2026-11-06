@@ -80,7 +80,8 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 
 /* Plain containers inside a card must not paint the canvas colour. */
 #resolutionPicker, #paramsGrid, #entryPages, #entryPage,
-#formulaBuilder, #formulaCanvas, #stripArea, #stripHolder {{
+#formulaBuilder, #formulaCanvas, #stripArea, #stripHolder,
+#paletteScroll, #paletteInner, #paletteBlocks {{
     background-color: transparent;
 }}
 
@@ -95,20 +96,19 @@ QLabel#paletteTitle {{
     font-size: 9px;
     font-weight: bold;
 }}
-QListWidget#paletteList {{
+
+/* A palette block: one draggable thing, sitting in a horizontal row. */
+#paletteBlock {{
     background-color: {PANEL};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 3px;
+}}
+#paletteBlock:hover {{
+    border-color: {ACCENT_DIM};
+}}
+QLabel#paletteBlockLabel {{
     color: {TEXT};
     font-size: 10px;
-    outline: none;
-}}
-QListWidget#paletteList::item {{
-    padding: 1px 4px;
-}}
-QListWidget#paletteList::item:selected {{
-    background-color: {ACCENT_BG};
-    color: {ACCENT};
 }}
 
 /* A chip on a line, and an empty slot waiting to be filled. */

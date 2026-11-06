@@ -16,7 +16,7 @@ from lalala.formula_builder import (  # noqa: E402
     Chip,
     ChipStrip,
     FormulaBuilder,
-    PaletteList,
+    PaletteBlock,
 )
 from lalala.theme import apply_dark_theme  # noqa: E402
 
@@ -56,7 +56,7 @@ def _drop(builder: FormulaBuilder, strip: ChipStrip, tokens) -> None:
 # -- the palette ------------------------------------------------------------
 
 
-def test_the_palette_has_the_three_lists_and_a_number_box(
+def test_the_palette_is_rows_of_blocks_and_a_number_box(
     builder: FormulaBuilder
 ) -> None:
     assert [title for title, _ in PALETTES] == [
@@ -64,26 +64,47 @@ def test_the_palette_has_the_three_lists_and_a_number_box(
         "Indicators",
         "Logic & Maths",
     ]
-    assert list(builder.lists) == ["Data", "Indicators", "Logic & Maths"]
-    for listing in builder.lists.values():
-        assert isinstance(listing, PaletteList)
-        # You drag out of a palette and never into it.
-        assert listing.dragEnabled() is True
-        assert listing.count() > 0
+    # One row per group, each a horizontal run of blocks.
+    assert list(builder.blocks) == ["Data", "Indicators", "Logic & Maths"]
+    for title, blocks in builder.blocks.items():
+        assert blocks, f"{title} has something to drag"
+        for block in blocks:
+            assert isinstance(block, PaletteBlock)
+            assert block.item.tokens, "every block drops something"
 
     assert builder.number_edit is not None
     assert builder.number_add.text() == "Add"
 
 
-def test_the_palette_items_carry_what_they_would_drop(
+def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
+    from lalala.theme import apply_dark_theme
+
+    apply_dark_theme(QApplication.instance() or app)
+    builder = FormulaBuilder()
+    builder.resize(420, 300)
+    builder.show()
+    app.processEvents()
+
+    # The Data blocks share a row: same top, left to right.
+    data = builder.blocks["Data"]
+    tops = {block.geometry().top() for block in data}
+    assert len(tops) == 1
+    lefts = [block.geometry().left() for block in data]
+    assert lefts == sorted(lefts)
+
+    # A long row wraps rather than running off; Logic & Maths is the long one.
+    logic = builder.blocks["Logic & Maths"]
+    rows = {block.geometry().top() for block in logic}
+    assert len(rows) > 1
+    builder.close()
+
+
+def test_the_blocks_carry_what_they_would_drop(
     builder: FormulaBuilder
 ) -> None:
-    data = builder.lists["Data"]
-    labels = [data.item(i).text() for i in range(data.count())]
+    data = builder.blocks["Data"]
+    labels = [block.item.label for block in data]
     assert "close" in labels and "volume" in labels
-    for index in range(data.count()):
-        payload = data.item(index).data(Qt.ItemDataRole.UserRole)
-        assert payload["tokens"], "every source drops something"
 
     # An indicator drops as a call with an empty slot for its period.
     sma = _tokens("Indicators", "SMA")

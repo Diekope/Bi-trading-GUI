@@ -350,14 +350,17 @@ Nothing is saved yet, and nothing is wired to the walk.
 ### The formula builder
 
 The `Formulas` page is a drag-and-drop builder. A subtile holds the sources —
-three lists to drag from and a box to type a number into:
+three rows of draggable **blocks** and a box to type a number into:
 
-| List | What is in it |
+| Row | Blocks |
 | --- | --- |
 | `Data` | `close`, `open`, `high`, `low`, `volume` |
 | `Indicators` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands |
 | `Logic & Maths` | `and`, `or`, `not`, `=`, parentheses, comma, arithmetic, comparisons |
 | `Number` | type a value; `Add` drops it on the active line |
+
+Each row is horizontal and wraps when the tile is narrow, so every block stays
+visible; the rows scroll only if the tile is too short for all of them.
 
 Under the palette are the lines, one strip of chips each, read left to right.
 The last line is the condition, the ones above it are named series:

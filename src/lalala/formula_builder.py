@@ -27,15 +27,12 @@ from dataclasses import dataclass
 from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -132,6 +129,20 @@ def _single(mime) -> str | None:
     return None
 
 
+def _begin_drag(widget: QWidget, tokens: list, source=None) -> None:
+    """Start a drag carrying `tokens`; `source` marks an internal chip move."""
+    data = QMimeData()
+    data.setData(
+        MIME,
+        json.dumps({"tokens": list(tokens), "from": source}).encode("utf-8"),
+    )
+    drag = QDrag(widget)
+    drag.setMimeData(data)
+    drag.exec(
+        Qt.DropAction.CopyAction if source is None else Qt.DropAction.MoveAction
+    )
+
+
 class FlowLayout(QLayout):
     """A layout that wraps its items onto the next row when the width runs out.
 
@@ -187,6 +198,10 @@ class FlowLayout(QLayout):
             margins.top() + margins.bottom(),
         )
 
+    def addWidget(self, widget) -> None:  # noqa: N802
+        self.addChildWidget(widget)
+        self.addItem(QWidgetItem(widget))
+
     def insertWidget(self, index: int, widget) -> None:  # noqa: N802
         self.addChildWidget(widget)
         self._items.insert(index, QWidgetItem(widget))
@@ -215,33 +230,39 @@ class FlowLayout(QLayout):
         return y + row - rect.y() + margins.bottom()
 
 
-class PaletteList(QListWidget):
-    """A list you drag out of, never into."""
+class PaletteBlock(QFrame):
+    """One block in a palette row: a thing you drag out, never into."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, item: Item, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("paletteList")
-        self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setUniformItemSizes(True)
+        self.item = item
+        self._press: QPoint | None = None
+        self.setObjectName("paletteBlock")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip(item.note or f"drag {item.label} onto a line")
 
-    def startDrag(self, supported) -> None:  # noqa: N802 - Qt's name
-        item = self.currentItem()
-        if item is None:
-            return
-        payload = item.data(Qt.ItemDataRole.UserRole) or {}
-        data = QMimeData()
-        data.setData(
-            MIME,
-            json.dumps(
-                {"tokens": list(payload.get("tokens", [])), "from": None}
-            ).encode("utf-8"),
+        self.label = QLabel(item.label, self)
+        self.label.setObjectName("paletteBlockLabel")
+        self.label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
-        drag = QDrag(self)
-        drag.setMimeData(data)
-        drag.exec(Qt.DropAction.CopyAction)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(7, 2, 7, 2)
+        layout.addWidget(self.label)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press = event.position().toPoint()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._press is None:
+            return
+        moved = (event.position().toPoint() - self._press).manhattanLength()
+        if moved < QApplication.startDragDistance():
+            return
+        self._press = None
+        _begin_drag(self, list(self.item.tokens))
 
 
 class Chip(QFrame):
@@ -460,59 +481,78 @@ class FormulaBuilder(QWidget):
         box = QFrame(self)
         box.setObjectName("formulaPalette")
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # A fixed-ish height: the lists scroll, and the lines below keep room.
-        box.setMaximumHeight(168)
-        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         outer = QVBoxLayout(box)
         outer.setContentsMargins(8, 6, 8, 6)
-        outer.setSpacing(6)
+        outer.setSpacing(4)
 
-        row = QHBoxLayout()
-        row.setSpacing(6)
-        self.lists: dict[str, PaletteList] = {}
+        # The rows scroll if there is not room for all of them, so a block is
+        # never cut off.
+        scroll = QScrollArea(box)
+        scroll.setObjectName("paletteScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("paletteInner")
+        rows = QVBoxLayout(inner)
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(5)
+
+        self.blocks: dict[str, list[PaletteBlock]] = {}
         for title, items in PALETTES:
-            column = QVBoxLayout()
-            column.setSpacing(3)
-            caption = QLabel(title, box)
-            caption.setObjectName("paletteTitle")
-            column.addWidget(caption)
-            listing = PaletteList(box)
-            listing.setToolTip(f"drag from here into a line below")
-            for item in items:
-                entry = QListWidgetItem(item.label)
-                entry.setData(
-                    Qt.ItemDataRole.UserRole, {"tokens": list(item.tokens)}
-                )
-                if item.note:
-                    entry.setToolTip(item.note)
-                listing.addItem(entry)
-            self.lists[title] = listing
-            column.addWidget(listing, 1)
-            row.addLayout(column, 1)
-        outer.addLayout(row, 1)
+            rows.addLayout(self._palette_row(inner, title, items))
+        rows.addLayout(self._number_row(inner))
+        rows.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
+        return box
 
-        # The fourth column: a box to type a number into.
-        numbers = QVBoxLayout()
-        numbers.setSpacing(3)
-        caption = QLabel("Number", box)
+    def _palette_row(
+        self, parent: QWidget, title: str, items: tuple
+    ) -> QHBoxLayout:
+        """A caption, then the blocks of one group, side by side and wrapping."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        caption = QLabel(title, parent)
         caption.setObjectName("paletteTitle")
-        numbers.addWidget(caption)
-        self.number_edit = QLineEdit(box)
+        caption.setFixedWidth(84)
+        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
+
+        holder = QWidget(parent)
+        holder.setObjectName("paletteBlocks")
+        flow = FlowLayout(holder, margin=0, spacing=4)
+        blocks: list[PaletteBlock] = []
+        for item in items:
+            block = PaletteBlock(item, holder)
+            flow.addWidget(block)
+            blocks.append(block)
+        self.blocks[title] = blocks
+        row.addWidget(holder, 1)
+        return row
+
+    def _number_row(self, parent: QWidget) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        caption = QLabel("Number", parent)
+        caption.setObjectName("paletteTitle")
+        caption.setFixedWidth(84)
+        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
+
+        self.number_edit = QLineEdit(parent)
         self.number_edit.setObjectName("numberEdit")
         self.number_edit.setPlaceholderText("20")
+        self.number_edit.setFixedWidth(72)
         self.number_edit.setToolTip(
             "type a value; Enter adds it, or fills the armed slot"
         )
         self.number_edit.returnPressed.connect(self.add_number)
-        self.number_add = QPushButton("Add", box)
+        self.number_add = QPushButton("Add", parent)
         self.number_add.setObjectName("numberAdd")
         self.number_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.number_add.clicked.connect(self.add_number)
-        numbers.addWidget(self.number_edit)
-        numbers.addWidget(self.number_add)
-        numbers.addStretch(1)
-        row.addLayout(numbers, 1)
-        return box
+        row.addWidget(self.number_edit)
+        row.addWidget(self.number_add)
+        row.addStretch(1)
+        return row
 
     # -- the canvas --------------------------------------------------------
 
@@ -604,19 +644,11 @@ class FormulaBuilder(QWidget):
         strip = chip.strip
         if strip is None or chip.token is None:
             return
-        data = QMimeData()
-        data.setData(
-            MIME,
-            json.dumps(
-                {
-                    "tokens": [chip.token],
-                    "from": [self.strips.index(strip), strip.chips().index(chip)],
-                }
-            ).encode("utf-8"),
+        _begin_drag(
+            chip,
+            [chip.token],
+            source=[self.strips.index(strip), strip.chips().index(chip)],
         )
-        drag = QDrag(self)
-        drag.setMimeData(data)
-        drag.exec(Qt.DropAction.MoveAction)
 
     def remove_chip(self, chip: Chip) -> None:
         if chip.strip is None:
@@ -751,7 +783,8 @@ __all__ = [
     "PALETTES",
     "Chip",
     "ChipStrip",
+    "FlowLayout",
     "FormulaBuilder",
     "Item",
-    "PaletteList",
+    "PaletteBlock",
 ]
