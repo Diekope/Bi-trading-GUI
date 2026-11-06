@@ -273,16 +273,17 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             350 tests: parsing/search/aliases, slug math, candle + book
+tests/             352 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the entry/exit tiles and the
-                   drag-and-drop formula builder, the formula language
-                   itself, the chart and backtest settings, the silent log,
-                   and the candle store and downloader
+                   compact STRATEGY tile, the entry/exit tiles, the
+                   drag-and-drop formula builder and its editable code view,
+                   the formula language itself, the chart and backtest
+                   settings, the silent log, and the candle store and
+                   downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -340,10 +341,9 @@ taking the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own
 width, defaulting to `1m`. It is only as tall as the title and that row.
 
 Under it, two tiles share the rest of the column: **ENTRY RULES** and
-**EXIT RULES**. The entry tile's title row also carries the three ways a rule
-can be written — `Rules`, `Formulas`, `Code`, exclusive pills defaulting to
-`Rules`. Only **Formulas** does anything yet; the other two say so. The exit
-tile has only its title.
+**EXIT RULES**. The entry tile's title row also carries the two ways a rule
+can be written — `Formulas` and `Code`, exclusive pills defaulting to
+`Formulas`. The exit tile has only its title.
 
 Nothing is saved yet, and nothing is wired to the walk.
 
@@ -397,6 +397,17 @@ The chips are only an editor. The formula **text** is the truth: it is rebuilt
 from the chips and handed to `lalala.formula.parse`, so the same checker still
 reports `line 2, column 9: unknown name 'clsoe'`, and the text is what a run
 would use.
+
+### The code view
+
+`Code` is the same formula as text in a monospace editor. It is filled from the
+tiles, and it can be typed in directly: whatever is written there is scanned,
+checked, and rebuilt into tiles, so the two views never disagree. A name that
+was never defined is flagged with its place, and defining it on a line above
+clears it — the same rules the language has always had.
+
+Reading text back keeps indicators whole: `bollinger_lower(close, 20, 2)` comes
+back as one tile holding `20` and `2`, not a run of separate chips.
 
 ### The formula language
 
@@ -628,10 +639,9 @@ dropped.
 ## Not implemented yet
 
 - The strategy builder window. It launches on its own and divides into three
-  locked columns: the drag-and-drop formula builder checks a rule but nothing
-  defines or runs one yet, and nothing in the backtest window opens it. The
-  `Rules` and `Code` entry pages are placeholders, and the **EXIT RULES** tile
-  is empty.
+  locked columns: the formula builder and its code view check a rule but
+  nothing defines or runs one yet, and nothing in the backtest window opens it.
+  The **EXIT RULES** tile is empty.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.

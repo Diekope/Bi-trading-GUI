@@ -1043,6 +1043,62 @@ class FormulaBuilder(QWidget):
     def parsed(self):
         return self._parsed
 
+    def _display_for(self, func: str) -> str:
+        """A friendly name for a function, matching the palette block."""
+        for _, items in PALETTES:
+            for entry in items:
+                if entry.call and entry.call[0] == func:
+                    return entry.call[3]
+        return func
+
+    def _plan(self, tokens: list) -> list:
+        """Group a flat token run into chips: calls stay one tile.
+
+        `sma(close, 20)` becomes one call chip; anything that is not a plain
+        `func(series, number…)` is left as individual tokens.
+        """
+        plan: list = []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if (
+                token in FUNCTIONS
+                and index + 3 < len(tokens)
+                and tokens[index + 1] == "("
+            ):
+                cursor = index + 2
+                args: list = []
+                matched = True
+                while cursor < len(tokens):
+                    piece = tokens[cursor]
+                    if piece == ")":
+                        break
+                    if piece == ",":
+                        cursor += 1
+                        continue
+                    if piece in ("(", ")"):
+                        matched = False
+                        break
+                    args.append(piece)
+                    cursor += 1
+                if (
+                    matched
+                    and cursor < len(tokens)
+                    and tokens[cursor] == ")"
+                    and len(args) >= 2
+                ):
+                    plan.append(
+                        (
+                            "call",
+                            (token, args[0], tuple(args[1:]), self._display_for(token)),
+                        )
+                    )
+                    index = cursor + 1
+                    continue
+            plan.append(("token", token))
+            index += 1
+        return plan
+
     def set_formula(self, text: str) -> None:
         """Replace the lines with those of `text`. Raises on a bad character."""
         tokens = [token for token in scan(text) if token.kind != "newline"]
@@ -1062,7 +1118,12 @@ class FormulaBuilder(QWidget):
                 order.append(token.line)
             lines[token.line].append(token.text)
         for line in order:
-            self.add_strip(lines[line])
+            strip = self.add_strip()
+            for kind, payload in self._plan(lines[line]):
+                if kind == "call":
+                    strip.add_call_chip(payload)
+                else:
+                    strip.add_chip(payload)
         self.changed.emit()
         self._refresh()
 

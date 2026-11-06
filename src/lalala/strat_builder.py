@@ -5,10 +5,11 @@ rail on the left, a middle column, and a wider rail on the right. The middle
 column stacks three tiles: a compact **STRATEGY** tile with the strategy's name
 and the timeframe it acts on, then **ENTRY RULES**, then **EXIT RULES**.
 
-The entry tile offers three ways to write a rule; **Formulas** is the one that
-works, and it is a drag-and-drop builder (`lalala.formula_builder`): drag data,
-indicators and operators onto a line, fill the numbers, and the text it adds up
-to is checked by `lalala.formula`.
+The entry tile offers two ways to write a rule: **Formulas**, the drag-and-drop
+builder (`lalala.formula_builder`), and **Code**, the same formula as editable
+text. Both edit one formula — the code starts as what the tiles read, typing in
+it rebuilds the tiles, and a change on either side shows up on the other. The
+checker (`lalala.formula`) is what keeps them honest.
 
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -41,6 +43,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lalala.cards import mono_font
+from lalala.formula import FormulaError
 from lalala.formula_builder import FormulaBuilder
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
@@ -77,8 +81,9 @@ COLUMN_SHARES = (0.21, 0.47, 0.32)
 # The bar the strategy reads, one of the compactions the store supports.
 TIMEFRAMES = ("1m", "5m", "15m", "1h")
 
-# How the entry rules can be written: as rows, as a formula, or as code.
-ENTRY_MODES = (("rules", "Rules"), ("formulas", "Formulas"), ("code", "Code"))
+# How the entry rules can be written: as drag-and-drop tiles, or as the code
+# those tiles stand for.
+ENTRY_MODES = (("formulas", "Formulas"), ("code", "Code"))
 
 
 class LockedHandle(QSplitterHandle):
@@ -204,11 +209,10 @@ class StrategyBuilderWindow(QMainWindow):
         self.entry_modes.idClicked.connect(self._pick_entry_mode)
         self.entry_tile.body.addLayout(header)
 
-        # One page per mode. The formula page is the one that works today; the
-        # other two say so, rather than pretending.
+        # One page per mode: the tiles, and the code they stand for. Both edit
+        # the same formula, so a change in either shows up in the other.
         self.entry_pages = PageStack(self.entry_tile)
         self.entry_pages.setObjectName("entryPages")
-        self.entry_pages.addWidget(self._rules_page())
         self.entry_pages.addWidget(self._formula_page())
         self.entry_pages.addWidget(self._code_page())
         self.entry_tile.body.addWidget(self.entry_pages, 1)
@@ -245,18 +249,6 @@ class StrategyBuilderWindow(QMainWindow):
 
     # -- the entry pages ---------------------------------------------------
 
-    def _rules_page(self) -> QWidget:
-        page = QWidget(self.entry_tile)
-        page.setObjectName("entryPage")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        note = QLabel("no row editor yet — use Formulas", page)
-        note.setObjectName("hintLabel")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        layout.addStretch(1)
-        return page
-
     def _formula_page(self) -> QWidget:
         page = QWidget(self.entry_tile)
         page.setObjectName("entryPage")
@@ -276,17 +268,73 @@ class StrategyBuilderWindow(QMainWindow):
         page.setObjectName("entryPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        note = QLabel("no code editor yet", page)
-        note.setObjectName("hintLabel")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        layout.addStretch(1)
+        layout.setSpacing(4)
+
+        # The same formula, as text. It starts as what the tiles read, and it
+        # can be typed in directly; either side keeps the other in step.
+        self.code_edit = QPlainTextEdit(page)
+        self.code_edit.setObjectName("codeEdit")
+        self.code_edit.setFont(mono_font(9))
+        self.code_edit.setTabChangesFocus(True)
+        self.code_edit.setMinimumHeight(96)
+        self.code_edit.setPlaceholderText(
+            "mid = sma(close, 20)\nclose < mid"
+        )
+        self.code_edit.setToolTip(
+            "one condition, optionally after `name = …` lines"
+        )
+        self.code_edit.textChanged.connect(self._code_edited)
+
+        self.code_error = QLabel("", page)
+        self.code_error.setObjectName("formulaError")
+        self.code_error.setWordWrap(True)
+        self.code_note = QLabel(
+            "the code the tiles stand for — edit it and the tiles follow",
+            page,
+        )
+        self.code_note.setObjectName("hintLabel")
+        self.code_note.setWordWrap(True)
+
+        layout.addWidget(self.code_edit, 1)
+        layout.addWidget(self.code_error)
+        layout.addWidget(self.code_note)
+
+        # A guard so the two views do not chase each other around.
+        self._syncing = False
         return page
 
     def _formula_changed(self) -> None:
         """The builder's text changed; pass the word on and re-fit the tile."""
         self.entry_formula_changed.emit()
         self._schedule_fit()
+        self._sync_code()
+
+    def _code_edited(self) -> None:
+        """The code was typed in; rebuild the tiles to match."""
+        if self._syncing:
+            return
+        text = self.code_edit.toPlainText()
+        self._syncing = True
+        try:
+            self.formula.set_formula(text)
+        except FormulaError as exc:
+            # A character the language cannot even scan.
+            self.code_error.setText(str(exc))
+            self._syncing = False
+            return
+        self._syncing = False
+        self.code_error.setText(self.formula.error())
+
+    def _sync_code(self) -> None:
+        """Show the builder's text in the code view, and its verdict."""
+        if self._syncing:
+            return
+        text = self.formula.formula_text()
+        if self.code_edit.toPlainText() != text:
+            self._syncing = True
+            self.code_edit.setPlainText(text)
+            self._syncing = False
+        self.code_error.setText(self.formula.error())
 
     # -- the formula -------------------------------------------------------
 
@@ -337,9 +385,14 @@ class StrategyBuilderWindow(QMainWindow):
         if not 0 <= index < len(ENTRY_MODES):
             return
         self.entry_pages.setCurrentIndex(index)
-        if ENTRY_MODES[index][0] == "formulas":
+        mode = ENTRY_MODES[index][0]
+        if mode == "formulas":
             self.formula.number_edit.setFocus()
-        self.entry_mode_changed.emit(ENTRY_MODES[index][0])
+        elif mode == "code":
+            # Show what the tiles stand for before taking the caret.
+            self._sync_code()
+            self.code_edit.setFocus()
+        self.entry_mode_changed.emit(mode)
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Lay the three tiles out once the real width is known."""

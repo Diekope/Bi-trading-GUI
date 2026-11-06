@@ -400,6 +400,35 @@ def test_set_formula_rebuilds_the_lines(builder: FormulaBuilder) -> None:
     assert builder.strips[0].tokens() == []
 
 
+def test_reading_text_back_keeps_indicator_tiles(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    builder.set_formula(
+        "band = bollinger_lower(close, 20, 2)\nclose < band and rsi(close, 14) < 30"
+    )
+    app.processEvents()
+
+    # The indicators come back as single tiles, not runs of tokens.
+    kinds = [
+        [type(chip).__name__ for chip in strip.chips()]
+        for strip in builder.strips
+    ]
+    assert kinds[0] == ["Chip", "Chip", "CallChip"]
+    assert kinds[1].count("CallChip") == 1
+    calls = [
+        chip
+        for strip in builder.strips
+        for chip in strip.chips()
+        if isinstance(chip, CallChip)
+    ]
+    assert [chip.func for chip in calls] == ["bollinger_lower", "rsi"]
+    assert [field.text() for field in calls[0].fields] == ["20", "2"]
+    assert builder.formula_text() == (
+        "band = bollinger_lower(close, 20, 2)\nclose < band and rsi(close, 14) < 30"
+    )
+    assert builder.error() == ""
+
+
 def test_the_changed_signal_fires_on_every_edit(
     app: QApplication, builder: FormulaBuilder
 ) -> None:

@@ -202,11 +202,11 @@ def test_the_columns_are_split_21_47_32(
     assert left < right
 
 
-def test_the_entry_tile_has_three_ways_to_write_a_rule(
+def test_the_entry_tile_has_two_ways_to_write_a_rule(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     labels = [label for key, label in ENTRY_MODES]
-    assert labels == ["Rules", "Formulas", "Code"]
+    assert labels == ["Formulas", "Code"]
 
     buttons = builder.mode_buttons
     assert list(buttons) == [key for key, _ in ENTRY_MODES]
@@ -215,10 +215,10 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
         assert button.isCheckable() is True
         assert builder.entry_tile.isAncestorOf(button)
 
-    # One at a time, and the first is the default.
+    # One at a time, and the tiles are the default.
     assert builder.entry_modes.exclusive() is True
-    assert builder.entry_mode() == "rules"
-    assert buttons["rules"].isChecked() is True
+    assert builder.entry_mode() == "formulas"
+    assert buttons["formulas"].isChecked() is True
 
     picked: list[str] = []
     builder.entry_mode_changed.connect(picked.append)
@@ -227,7 +227,7 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
 
     assert builder.entry_mode() == "code"
     assert buttons["code"].isChecked() is True
-    assert buttons["rules"].isChecked() is False
+    assert buttons["formulas"].isChecked() is False
     assert picked == ["code"]
     # Switching the mode changes nothing else yet.
     assert builder.name_edit.text() == ""
@@ -236,11 +236,11 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
 def test_the_formulas_page_builds_and_checks_a_formula(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    # The page only exists once Formulas is picked.
+    # The tiles are the page on show.
     builder.mode_buttons["formulas"].click()
     app.processEvents()
 
-    assert builder.entry_pages.currentIndex() == 1
+    assert builder.entry_pages.currentIndex() == 0
     assert builder.entry_tile.isAncestorOf(builder.formula)
     # Empty is not an error; there is simply no formula yet.
     assert builder.entry_formula() == ""
@@ -319,31 +319,57 @@ def test_building_a_formula_from_the_palette(
     assert formula.formula_text() == "sma(close, 50)"
 
 
-def test_the_rules_and_code_pages_are_placeholders(
+def test_the_code_page_shows_the_tiles_as_editable_code(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    builder.mode_buttons["rules"].click()
+    builder.mode_buttons["formulas"].click()
     app.processEvents()
-    assert builder.entry_pages.currentIndex() == 0
+    # Build something with the tiles.
+    builder.set_entry_formula("mid = sma(close, 20)\nclose < mid")
+    app.processEvents()
 
     builder.mode_buttons["code"].click()
     app.processEvents()
-    assert builder.entry_pages.currentIndex() == 2
+    assert builder.entry_pages.currentIndex() == 1
+    assert builder.entry_tile.isAncestorOf(builder.code_edit)
+    # The code is what the tiles stand for, and it checks out.
+    assert builder.code_edit.toPlainText() == "mid = sma(close, 20)\nclose < mid"
+    assert builder.code_error.text() == ""
 
-    # Neither is the formula editor, and neither pretends to work: one faint
-    # note each, no editor.
-    for index in (0, 2):
-        page = builder.entry_pages.widget(index)
-        notes = [label.text() for label in page.findChildren(QLabel)]
-        assert len(notes) == 1
-        assert "yet" in notes[0]
-        assert page.findChildren(QPlainTextEdit) == []
+    # Typing code changes the formula, and the tiles follow.
+    builder.code_edit.setPlainText("close < bollinger_lower(close, 20, 2)")
+    app.processEvents()
+    assert builder.entry_formula() == "close < bollinger_lower(close, 20, 2)"
+    assert builder.code_error.text() == ""
+    assert builder.entry_formula_parsed() is not None
+
+
+def test_the_code_page_respects_the_variables(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.mode_buttons["code"].click()
+    app.processEvents()
+
+    # A name that was never defined is flagged, with its place.
+    builder.code_edit.setPlainText("close < clsoe")
+    app.processEvents()
+    assert builder.code_error.text() == (
+        "line 1, column 9: unknown name 'clsoe'"
+    )
+    assert builder.entry_formula_parsed() is None
+
+    # Defining it above makes it valid; the tiles see it too.
+    builder.code_edit.setPlainText("clsoe = close * 2\nclose < clsoe")
+    app.processEvents()
+    assert builder.code_error.text() == ""
+    parsed = builder.entry_formula_parsed()
+    assert parsed is not None and parsed.series_names == ("clsoe",)
 
 
 def test_only_one_entry_page_shows_at_a_time(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    for key in ("rules", "formulas", "code"):
+    for key in ("formulas", "code"):
         builder.mode_buttons[key].click()
         app.processEvents()
         visible = [

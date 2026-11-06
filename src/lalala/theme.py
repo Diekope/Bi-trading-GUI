@@ -226,6 +226,21 @@ QLabel#formulaPreview {{
     color: {TEXT};
     font-size: 10px;
 }}
+
+/* The code view: the same formula as text, editable. */
+QPlainTextEdit#codeEdit {{
+    background-color: {CANVAS};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 5px 7px;
+    selection-background-color: {ACCENT};
+    selection-color: {CANVAS};
+}}
+QPlainTextEdit#codeEdit:focus {{
+    border-color: {ACCENT};
+}}
 QLabel#formulaStatus {{
     border-radius: 9px;
     font-size: 9px;
