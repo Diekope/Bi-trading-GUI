@@ -273,7 +273,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             347 tests: parsing/search/aliases, slug math, candle + book
+tests/             350 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -355,7 +355,7 @@ three rows of draggable **blocks**, then a box to type a number into:
 | Row | Blocks |
 | --- | --- |
 | `DATA` | `close`, `open`, `high`, `low`, `volume` |
-| `INDICATORS` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands |
+| `INDICATORS` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands — each drops as one tile with its numbers inside |
 | `LOGIC & MATHS` | `AND`, `OR`, `NOT`, `=`, parentheses, comma, arithmetic, comparisons |
 | number box | type a value, `+ Add` puts it on the active line, `↺ Reset` clears every line |
 
@@ -376,13 +376,15 @@ are named series. A line wraps rather than clipping, and the entry tile grows
 to hold however many rows the lines take:
 
 ```
-LET  [mid] [=] [sma] [(] [close] [,] [▢] [)]
-IF   [close] [<] [mid]
+LET  [band] [=] [Boll low 20 2]
+IF   [close] [<] [band]
 ```
 
-An indicator drops in with its parentheses and comma already placed and an
-empty **slot** — a dashed chip — where its period goes. Fill a slot by dragging
-a number onto it, or by clicking the slot and typing a value in the number box.
+An **indicator drops as a single tile** and nothing else comes with it: the
+tile holds its own number — one for `SMA`, two for a Bollinger band — so `Boll
+low` with `20` and `2` reads as `bollinger_lower(close, 20, 2)`. Edit a number
+by typing in the tile; it rewrites the formula as you go.
+
 A chip drags by its handle to reorder or move between lines, and its `×` takes
 it off; `+ add a line` adds a line and each line carries its own `×` to remove
 it (the last one stays). A drag carries a picture of the block itself, so what

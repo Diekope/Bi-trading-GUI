@@ -279,36 +279,44 @@ def test_building_a_formula_from_the_palette(
     app.processEvents()
     formula = builder.formula
 
-    def tokens(group: str, label: str) -> list:
+    def item(group: str, label: str):
         for title, items in PALETTES:
             if title == group:
-                for item in items:
-                    if item.label == label:
-                        return list(item.tokens)
+                for entry in items:
+                    if entry.label == label:
+                        return entry
         raise AssertionError(f"no palette item {group}/{label}")
 
     strip = formula.strips[0]
-    # Drop an indicator: it arrives with its parentheses and an empty slot.
+    # An indicator drops as a single tile, its numbers inside it.
+    spec = item("Indicators", "SMA").call
     formula.drop_tokens(
-        {"tokens": tokens("Indicators", "SMA"), "from": None}, strip, 0
+        {
+            "tokens": [],
+            "call": {
+                "func": spec[0],
+                "series": spec[1],
+                "params": list(spec[2]),
+                "label": spec[3],
+            },
+            "from": None,
+        },
+        strip,
+        0,
     )
     app.processEvents()
 
-    assert strip.has_empty_slots() is True
-    assert formula.error() == "fill the empty slot before this can be read"
-    assert formula.parsed() is None
-
-    # Fill the slot by arming it and typing a value.
-    slot = [chip for chip in strip.chips() if chip.token is None][0]
-    formula.arm_slot(slot)
-    formula.number_edit.setText("20")
-    formula.add_number()
-    app.processEvents()
-
-    assert strip.has_empty_slots() is False
+    # One chip, valid straight away, and the tile's field holds the period.
+    assert len(strip.chips()) == 1
+    assert [field.text() for field in strip.chips()[0].fields] == ["20"]
     assert formula.formula_text() == "sma(close, 20)"
     assert formula.error() == ""
     assert formula.parsed() is not None
+
+    # Editing the number in the tile rewrites the formula.
+    strip.chips()[0].fields[0].setText("50")
+    app.processEvents()
+    assert formula.formula_text() == "sma(close, 50)"
 
 
 def test_the_rules_and_code_pages_are_placeholders(

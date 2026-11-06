@@ -59,11 +59,17 @@ LOGIC_WORDS = ("and", "or", "not")
 
 @dataclass(frozen=True)
 class Item:
-    """One draggable source. A `None` token is an empty slot."""
+    """One draggable source.
+
+    A plain item drops the tokens it carries — a field, an operator, a number.
+    A `call` item is an indicator: it drops as a single tile that knows its
+    function, the series it reads and its own numbers.
+    """
 
     label: str
-    tokens: tuple
+    tokens: tuple = ()
     note: str = ""
+    call: tuple | None = None  # (func, series, params, label)
 
 
 PALETTES: tuple = (
@@ -80,16 +86,16 @@ PALETTES: tuple = (
     (
         "Indicators",
         (
-            Item("SMA", ("sma", "(", "close", ",", None, ")"), "sma(close, period)"),
-            Item("EMA", ("ema", "(", "close", ",", None, ")"), "ema(close, period)"),
-            Item("RSI", ("rsi", "(", "close", ",", None, ")"), "rsi(close, period)"),
-            Item("Highest", ("highest", "(", "high", ",", None, ")"), "highest(high, period)"),
-            Item("Lowest", ("lowest", "(", "low", ",", None, ")"), "lowest(low, period)"),
-            Item("Change", ("change", "(", "close", ",", None, ")"), "change(close, bars)"),
-            Item("Shift", ("shift", "(", "close", ",", None, ")"), "shift(close, bars)"),
-            Item("Boll low", ("bollinger_lower", "(", "close", ",", None, ",", None, ")"), "bollinger_lower(close, period, dev)"),
-            Item("Boll mid", ("bollinger_middle", "(", "close", ",", None, ",", None, ")"), "bollinger_middle(close, period, dev)"),
-            Item("Boll up", ("bollinger_upper", "(", "close", ",", None, ",", None, ")"), "bollinger_upper(close, period, dev)"),
+            Item("SMA", note="sma(close, period)", call=("sma", "close", ("20",), "SMA")),
+            Item("EMA", note="ema(close, period)", call=("ema", "close", ("20",), "EMA")),
+            Item("RSI", note="rsi(close, period)", call=("rsi", "close", ("14",), "RSI")),
+            Item("Highest", note="highest(high, period)", call=("highest", "high", ("20",), "Highest")),
+            Item("Lowest", note="lowest(low, period)", call=("lowest", "low", ("20",), "Lowest")),
+            Item("Change", note="change(close, bars)", call=("change", "close", ("1",), "Change")),
+            Item("Shift", note="shift(close, bars)", call=("shift", "close", ("1",), "Shift")),
+            Item("Boll low", note="bollinger_lower(close, period, dev)", call=("bollinger_lower", "close", ("20", "2"), "Boll low")),
+            Item("Boll mid", note="bollinger_middle(close, period, dev)", call=("bollinger_middle", "close", ("20", "2"), "Boll mid")),
+            Item("Boll up", note="bollinger_upper(close, period, dev)", call=("bollinger_upper", "close", ("20", "2"), "Boll up")),
         ),
     ),
     (
@@ -156,17 +162,22 @@ def drag_pixmap(widget: QWidget):
     return widget.grab()
 
 
-def _begin_drag(widget: QWidget, tokens: list, source=None, hotspot=None) -> None:
-    """Start a drag carrying `tokens`; `source` marks an internal chip move.
+def _begin_drag(widget: QWidget, tokens: list, source=None, hotspot=None, call=None) -> None:
+    """Start a drag; `source` marks an internal move, `call` an indicator tile.
 
     The drag carries a picture of the widget itself, so what is being moved is
     visible under the cursor — the block, not a blank rectangle.
     """
     data = QMimeData()
-    data.setData(
-        MIME,
-        json.dumps({"tokens": list(tokens), "from": source}).encode("utf-8"),
-    )
+    payload: dict = {"tokens": list(tokens), "from": source}
+    if call is not None:
+        payload["call"] = {
+            "func": call[0],
+            "series": call[1],
+            "params": list(call[2]),
+            "label": call[3],
+        }
+    data.setData(MIME, json.dumps(payload).encode("utf-8"))
     drag = QDrag(widget)
     drag.setMimeData(data)
     picture = drag_pixmap(widget)
@@ -286,7 +297,10 @@ class PaletteBlock(QFrame):
         self._press: QPoint | None = None
         self.setObjectName("paletteBlock")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setProperty("group", group_for_token(item.tokens[0]))
+        self.setProperty(
+            "group",
+            "indicator" if item.call else group_for_token(item.tokens[0]),
+        )
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setToolTip(item.note or f"drag {item.label} onto a line")
 
@@ -316,7 +330,10 @@ class PaletteBlock(QFrame):
             return
         hotspot = self._press
         self._press = None
-        _begin_drag(self, list(self.item.tokens), hotspot=hotspot)
+        if self.item.call is not None:
+            _begin_drag(self, [], hotspot=hotspot, call=self.item.call)
+        else:
+            _begin_drag(self, list(self.item.tokens), hotspot=hotspot)
 
 
 class Chip(QFrame):
@@ -355,6 +372,13 @@ class Chip(QFrame):
         self._apply()
 
     # -- state -------------------------------------------------------------
+
+    def is_slot(self) -> bool:
+        return self.token is None
+
+    def tokens(self) -> list:
+        """The formula tokens this chip stands for."""
+        return [self.token]
 
     def set_token(self, token) -> None:
         self.token = token
@@ -402,7 +426,7 @@ class Chip(QFrame):
             self._press = event.position().toPoint()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if self._press is None or self.token is None:
+        if self._press is None or self.is_slot():
             return
         moved = (event.position().toPoint() - self._press).manhattanLength()
         if moved < QApplication.startDragDistance():
@@ -412,7 +436,7 @@ class Chip(QFrame):
         self.builder.start_chip_drag(self, hotspot)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        if self._press is not None and self.token is None:
+        if self._press is not None and self.is_slot():
             # A click, not a drag, on a slot: arm it for the number box.
             self.builder.arm_slot(self)
         self._press = None
@@ -432,6 +456,77 @@ class Chip(QFrame):
         if self.token is None and token is not None:
             self.builder.fill_slot(self, token, event.mimeData())
             event.acceptProposedAction()
+
+
+class CallChip(Chip):
+    """An indicator as a single tile, with its own numbers inside it.
+
+    One tile stands for the whole call — `SMA` with a field for its period
+    reads as `sma(close, 20)`. Nothing else is added alongside it.
+    """
+
+    def __init__(
+        self,
+        func: str,
+        series: str,
+        params,
+        label: str,
+        builder: "FormulaBuilder",
+        parent=None,
+    ) -> None:
+        self.func = func
+        self.series = series
+        self.param_values = [str(value) for value in params]
+        self.display = label
+        super().__init__(None, builder, parent)
+        self.label.setText(label)
+
+        layout = self.layout()
+        self.fields: list[QLineEdit] = []
+        for value in self.param_values:
+            field = QLineEdit(value, self)
+            field.setObjectName("chipField")
+            field.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            field.setFixedWidth(34)
+            field.setToolTip("the period or deviation this indicator uses")
+            field.textChanged.connect(self._on_param)
+            self.fields.append(field)
+            # Before the remove button, which is the last thing in the row.
+            layout.insertWidget(layout.count() - 1, field)
+
+    # -- state -------------------------------------------------------------
+
+    def is_slot(self) -> bool:
+        return False
+
+    def group(self) -> str:
+        return "indicator"
+
+    def tokens(self) -> list:
+        tokens = [self.func, "(", self.series]
+        for value in self.param_values:
+            tokens += [",", value]
+        tokens.append(")")
+        return tokens
+
+    def call(self) -> tuple:
+        return (self.func, self.series, tuple(self.param_values), self.display)
+
+    def _on_param(self, _text: str) -> None:
+        for index, field in enumerate(self.fields):
+            self.param_values[index] = field.text()
+        self.builder.contents_changed()
+
+    def _apply(self) -> None:
+        # Not a slot, and coloured as an indicator whatever it holds.
+        self.setProperty("slot", False)
+        self.setProperty("group", "indicator")
+        self.handle.setVisible(True)
+        self.remove_button.setVisible(True)
+        self.setAcceptDrops(False)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip("drag by the handle · edit the numbers in place")
+        self._repolish()
 
 
 class DropZone(QWidget):
@@ -548,19 +643,31 @@ class ChipStrip(QFrame):
         return list(self._chips)
 
     def tokens(self) -> list:
-        return [chip.token for chip in self._chips]
+        result: list = []
+        for chip in self._chips:
+            result.extend(chip.tokens())
+        return result
 
     def text(self) -> str:
         return tokens_to_text(self.tokens())
 
     def has_empty_slots(self) -> bool:
-        return any(chip.token is None for chip in self._chips)
+        return any(chip.is_slot() for chip in self._chips)
 
     def set_caption(self, text: str) -> None:
         self.caption.setText(text)
 
     def add_chip(self, token, index: int | None = None) -> Chip:
         chip = Chip(token, self.builder, self.zone)
+        return self._place(chip, index)
+
+    def add_call_chip(self, spec, index: int | None = None) -> CallChip:
+        """An indicator as one tile: its numbers live inside it."""
+        func, series, params, label = spec
+        chip = CallChip(func, series, params, label, self.builder, self.zone)
+        return self._place(chip, index)
+
+    def _place(self, chip, index: int | None):
         chip.strip = self
         at = len(self._chips) if index is None else max(0, min(index, len(self._chips)))
         self._chips.insert(at, chip)
@@ -825,14 +932,14 @@ class FormulaBuilder(QWidget):
 
     def start_chip_drag(self, chip: Chip, hotspot=None) -> None:
         strip = chip.strip
-        if strip is None or chip.token is None:
+        if strip is None or chip.is_slot():
             return
-        _begin_drag(
-            chip,
-            [chip.token],
-            source=[self.strips.index(strip), strip.chips().index(chip)],
-            hotspot=hotspot,
-        )
+        location = [self.strips.index(strip), strip.chips().index(chip)]
+        if isinstance(chip, CallChip):
+            # An indicator travels as one tile, numbers and all.
+            _begin_drag(chip, [], source=location, hotspot=hotspot, call=chip.call())
+        else:
+            _begin_drag(chip, [chip.token], source=location, hotspot=hotspot)
 
     def remove_chip(self, chip: Chip) -> None:
         if chip.strip is None:
@@ -841,16 +948,34 @@ class FormulaBuilder(QWidget):
         self.changed.emit()
         self._refresh()
 
+    def contents_changed(self) -> None:
+        """A chip changed in place (an indicator's number); re-read it."""
+        self.changed.emit()
+        self._refresh()
+
     def drop_tokens(self, payload: dict, strip: ChipStrip, index: int) -> None:
         tokens = payload.get("tokens") or []
+        call = payload.get("call")
         source = payload.get("from")
         if source:
             source_strip, source_index = source
             self._remove_at(source_strip, source_index)
             if source_strip == self.strips.index(strip) and source_index < index:
                 index -= 1
-        for offset, token in enumerate(tokens):
-            strip.add_chip(token, index + offset)
+        if call:
+            if isinstance(call, dict):
+                spec = (
+                    call.get("func", ""),
+                    call.get("series", "close"),
+                    tuple(call.get("params") or ()),
+                    call.get("label", call.get("func", "")),
+                )
+            else:
+                spec = tuple(call)
+            strip.add_call_chip(spec, index)
+        else:
+            for offset, token in enumerate(tokens):
+                strip.add_chip(token, index + offset)
         self.active = strip
         self.changed.emit()
         self._refresh()
@@ -989,6 +1114,7 @@ __all__ = [
     "PALETTES",
     "Chip",
     "ChipStrip",
+    "CallChip",
     "DropZone",
     "FlowHolder",
     "FlowLayout",

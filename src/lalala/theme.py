@@ -169,6 +169,20 @@ QPushButton#chipRemove, QPushButton#stripRemove {{
     font-size: 11px;
     padding: 0px;
 }}
+
+/* The number inside an indicator tile. */
+QLineEdit#chipField {{
+    background-color: {CANVAS};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 8px;
+    color: {ACCENT};
+    font-size: 9px;
+    padding: 0px 2px;
+}}
+QLineEdit#chipField:focus {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
 QPushButton#chipRemove {{
     max-width: 12px;
 }}

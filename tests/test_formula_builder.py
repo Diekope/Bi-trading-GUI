@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from lalala.formula_builder import (  # noqa: E402
     MIME,
     PALETTES,
+    CallChip,
     Chip,
     ChipStrip,
     FormulaBuilder,
@@ -47,9 +48,32 @@ def _tokens(group: str, label: str) -> list:
     raise AssertionError(f"no palette item {group}/{label}")
 
 
+def _call(group: str, label: str) -> dict:
+    for title, items in PALETTES:
+        if title == group:
+            for item in items:
+                if item.label == label:
+                    func, series, params, display = item.call
+                    return {
+                        "func": func,
+                        "series": series,
+                        "params": list(params),
+                        "label": display,
+                    }
+    raise AssertionError(f"no indicator {group}/{label}")
+
+
+def _drop_call(builder: FormulaBuilder, strip: ChipStrip, group: str, label: str) -> None:
+    builder.drop_tokens(
+        {"tokens": [], "call": _call(group, label), "from": None},
+        strip,
+        len(strip.chips()),
+    )
+
+
 def _drop(builder: FormulaBuilder, strip: ChipStrip, tokens) -> None:
     builder.drop_tokens(
-        {"tokens": list(tokens), "from": None}, strip, len(strip.tokens())
+        {"tokens": list(tokens), "from": None}, strip, len(strip.chips())
     )
 
 
@@ -70,7 +94,8 @@ def test_the_palette_is_rows_of_blocks_and_a_number_box(
         assert blocks, f"{title} has something to drag"
         for block in blocks:
             assert isinstance(block, PaletteBlock)
-            assert block.item.tokens, "every block drops something"
+            # Every block drops something: tokens, or an indicator call.
+            assert block.item.tokens or block.item.call
 
     assert builder.number_edit is not None
     assert "Add" in builder.number_add.text()
@@ -107,11 +132,14 @@ def test_the_blocks_carry_what_they_would_drop(
     labels = [block.item.label for block in data]
     assert "close" in labels and "volume" in labels
 
-    # An indicator drops as a call with an empty slot for its period.
-    sma = _tokens("Indicators", "SMA")
-    assert sma == ["sma", "(", "close", ",", None, ")"]
-    bol = _tokens("Indicators", "Boll low")
-    assert bol.count(None) == 2  # period and deviations
+    # An indicator carries its call: function, series and default numbers.
+    sma = _call("Indicators", "SMA")
+    assert sma["func"] == "sma"
+    assert sma["series"] == "close"
+    assert sma["params"] == ["20"]
+    bol = _call("Indicators", "Boll low")
+    assert bol["func"] == "bollinger_lower"
+    assert bol["params"] == ["20", "2"]  # period and deviations
 
 
 # -- lines and chips --------------------------------------------------------
@@ -143,40 +171,104 @@ def test_dropping_tokens_builds_the_text_and_parses(
     assert [chip.token for chip in strip.chips()] == ["close", "<", "10"]
 
 
-def test_an_indicator_arrives_with_an_empty_slot(
+def test_an_indicator_drops_as_one_tile(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     strip = builder.strips[0]
-    _drop(builder, strip, _tokens("Indicators", "SMA"))
+    _drop_call(builder, strip, "Indicators", "SMA")
     app.processEvents()
 
-    assert strip.has_empty_slots() is True
-    assert builder.parsed() is None
-    assert "slot" in builder.error()
+    # Exactly one chip, and nothing else came with it.
+    assert len(strip.chips()) == 1
+    chip = strip.chips()[0]
+    assert isinstance(chip, CallChip)
+    assert chip.property("group") == "indicator"
+    assert chip.property("slot") is False
+    assert chip.is_slot() is False
+    # It carries its own number, and the text reads as the whole call.
+    assert [field.text() for field in chip.fields] == ["20"]
+    assert builder.formula_text() == "sma(close, 20)"
+    assert builder.error() == ""
+    assert builder.parsed() is not None
 
-    slot = [chip for chip in strip.chips() if chip.token is None][0]
-    assert slot.property("slot") is True
-    assert slot.acceptDrops() is True
 
-
-def test_a_slot_is_filled_by_arming_it_and_typing(
+def test_an_indicators_number_is_edited_in_the_tile(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     strip = builder.strips[0]
-    _drop(builder, strip, _tokens("Indicators", "SMA"))
-    slot = [chip for chip in strip.chips() if chip.token is None][0]
+    _drop_call(builder, strip, "Indicators", "SMA")
+    _drop(builder, strip, _tokens("Logic & Maths", "<"))
+    _drop(builder, strip, ("10",))
+    app.processEvents()
+    assert builder.formula_text() == "sma(close, 20) < 10"
+
+    chip = strip.chips()[0]
+    chip.fields[0].setText("50")
+    app.processEvents()
+
+    assert builder.formula_text() == "sma(close, 50) < 10"
+    assert builder.parsed() is not None
+
+
+def test_an_indicator_with_two_numbers_is_still_one_tile(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.strips[0]
+    _drop_call(builder, strip, "Indicators", "Boll low")
+    app.processEvents()
+
+    chip = strip.chips()[0]
+    assert isinstance(chip, CallChip)
+    assert len(strip.chips()) == 1
+    assert [field.text() for field in chip.fields] == ["20", "2"]
+    assert builder.formula_text() == "bollinger_lower(close, 20, 2)"
+
+    chip.fields[1].setText("3")
+    app.processEvents()
+    assert builder.formula_text() == "bollinger_lower(close, 20, 3)"
+
+
+def test_an_indicator_tile_moves_between_lines_as_one_tile(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    first = builder.strips[0]
+    _drop_call(builder, first, "Indicators", "SMA")
+    second = builder.add_strip()
+    app.processEvents()
+
+    # Drag it across, carrying its call.
+    chip = first.chips()[0]
+    builder.drop_tokens(
+        {"tokens": [], "call": chip.call(), "from": [0, 0]}, second, 0
+    )
+    app.processEvents()
+
+    assert first.chips() == []
+    assert len(second.chips()) == 1
+    assert isinstance(second.chips()[0], CallChip)
+    assert second.chips()[0].fields[0].text() == "20"
+
+
+def test_a_slot_can_still_be_filled_by_arming_it_and_typing(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    # Nothing in the palette makes a slot now, but the machinery stays: build
+    # one by hand and fill it.
+    strip = builder.strips[0]
+    slot = strip.add_chip(None)
+    app.processEvents()
+    assert slot.is_slot() is True
+    assert strip.has_empty_slots() is True
 
     builder.arm_slot(slot)
     assert builder.armed is slot
-    assert slot.property("armed") is True
-
-    builder.number_edit.setText("20")
+    builder.number_edit.setText("7")
     builder.add_number()
     app.processEvents()
 
-    assert slot.token == "20"
+    assert slot.token == "7"
     assert builder.armed is None
-    assert builder.formula_text() == "sma(close, 20)"
+    assert builder.formula_text() == "7"
     assert builder.parsed() is not None
 
 
@@ -184,15 +276,15 @@ def test_a_slot_is_filled_by_dropping_a_number_on_it(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     strip = builder.strips[0]
-    _drop(builder, strip, _tokens("Indicators", "SMA"))
-    slot = [chip for chip in strip.chips() if chip.token is None][0]
+    slot = strip.add_chip(None)
+    app.processEvents()
 
     # A drop landing on the slot replaces it.
     builder.fill_slot(slot, "14")
     app.processEvents()
 
     assert slot.token == "14"
-    assert builder.formula_text() == "sma(close, 14)"
+    assert builder.formula_text() == "14"
 
 
 def test_the_number_box_adds_a_chip_to_the_active_line(
@@ -245,11 +337,7 @@ def test_a_series_line_then_a_condition(
 ) -> None:
     first = builder.strips[0]
     _drop(builder, first, ("mid", "="))
-    _drop(builder, first, _tokens("Indicators", "SMA"))
-    # Fill the two-chips-worth of slot.
-    for chip in first.chips():
-        if chip.token is None:
-            builder.fill_slot(chip, "20")
+    _drop_call(builder, first, "Indicators", "SMA")
 
     second = builder.add_strip()
     _drop(builder, second, ("close",))
@@ -332,7 +420,7 @@ def test_a_long_line_wraps_instead_of_clipping(
 ) -> None:
     strip = builder.strips[0]
     # Enough chips to run past the width.
-    for token in _tokens("Indicators", "Boll low") + ["and"] * 20:
+    for token in ["close"] + ["and"] * 24:
         _drop(builder, strip, [token])
     builder.resize(360, 360)
     app.processEvents()
@@ -396,14 +484,20 @@ def test_blocks_and_chips_are_coloured_by_what_they_are(
     assert builder.blocks["Data"][0].property("group") == "data"
     assert builder.blocks["Indicators"][0].property("group") == "indicator"
 
-    # A chip wears its own group.
+    # A chip wears its own group, and an indicator tile is one chip.
     strip = builder.strips[0]
-    _drop(builder, strip, _tokens("Indicators", "SMA"))
+    _drop(builder, strip, _tokens("Data", "close"))
+    _drop(builder, strip, _tokens("Logic & Maths", "AND"))
+    _drop(builder, strip, _tokens("Logic & Maths", "+"))
+    _drop_call(builder, strip, "Indicators", "SMA")
     app.processEvents()
-    groups = {chip.token: chip.property("group") for chip in strip.chips()}
-    assert groups["sma"] == "indicator"
-    assert groups["close"] == "data"
-    assert groups["("] == "maths"
+
+    groups = [(chip.tokens()[0], chip.property("group")) for chip in strip.chips()]
+    assert groups[0] == ("close", "data")
+    assert groups[1] == ("and", "logic")
+    assert groups[2] == ("+", "maths")
+    # The indicator tile is one chip whose first token is its function.
+    assert groups[3] == ("sma", "indicator")
 
 
 def test_a_line_shows_as_the_drop_target_while_dragging(
