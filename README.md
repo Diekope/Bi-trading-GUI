@@ -271,15 +271,14 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             284 tests: parsing/search/aliases, slug math, candle + book
+tests/             286 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
-                   strategy builder window, its 21/47/32 columns and the two
-                   tiles stacked in the middle, the chart and backtest
-                   settings, the silent log, and the candle store and
-                   downloader
+                   strategy builder window, its 21/47/32 columns, its
+                   name/timeframe tiles, the chart and backtest settings, the
+                   silent log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -332,8 +331,13 @@ ordinary window sizes; the proportions hold when the window is resized.
 
 The middle column holds two separate tiles one above the other — the
 **strategy name** on top and the **timeframe it acts on** below. They are two
-cards with their own chrome, not one tile split in two, and both are still
-empty. The two stay 50/50 as the window changes size.
+cards with their own chrome, not one tile split in two. The top tile holds a
+text field (`name` as its placeholder); the bottom holds a dropdown of `1m`,
+`5m`, `15m` and `1h`, defaulting to `1m`. No captions: the tile is the label,
+and the card's own padding is the only space around a field. Both are
+top-aligned and stay 50/50 as the window changes size.
+
+Nothing is saved yet, and nothing is wired to the walk.
 
 ## Results tile
 

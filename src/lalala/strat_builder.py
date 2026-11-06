@@ -21,6 +21,8 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QLineEdit,
     QMainWindow,
     QSplitter,
     QVBoxLayout,
@@ -33,6 +35,9 @@ from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
 COLUMN_SHARES = (0.21, 0.47, 0.32)
+
+# The bar the strategy reads, one of the compactions the store supports.
+TIMEFRAMES = ("1m", "5m", "15m", "1h")
 
 
 class StrategyBuilderWindow(QMainWindow):
@@ -71,6 +76,22 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_tile = Card(self.center)
         self.timeframe_tile = Card(self.center)
         self.right = Card(self.splitter)
+
+        # No caption above either field: the tile is the label. The card's
+        # padding is the only space around them, and both sit at the top.
+        self.name_edit = QLineEdit(self.name_tile)
+        self.name_edit.setObjectName("strategyName")
+        self.name_edit.setPlaceholderText("name")
+        self.name_tile.body.addWidget(
+            self.name_edit, 0, Qt.AlignmentFlag.AlignTop
+        )
+
+        self.timeframe = QComboBox(self.timeframe_tile)
+        self.timeframe.setObjectName("strategyTimeframe")
+        self.timeframe.addItems(TIMEFRAMES)
+        self.timeframe_tile.body.addWidget(
+            self.timeframe, 0, Qt.AlignmentFlag.AlignTop
+        )
 
         for tile in (self.name_tile, self.timeframe_tile):
             self.center.addWidget(tile)

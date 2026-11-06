@@ -8,10 +8,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
+from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit  # noqa: E402
 
 from lalala.panels import Card  # noqa: E402
-from lalala.strat_builder import COLUMN_SHARES, StrategyBuilderWindow  # noqa: E402
+from lalala.strat_builder import (  # noqa: E402
+    COLUMN_SHARES,
+    TIMEFRAMES,
+    StrategyBuilderWindow,
+)
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 
@@ -165,15 +169,41 @@ def test_both_gaps_show_the_canvas(
     assert second == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_every_tile_is_empty(builder: StrategyBuilderWindow) -> None:
-    for tile in (
-        builder.left,
-        builder.name_tile,
-        builder.timeframe_tile,
-        builder.right,
-    ):
-        # Nothing has been decided about the shape of a strategy yet.
+def test_the_name_is_a_text_field(builder: StrategyBuilderWindow) -> None:
+    edit = builder.name_edit
+
+    assert edit.placeholderText() == "name"
+    assert edit.text() == ""
+    # In the top middle tile, and the only thing in it.
+    assert builder.name_tile.isAncestorOf(edit)
+    assert builder.name_tile.findChildren(QLabel) == []
+    assert builder.name_tile.body.count() == 1
+
+    edit.setText("lower band dip")
+    assert edit.text() == "lower band dip"
+
+
+def test_the_timeframe_is_a_dropdown(builder: StrategyBuilderWindow) -> None:
+    picker = builder.timeframe
+
+    assert [picker.itemText(index) for index in range(picker.count())] == list(
+        TIMEFRAMES
+    )
+    assert picker.currentText() == "1m"
+    assert builder.timeframe_tile.isAncestorOf(picker)
+    assert builder.timeframe_tile.findChildren(QLabel) == []
+    assert builder.timeframe_tile.body.count() == 1
+
+    picker.setCurrentText("1h")
+    assert picker.currentText() == "1h"
+
+
+def test_the_side_rails_stay_empty(builder: StrategyBuilderWindow) -> None:
+    # Only the middle column has fields so far.
+    for tile in (builder.left, builder.right):
         assert tile.findChildren(QLabel) == []
+        assert tile.findChildren(QLineEdit) == []
+        assert tile.findChildren(QComboBox) == []
         assert tile.body.count() == 0
 
 
