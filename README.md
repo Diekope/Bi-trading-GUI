@@ -255,6 +255,7 @@ src/lalala/
   strat_strategy.py the strategy tile: which entry rule to run
   strat_builder.py the builder window: strategy, entry and exit rules
   formula.py       the entry/exit formula language: parse and check (no Qt)
+  formula_builder.py the drag-and-drop formula builder (palettes, chips, slots)
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -272,15 +273,16 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             323 tests: parsing/search/aliases, slug math, candle + book
+tests/             342 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the entry/exit tiles and the formula
-                   editor, the formula language itself, the chart and backtest
-                   settings, the silent log, and the candle store and downloader
+                   compact STRATEGY tile, the entry/exit tiles and the
+                   drag-and-drop formula builder, the formula language
+                   itself, the chart and backtest settings, the silent log,
+                   and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -345,11 +347,44 @@ tile has only its title.
 
 Nothing is saved yet, and nothing is wired to the walk.
 
+### The formula builder
+
+The `Formulas` page is a drag-and-drop builder. A subtile holds the sources —
+three lists to drag from and a box to type a number into:
+
+| List | What is in it |
+| --- | --- |
+| `Data` | `close`, `open`, `high`, `low`, `volume` |
+| `Indicators` | `SMA`, `EMA`, `RSI`, `Highest`, `Lowest`, `Change`, `Shift`, and the three Bollinger bands |
+| `Logic & Maths` | `and`, `or`, `not`, `=`, parentheses, comma, arithmetic, comparisons |
+| `Number` | type a value; `Add` drops it on the active line |
+
+Under the palette are the lines, one strip of chips each, read left to right.
+The last line is the condition, the ones above it are named series:
+
+```
+[mid] [=] [sma] [(] [close] [,] [▢] [)]
+[close] [<] [mid]
+```
+
+An indicator drops in with its parentheses and comma already placed and an
+empty **slot** — a dashed chip — where its period goes. Fill a slot by dragging
+a number chip onto it, or by clicking the slot and typing a value in the number
+box. Chips drag to reorder or move between lines, and double-click to remove;
+`+ line` and `− line` add and take away lines (the last one stays). Long lines
+**wrap** rather than clipping.
+
+The chips are only an editor. The formula **text** is the truth: it is rebuilt
+from the chips and handed to `lalala.formula.parse`, so the same checker still
+reports `line 2, column 9: unknown name 'clsoe'`, and the text is what a run
+would use.
+
 ### The formula language
 
-The `Formulas` page is a monospace editor. The text is parsed and checked as
-you type: a sound formula gets a clean border, a typo gets a red one and the
-first problem with its place, `line 2, column 9: unknown name 'clsoe'`.
+The text a build produces is parsed and checked as it is built: a sound formula
+gets no error line, a typo gets its place — `line 2, column 9: unknown name
+'clsoe'`, or `fill the empty slot before this can be read` while a slot is
+blank.
 
 A formula is a list of lines. All but the last define named series; the last is
 the condition, evaluated once per bar:
@@ -574,9 +609,10 @@ dropped.
 ## Not implemented yet
 
 - The strategy builder window. It launches on its own and divides into three
-  locked columns: the formula editor checks a rule but nothing defines or runs
-  one yet, and nothing in the backtest window opens it. The `Rules` and `Code`
-  entry pages are placeholders, and the **EXIT RULES** tile is empty.
+  locked columns: the drag-and-drop formula builder checks a rule but nothing
+  defines or runs one yet, and nothing in the backtest window opens it. The
+  `Rules` and `Code` entry pages are placeholders, and the **EXIT RULES** tile
+  is empty.
 - Order entry. `venues/hyperliquid.py` can sign and submit, but nothing in the
   UI calls it — deliberately, and it needs a key.
 - Account balance / positions.

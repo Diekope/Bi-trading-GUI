@@ -5,6 +5,11 @@ rail on the left, a middle column, and a wider rail on the right. The middle
 column stacks three tiles: a compact **STRATEGY** tile with the strategy's name
 and the timeframe it acts on, then **ENTRY RULES**, then **EXIT RULES**.
 
+The entry tile offers three ways to write a rule; **Formulas** is the one that
+works, and it is a drag-and-drop builder (`lalala.formula_builder`): drag data,
+indicators and operators onto a line, fill the numbers, and the text it adds up
+to is checked by `lalala.formula`.
+
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
 
@@ -27,7 +32,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
-    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -37,11 +41,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lalala.cards import mono_font
-from lalala.formula import HINT, FormulaError, parse
+from lalala.formula_builder import FormulaBuilder
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
-from lalala.theme import CANVAS, CARD_GAP, DOWN, apply_dark_theme
+from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
 COLUMN_SHARES = (0.21, 0.47, 0.32)
@@ -81,6 +84,7 @@ class StrategyBuilderWindow(QMainWindow):
     """Two rails, then a compact strategy tile over the entry and exit rules."""
 
     entry_mode_changed = Signal(str)
+    entry_formula_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -232,33 +236,11 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self.formula_edit = QPlainTextEdit(page)
-        self.formula_edit.setObjectName("formulaEdit")
-        self.formula_edit.setFont(mono_font(9))
-        self.formula_edit.setTabChangesFocus(True)
-        self.formula_edit.setPlaceholderText(
-            "close < bollinger_lower(close, 20, 2)"
-        )
-        self.formula_edit.setToolTip(
-            "One condition per bar, optionally after `name = …` lines"
-        )
-        self.formula_edit.textChanged.connect(self._validate_formula)
-
-        # The checker writes here: the first thing wrong, and where.
-        self.formula_error = QLabel("", page)
-        self.formula_error.setObjectName("formulaError")
-        self.formula_error.setWordWrap(True)
-
-        self.formula_hint = QLabel(HINT, page)
-        self.formula_hint.setObjectName("hintLabel")
-        self.formula_hint.setWordWrap(True)
-
-        layout.addWidget(self.formula_edit, 1)
-        layout.addWidget(self.formula_error)
-        layout.addWidget(self.formula_hint)
-
-        # A parsed formula, or None while the text is empty or wrong.
-        self._formula = None
+        # The drag-and-drop builder. The formula text it produces is what the
+        # checker reads and what a run would use; the chips are just an editor.
+        self.formula = FormulaBuilder(page)
+        self.formula.changed.connect(self._formula_changed)
+        layout.addWidget(self.formula, 1)
         return page
 
     def _code_page(self) -> QWidget:
@@ -273,48 +255,26 @@ class StrategyBuilderWindow(QMainWindow):
         layout.addStretch(1)
         return page
 
-    def _validate_formula(self) -> None:
-        """Check the text and report the first thing wrong."""
-        text = self.formula_edit.toPlainText()
-        if not text.strip():
-            self._formula = None
-            self.formula_error.setText("")
-            self._mark_formula("")
-            return
-        try:
-            self._formula = parse(text)
-        except FormulaError as exc:
-            self._formula = None
-            self.formula_error.setText(str(exc))
-            self._mark_formula("error")
-        else:
-            self.formula_error.setText("")
-            self._mark_formula("ok")
-
-    def _mark_formula(self, state: str) -> None:
-        if self.formula_edit.property("state") == state:
-            return
-        self.formula_edit.setProperty("state", state)
-        style = self.formula_edit.style()
-        style.unpolish(self.formula_edit)
-        style.polish(self.formula_edit)
+    def _formula_changed(self) -> None:
+        """The builder's text changed; pass the word on."""
+        self.entry_formula_changed.emit()
 
     # -- the formula -------------------------------------------------------
 
     def entry_formula(self) -> str:
-        """The text in the formula editor, as typed."""
-        return self.formula_edit.toPlainText()
+        """The formula text the chips add up to."""
+        return self.formula.formula_text()
 
     def set_entry_formula(self, text: str) -> None:
-        self.formula_edit.setPlainText(text)
+        self.formula.set_formula(text)
 
     def entry_formula_error(self) -> str:
         """The checker's message, or "" when the formula is fine."""
-        return self.formula_error.text()
+        return self.formula.error()
 
     def entry_formula_parsed(self):
         """The parsed formula, or None while it is empty or invalid."""
-        return self._formula
+        return self.formula.parsed()
 
     def column_sizes(self) -> list[int]:
         """Pixel widths that satisfy `COLUMN_SHARES`, in the current width."""
@@ -343,7 +303,7 @@ class StrategyBuilderWindow(QMainWindow):
             return
         self.entry_pages.setCurrentIndex(index)
         if ENTRY_MODES[index][0] == "formulas":
-            self.formula_edit.setFocus()
+            self.formula.number_edit.setFocus()
         self.entry_mode_changed.emit(ENTRY_MODES[index][0])
 
     def showEvent(self, event) -> None:  # noqa: N802

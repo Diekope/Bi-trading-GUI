@@ -132,8 +132,6 @@ def test_the_strategy_tile_is_titled_and_compact(
     top, entry, exit_ = builder.center.sizes()
     assert top == pytest.approx(tile.sizeHint().height(), abs=2)
     assert entry > top and exit_ > top
-    # The two empty tiles split what is left.
-    assert entry == pytest.approx(exit_, abs=2)
 
 
 def test_the_name_and_the_timeframe_share_the_strategy_tile(
@@ -151,10 +149,11 @@ def test_the_name_and_the_timeframe_share_the_strategy_tile(
     assert edit.geometry().left() < picker.geometry().left()
     assert edit.width() > picker.width() * 3
 
-    # Scoped to this tile; the rules tiles have neither field.
-    for tile in (builder.entry_tile, builder.exit_tile):
-        assert tile.findChildren(QLineEdit) == []
-        assert tile.findChildren(QComboBox) == []
+    # Scoped to this tile: the name is a field here and nowhere else. The
+    # entry tile has its own inputs (the number box); the exit tile has none.
+    assert builder.entry_tile.findChildren(QComboBox) == []
+    assert builder.exit_tile.findChildren(QLineEdit) == []
+    assert builder.exit_tile.findChildren(QComboBox) == []
 
 
 def test_the_name_is_a_text_field(builder: StrategyBuilderWindow) -> None:
@@ -226,7 +225,7 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
     assert builder.name_edit.text() == ""
 
 
-def test_the_formulas_page_edits_and_checks_a_formula(
+def test_the_formulas_page_builds_and_checks_a_formula(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     # The page only exists once Formulas is picked.
@@ -234,37 +233,74 @@ def test_the_formulas_page_edits_and_checks_a_formula(
     app.processEvents()
 
     assert builder.entry_pages.currentIndex() == 1
-    edit = builder.formula_edit
-    assert builder.entry_tile.isAncestorOf(edit)
-    assert edit.placeholderText() == "close < bollinger_lower(close, 20, 2)"
+    assert builder.entry_tile.isAncestorOf(builder.formula)
     # Empty is not an error; there is simply no formula yet.
+    assert builder.entry_formula() == ""
     assert builder.entry_formula_error() == ""
     assert builder.entry_formula_parsed() is None
 
-    # A good formula parses and clears the error line.
+    # A complete formula parses and clears the error line.
     builder.set_entry_formula("mid = sma(close, 20)\nclose < mid")
     app.processEvents()
     assert builder.entry_formula() == "mid = sma(close, 20)\nclose < mid"
     assert builder.entry_formula_error() == ""
     parsed = builder.entry_formula_parsed()
-    assert parsed is not None
-    assert parsed.series_names == ("mid",)
+    assert parsed is not None and parsed.series_names == ("mid",)
 
-    # A typo is reported with its place, and there is nothing parsed.
+    # A typo is reported with its place.
     builder.set_entry_formula("close < clsoe")
     app.processEvents()
     assert builder.entry_formula_error() == (
         "line 1, column 9: unknown name 'clsoe'"
     )
     assert builder.entry_formula_parsed() is None
-    assert edit.property("state") == "error"
 
     # Correcting it clears the error again.
     builder.set_entry_formula("close < 10")
     app.processEvents()
     assert builder.entry_formula_error() == ""
     assert builder.entry_formula_parsed() is not None
-    assert edit.property("state") == "ok"
+
+
+def test_building_a_formula_from_the_palette(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    from lalala.formula_builder import PALETTES
+
+    builder.mode_buttons["formulas"].click()
+    app.processEvents()
+    formula = builder.formula
+
+    def tokens(group: str, label: str) -> list:
+        for title, items in PALETTES:
+            if title == group:
+                for item in items:
+                    if item.label == label:
+                        return list(item.tokens)
+        raise AssertionError(f"no palette item {group}/{label}")
+
+    strip = formula.strips[0]
+    # Drop an indicator: it arrives with its parentheses and an empty slot.
+    formula.drop_tokens(
+        {"tokens": tokens("Indicators", "SMA"), "from": None}, strip, 0
+    )
+    app.processEvents()
+
+    assert strip.has_empty_slots() is True
+    assert formula.error() == "fill the empty slot before this can be read"
+    assert formula.parsed() is None
+
+    # Fill the slot by arming it and typing a value.
+    slot = [chip for chip in strip.chips() if chip.token is None][0]
+    formula.arm_slot(slot)
+    formula.number_edit.setText("20")
+    formula.add_number()
+    app.processEvents()
+
+    assert strip.has_empty_slots() is False
+    assert formula.formula_text() == "sma(close, 20)"
+    assert formula.error() == ""
+    assert formula.parsed() is not None
 
 
 def test_the_rules_and_code_pages_are_placeholders(
@@ -354,13 +390,15 @@ def test_the_split_scales_with_the_window(
         assert shares[1] == pytest.approx(COLUMN_SHARES[1], abs=0.01)
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
-        # The strategy tile stays compact; the two rules tiles share the rest.
+        # The strategy tile stays compact; the middle column keeps its shape:
+        # the entry tile is tall enough for the builder, the exit tile keeps
+        # the rest.
         top, entry, exit_ = builder.center.sizes()
         assert top == pytest.approx(
             builder.strategy_tile.sizeHint().height(), abs=4
         )
         assert entry > top and exit_ > top
-        assert entry == pytest.approx(exit_, abs=2)
+        assert entry >= builder.entry_tile.minimumSizeHint().height() - 4
 
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:

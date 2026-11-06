@@ -40,8 +40,11 @@ __all__ = [
     "FormulaError",
     "Name",
     "Number",
+    "Token",
     "Unary",
     "parse",
+    "scan",
+    "tokens_to_text",
 ]
 
 # The fields every bar carries.
@@ -158,7 +161,7 @@ class Formula:
 
 
 @dataclass(frozen=True)
-class _Tok:
+class Token:
     kind: str  # "number" | "name" | "op" | "newline"
     text: str
     pos: int
@@ -182,8 +185,8 @@ def _linecol(text: str, pos: int) -> tuple[int, int]:
     return line, column
 
 
-def _tokenize(text: str) -> list[_Tok]:
-    tokens: list[_Tok] = []
+def scan(text: str) -> list[Token]:
+    tokens: list[Token] = []
     pos = 0
     for match in _TOKEN.finditer(text):
         if match.start() != pos:
@@ -196,7 +199,7 @@ def _tokenize(text: str) -> list[_Tok]:
             continue
         line, column = _linecol(text, match.start())
         tokens.append(
-            _Tok(match.lastgroup, match.group(), match.start(), line, column)
+            Token(match.lastgroup, match.group(), match.start(), line, column)
         )
     if pos != len(text):
         line, column = _linecol(text, pos)
@@ -208,17 +211,17 @@ def _tokenize(text: str) -> list[_Tok]:
 
 
 class _Parser:
-    def __init__(self, tokens: list[_Tok], text: str) -> None:
+    def __init__(self, tokens: list[Token], text: str) -> None:
         self.tokens = tokens
         self.text = text
         self.i = 0
 
     # -- cursor ------------------------------------------------------------
 
-    def _peek(self) -> _Tok | None:
+    def _peek(self) -> Token | None:
         return self.tokens[self.i] if self.i < len(self.tokens) else None
 
-    def _next(self) -> _Tok | None:
+    def _next(self) -> Token | None:
         tok = self._peek()
         if tok is not None:
             self.i += 1
@@ -243,7 +246,7 @@ class _Parser:
         tok = self._peek()
         return tok is not None and tok.kind == "op" and tok.text == text
 
-    def _expect_op(self, text: str) -> _Tok:
+    def _expect_op(self, text: str) -> Token:
         if not self._is_op(text):
             raise self._failure(f"expected {text!r}")
         return self._next()
@@ -251,7 +254,7 @@ class _Parser:
     # -- grammar -----------------------------------------------------------
 
     def program(self) -> tuple[list, list]:
-        statements: list[tuple[_Tok, object]] = []
+        statements: list[tuple[Token, object]] = []
         while self._peek() is not None:
             if self._peek().kind == "newline":
                 self._next()
@@ -267,7 +270,7 @@ class _Parser:
                 )
         return statements
 
-    def statement(self) -> tuple[_Tok, object]:
+    def statement(self) -> tuple[Token, object]:
         first = self._peek()
         node = self.expression()
         # `name = expr` is the only assignment shape.
@@ -371,7 +374,7 @@ class _Parser:
             f"unexpected {tok.text!r}", tok.line, tok.column
         )
 
-    def call(self, name_tok: _Tok) -> object:
+    def call(self, name_tok: Token) -> object:
         self._expect_op("(")
         args: list = []
         if not self._is_op(")"):
@@ -467,7 +470,7 @@ def _validate(formula: Formula) -> None:
 
 def parse(text: str) -> Formula:
     """Parse and check `text`. Raises `FormulaError` if it does not hold up."""
-    tokens = _tokenize(text)
+    tokens = scan(text)
     parser = _Parser(tokens, text)
     statements = parser.program()
     if not statements:
@@ -495,3 +498,18 @@ def parse(text: str) -> Formula:
     )
     _validate(formula)
     return formula
+
+
+def tokens_to_text(tokens) -> str:
+    """Join chip tokens back into formula text.
+
+    A `None` token is an unfilled slot and contributes nothing, so the text
+    will not parse until it is filled. Spacing is tidied so the result reads
+    like the formula was typed: no gap inside `f(x)`, one after a comma.
+    """
+    parts = [str(token) for token in tokens if token not in (None, "")]
+    text = " ".join(parts)
+    text = text.replace("( ", "(").replace(" )", ")").replace(" ,", ",")
+    text = text.replace(" (", "(")
+    text = text.replace(",", ", ")
+    return re.sub(r"[ \t]+", " ", text).strip()

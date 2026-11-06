@@ -79,30 +79,135 @@ QSplitter#builderMiddleSplit::handle:vertical {{
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
-#resolutionPicker, #paramsGrid, #entryPages, #entryPage {{
+#resolutionPicker, #paramsGrid, #entryPages, #entryPage,
+#formulaBuilder, #formulaCanvas, #stripArea, #stripHolder {{
     background-color: transparent;
 }}
 
-/* The formula editor: monospace, and a red edge the moment it is wrong. */
-QPlainTextEdit#formulaEdit {{
+/* The palette subtile: an inset well on the card, holding the sources. */
+#formulaPalette {{
     background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+}}
+QLabel#paletteTitle {{
+    color: {TEXT_MUTED};
+    font-size: 9px;
+    font-weight: bold;
+}}
+QListWidget#paletteList {{
+    background-color: {PANEL};
     border: 1px solid {BORDER};
     border-radius: 4px;
     color: {TEXT};
     font-size: 10px;
-    padding: 4px 6px;
-    selection-background-color: {ACCENT};
-    selection-color: {CANVAS};
+    outline: none;
 }}
-QPlainTextEdit#formulaEdit:focus {{
-    border-color: {ACCENT};
+QListWidget#paletteList::item {{
+    padding: 1px 4px;
 }}
-QPlainTextEdit#formulaEdit[state="error"] {{
-    border-color: {DOWN};
+QListWidget#paletteList::item:selected {{
+    background-color: {ACCENT_BG};
+    color: {ACCENT};
+}}
+
+/* A chip on a line, and an empty slot waiting to be filled. */
+#formulaChip {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 3px;
+}}
+#formulaChip[slot="true"] {{
+    background-color: {CANVAS};
+    border: 1px dashed {ACCENT_DIM};
+}}
+#formulaChip[armed="true"] {{
+    border: 1px solid {ACCENT};
+}}
+QLabel#chipLabel {{
+    color: {TEXT};
+    font-size: 10px;
+}}
+#formulaChip[slot="true"] QLabel#chipLabel {{
+    color: {TEXT_FAINT};
+}}
+
+/* A line: the drop target. */
+#chipStrip {{
+    background-color: {CANVAS};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+}}
+
+/* The formula text and the checker's word on it. */
+QLabel#formulaPreview {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    font-family: monospace;
 }}
 QLabel#formulaError {{
     color: {DOWN};
     font-size: 9px;
+}}
+
+QLineEdit#numberEdit {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 2px 5px;
+}}
+QLineEdit#numberEdit:focus {{
+    border-color: {ACCENT};
+}}
+QPushButton#numberAdd, QPushButton#lineButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 9px;
+    padding: 2px 6px;
+}}
+QPushButton#numberAdd:hover, QPushButton#lineButton:hover {{
+    color: {TEXT};
+    border-color: {ACCENT_DIM};
+}}
+QPushButton#lineButton:disabled {{
+    color: {TEXT_FAINT};
+    border-color: {BORDER};
+}}
+
+/* Slim scrollbars, so the palette's lists do not wear OS-default chrome. */
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {BORDER};
+    border-radius: 4px;
+    min-height: 18px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {ACCENT_DIM};
+}}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: {BORDER};
+    border-radius: 4px;
+    min-width: 18px;
+}}
+QScrollBar::add-line, QScrollBar::sub-line {{
+    height: 0;
+    width: 0;
+}}
+QScrollBar::add-page, QScrollBar::sub-page {{
+    background: transparent;
 }}
 #venuePanel QCheckBox {{
     background-color: transparent;
