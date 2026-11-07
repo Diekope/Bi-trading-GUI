@@ -188,6 +188,33 @@ def test_presets_fill_the_tile(app: QApplication) -> None:
     tile.close()
 
 
+def test_the_presets_page_centres_its_cards(app: QApplication) -> None:
+    from lalala.strat_rules import EXIT_PRESETS
+
+    tile = RulesTile("EXIT RULES", presets=EXIT_PRESETS)
+    tile.resize(600, 400)
+    tile.show()
+    app.processEvents()
+
+    # Two rows of cards, each row centred in the page.
+    cards = tile.preset_buttons
+    rows = {card.geometry().top() for card in cards}
+    assert len(rows) > 1
+    width = tile.preset_holder.width()
+    for row in rows:
+        in_row = sorted(
+            (c for c in cards if c.geometry().top() == row),
+            key=lambda c: c.geometry().left(),
+        )
+        left = in_row[0].geometry().left()
+        right = width - in_row[-1].geometry().right()
+        assert abs(left - right) <= 6, (row, left, right)
+
+    # And the text inside each card is centred too.
+    assert cards[0].label.alignment() & Qt.AlignmentFlag.AlignHCenter
+    tile.close()
+
+
 def test_the_changed_signal_fires_on_a_tile_edit(
     app: QApplication, tile: RulesTile
 ) -> None:

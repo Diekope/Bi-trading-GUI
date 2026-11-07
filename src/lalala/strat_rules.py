@@ -224,13 +224,14 @@ class PresetCard(QFrame):
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(6)
+        top.addStretch(1)
         self.label = QLabel(preset.label, self)
         self.label.setObjectName("presetTitle")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
         top.addWidget(self.label)
-        top.addStretch(1)
         if preset.badge:
             self.badge = QLabel(preset.badge, self)
             self.badge.setObjectName("presetBadge")
@@ -238,12 +239,14 @@ class PresetCard(QFrame):
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
             top.addWidget(self.badge)
+        top.addStretch(1)
         layout.addLayout(top)
 
         if preset.note:
             self.note = QLabel(preset.note, self)
             self.note.setObjectName("presetNote")
             self.note.setWordWrap(True)
+            self.note.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.note.setAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
@@ -340,9 +343,10 @@ class RulesTile(Card):
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
-        holder = FlowHolder(page, spacing=6)
+        holder = FlowHolder(page, spacing=6, centered=True)
         self.preset_holder = holder
         self.preset_buttons: list[PresetCard] = []
         for preset in self.presets:

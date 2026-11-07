@@ -220,9 +220,12 @@ class FlowLayout(QLayout):
     chip visible instead of clipping the tail.
     """
 
-    def __init__(self, parent=None, margin: int = 0, spacing: int = 4) -> None:
+    def __init__(
+        self, parent=None, margin: int = 0, spacing: int = 4, centered: bool = False
+    ) -> None:
         super().__init__(parent)
         self._items: list = []
+        self._centered = centered
         self.setContentsMargins(margin, margin, margin, margin)
         self.setSpacing(spacing)
 
@@ -289,22 +292,45 @@ class FlowLayout(QLayout):
                 self.takeAt(index)
                 return
 
+    def _rows(self, inner_width: int) -> list:
+        """Group the visible items into rows that fit `inner_width`."""
+        rows: list = []
+        current: list = []
+        width = 0
+        spacing = self.spacing()
+        for item in self._visible():
+            hint = item.sizeHint()
+            if current and width + hint.width() > inner_width + 1:
+                rows.append((current, width - spacing))
+                current, width = [], 0
+            current.append((item, hint))
+            width += hint.width() + spacing
+        if current:
+            rows.append((current, width - spacing))
+        return rows
+
     def _layout(self, rect: QRect, apply: bool) -> int:
         margins = self.contentsMargins()
         inner = rect.adjusted(
             margins.left(), margins.top(), -margins.right(), -margins.bottom()
         )
         spacing = self.spacing()
-        x, y, row = inner.x(), inner.y(), 0
-        for item in self._visible():
-            hint = item.sizeHint()
-            if x + hint.width() > inner.right() + 1 and row > 0:
-                x, y, row = inner.x(), y + row + spacing, 0
-            if apply:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x += hint.width() + spacing
-            row = max(row, hint.height())
-        return y + row - rect.y() + margins.bottom()
+        y = inner.y()
+        rows = self._rows(inner.width())
+        for items, total in rows:
+            x = inner.x()
+            if self._centered:
+                x += max(0, (inner.width() - total) // 2)
+            height = 0
+            for item, hint in items:
+                if apply:
+                    item.setGeometry(QRect(QPoint(x, y), hint))
+                x += hint.width() + spacing
+                height = max(height, hint.height())
+            y += height + spacing
+        if rows:
+            y -= spacing
+        return y - rect.y() + margins.bottom()
 
 
 class PaletteBlock(QFrame):
@@ -599,10 +625,12 @@ class DropZone(QWidget):
 class FlowHolder(QWidget):
     """A row of blocks that pins its height to what it wraps to."""
 
-    def __init__(self, parent=None, spacing: int = 5) -> None:
+    def __init__(
+        self, parent=None, spacing: int = 5, centered: bool = False
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("paletteBlocks")
-        self.flow = FlowLayout(self, margin=0, spacing=spacing)
+        self.flow = FlowLayout(self, margin=0, spacing=spacing, centered=centered)
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
