@@ -104,6 +104,47 @@ def row_count(path: Path) -> int:
     return count
 
 
+def tail_rows(path: Path, count: int) -> list[tuple]:
+    """The last `count` rows of a CSV, oldest first.
+
+    Seeks to the tail rather than reading the file, so a preview does not walk
+    a year of minutes to show the last few hundred.
+    """
+    if count <= 0:
+        return []
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            block = min(size, max(4096, count * 90))
+            handle.seek(size - block)
+            data = handle.read().decode("ascii", "ignore")
+    except OSError:
+        return []
+    lines = data.splitlines()
+    if block < size:
+        lines = lines[1:]  # the seek is not line aligned
+    rows: list[tuple] = []
+    for line in lines:
+        parts = line.split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            rows.append(
+                (
+                    int(parts[0]),
+                    float(parts[1]),
+                    float(parts[2]),
+                    float(parts[3]),
+                    float(parts[4]),
+                    float(parts[5]),
+                )
+            )
+        except ValueError:
+            continue  # the header, or a torn line
+    return rows[-count:]
+
+
 def last_timestamp(path: Path) -> int | None:
     """The newest timestamp in a file, so a download can resume from it."""
     try:
@@ -126,7 +167,6 @@ def last_timestamp(path: Path) -> int | None:
         if head.isdigit():
             return int(head)
     return None
-
 
 def append_rows(path: Path, rows: list[tuple[int, float, float, float, float, float]]) -> int:
     """Append OHLCV rows, writing the header when the file is new."""

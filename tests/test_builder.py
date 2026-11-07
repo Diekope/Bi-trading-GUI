@@ -35,6 +35,15 @@ def app() -> QApplication:
     return instance
 
 
+@pytest.fixture(autouse=True)
+def store(tmp_path, monkeypatch):
+    """An empty candle store, so no test reads a developer's real history."""
+    from lalala import candles
+
+    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
+    candles._ROW_CACHE.clear()
+
+
 @pytest.fixture
 def builder(app: QApplication) -> StrategyBuilderWindow:
     window = StrategyBuilderWindow()
@@ -491,6 +500,41 @@ def test_clicking_a_preset_fills_the_tile(
     assert builder.entry_formula().startswith("band = bollinger_lower")
 
 
+def test_the_preview_follows_the_rules(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    from lalala import candles
+    from lalala.candles import append_rows, candle_file
+
+    # A little history for the preview to read.
+    rows = []
+    for index in range(600):
+        price = 100.0 + (index % 20)
+        rows.append((index * 60_000, price, price + 1, price - 1, price, 1.0))
+    append_rows(candle_file(2021), rows)
+    candles._ROW_CACHE.clear()
+
+    builder.set_entry_formula("close < sma(close, 5)")
+    builder.set_exit_formula("pnl >= tp or pnl <= 0 - sl or bars >= 3")
+    builder._sync_preview()
+    app.processEvents()
+
+    assert builder.preview.chart.entries
+    assert "2021" in builder.preview.note.text()
+    assert "entries in view" in builder.preview.note.text()
+
+    # A different bar re-reads and re-runs it.
+    builder.timeframe.setCurrentText("1h")
+    app.processEvents()
+    assert "· 1h ·" in builder.preview.note.text()
+
+    # And an empty rule clears the markings rather than leaving them behind.
+    builder.set_entry_formula("")
+    app.processEvents()
+    assert builder.preview.chart.entries == []
+    assert "no entry rule yet" in builder.preview.note.text()
+
+
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
@@ -608,12 +652,14 @@ def test_both_gaps_show_the_canvas(
     assert second == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_side_rails_stay_empty(builder: StrategyBuilderWindow) -> None:
-    for tile in (builder.left, builder.right):
-        assert tile.findChildren(QLabel) == []
-        assert tile.findChildren(QLineEdit) == []
-        assert tile.findChildren(QComboBox) == []
-        assert tile.body.count() == 0
+def test_the_side_rails_are_the_left_rail_and_the_preview(
+    builder: StrategyBuilderWindow
+) -> None:
+    # The left rail is still empty; the right is the preview.
+    assert builder.left.findChildren(QLabel) == []
+    assert builder.left.findChildren(QLineEdit) == []
+    assert builder.left.body.count() == 0
+    assert builder.right is builder.preview
 
 
 def test_it_uses_the_same_desk_as_the_other_windows(

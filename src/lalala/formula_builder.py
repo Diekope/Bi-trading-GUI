@@ -960,8 +960,8 @@ class FormulaBuilder(QWidget):
         strip.deleteLater()
         if self.active is strip:
             self.active = self.strips[-1]
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     def remove_active_strip(self) -> None:
         self.remove_strip(self.active or self.strips[-1])
@@ -977,6 +977,7 @@ class FormulaBuilder(QWidget):
             strip.setParent(None)
             strip.deleteLater()
         self.add_strip()
+        self._refresh()
         self.changed.emit()
 
     # -- chips -------------------------------------------------------------
@@ -996,13 +997,13 @@ class FormulaBuilder(QWidget):
         if chip.strip is None:
             return
         chip.strip.remove_chip(chip)
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     def contents_changed(self) -> None:
         """A chip changed in place (an indicator's number); re-read it."""
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     def drop_tokens(self, payload: dict, strip: ChipStrip, index: int) -> None:
         tokens = payload.get("tokens") or []
@@ -1028,8 +1029,8 @@ class FormulaBuilder(QWidget):
             for offset, token in enumerate(tokens):
                 strip.add_chip(token, index + offset)
         self.active = strip
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     def _remove_at(self, strip_index: int, chip_index: int) -> None:
         strip = self.strips[strip_index]
@@ -1062,8 +1063,8 @@ class FormulaBuilder(QWidget):
                 self._remove_at(*payload["from"])
         chip.set_token(token)
         self._disarm()
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     # -- the number box ----------------------------------------------------
 
@@ -1077,8 +1078,8 @@ class FormulaBuilder(QWidget):
             strip = self.active or self.strips[-1]
             strip.add_chip(text)
             self.active = strip
-            self.changed.emit()
             self._refresh()
+            self.changed.emit()
         self.number_edit.clear()
 
     # -- the formula -------------------------------------------------------
@@ -1160,6 +1161,8 @@ class FormulaBuilder(QWidget):
             strip.deleteLater()
         if not tokens:
             self.add_strip()
+            self._refresh()
+            self.changed.emit()
             return
         lines: dict[int, list[str]] = {}
         order: list[int] = []
@@ -1175,8 +1178,8 @@ class FormulaBuilder(QWidget):
                     strip.add_call_chip(payload)
                 else:
                     strip.add_chip(payload)
-        self.changed.emit()
         self._refresh()
+        self.changed.emit()
 
     def _refresh(self) -> None:
         # Series lines read "LET", the last line reads "IF".

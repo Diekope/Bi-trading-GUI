@@ -256,7 +256,9 @@ src/lalala/
   strat_builder.py the builder window: strategy, entry and exit rules
   strat_rules.py   one rules tile: Presets/Formulas/Code over one formula
   formula.py       the entry/exit formula language: parse and check (no Qt)
+  formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
+  strat_preview.py the right rail: the rule run over the candles on disk
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -282,8 +284,7 @@ tests/             369 tests: parsing/search/aliases, slug math, candle + book
                    strategy builder window, its locked 21/47/32 columns, its
                    compact STRATEGY tile, the two rules tiles, their presets and
                    their code refusal, the drag-and-drop formula builder, the
-                   formula
-                   language itself, the chart and backtest settings, the
+                   formula language, its evaluator and the preview tile, the chart and backtest settings, the
                    silent log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
@@ -388,11 +389,9 @@ indigo, indicators in amber, `AND`/`OR`/`NOT` in green, maths neutral — and
 each row wraps when the tile is narrow. The rows are **not** scrollable: the
 card is only as tall as the rows it holds.
 
-The entry tile is **only as tall as its content needs** and the exit tile takes
-the rest of the column. That height is fixed by the content and follows it as
-the window changes: narrow the window and the palette wraps onto more rows, so
-the entry tile grows and the exit tile gives up the difference. It never
-stretches just to fill the column.
+The two rules tiles share the column below `STRATEGY` evenly, and each follows
+its own content: narrow the window and the palette wraps onto more rows, so
+both tiles grow and the window needs more height for them.
 
 Under the card are the lines, one strip of chips each, read left to right. The
 last line is captioned `IF` and is the condition; the ones above are `LET` and
@@ -437,12 +436,44 @@ leaving the tiles and the code out of step.
 Reading text back keeps indicators whole: `bollinger_lower(close, 20, 2)` comes
 back as one tile holding `20` and `2`, not a run of separate chips.
 
-### The formula language
+### Preview tile
+
+The right rail runs the rule over the candles already on disk. It takes the
+newest year in the store, keeps the tail of it — 220 bars in view, 400 more
+behind them so the indicators have history — compacts them to the bar the
+STRATEGY tile names, and runs the rules with `lalala.formula_eval`.
+
+Entries are marked under the bar they fire on, exits above it, and the note
+reads `2026 · 1h · 5 entries in view · tp 2 / sl 1`.
+
+`tp` and `sl` are the preview's own defaults: the run's parameters live in the
+other window, and nothing is wired between them yet. It downloads nothing and
+writes nothing; an empty store says so instead of drawing an empty chart.
+
+## The evaluator
+
+`formula_eval.py` is what makes the language run. Each expression becomes a
+value per bar, the condition a truth per bar, and the true bars are the
+signals. A series is a list, a float or `None` where there is not enough
+history yet — a 20-bar average says nothing about the first nineteen bars — and
+nothing looks ahead.
+
+The indicators are `sma`, `ema`, `rsi` (Wilder), `highest`, `lowest`,
+`change`, `shift` and the three Bollinger bands, plus `abs`, `min`, `max` and
+`sqrt`. An entry rule reads the bar, so it is evaluated over a whole series at
+once. An exit rule reads the trade, which only exists while one is open, so it
+is checked a bar at a time against the open trade's numbers.
+
+`simulate()` walks the bars: one position at a time, in on an entry signal, out
+when the exit rule says so. That is what the preview's markers are, and it is
+the shape a real run would take.
 
 The text a build produces is parsed and checked as it is built: a sound formula
 gets no error line, a typo gets its place — `line 2, column 9: unknown name
 'clsoe'`, or `fill the empty slot before this can be read` while a slot is
 blank.
+
+### The formula language
 
 A formula is a list of lines. All but the last define named series; the last is
 the condition, evaluated once per bar:
