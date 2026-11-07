@@ -191,6 +191,20 @@ QLabel#blockLabel, QLabel#chipLabel {{
 #formulaChip[armed="true"] {{
     border: 1px solid {ACCENT};
 }}
+/* A palette block nothing here carries: named, but dashed and faint. */
+#paletteBlock[missing="true"] {{
+    background-color: {CANVAS};
+    border: 1px dashed {BORDER};
+}}
+#paletteBlock[missing="true"] QLabel {{
+    color: {TEXT_FAINT};
+}}
+
+QLabel#formulaWarning {{
+    color: {ACCENT};
+    font-size: 9px;
+}}
+
 QPushButton#chipRemove, QPushButton#stripRemove {{
     border: none;
     background: transparent;

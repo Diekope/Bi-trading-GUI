@@ -218,8 +218,8 @@ def test_a_later_line_cannot_use_a_name_from_below_it() -> None:
 def test_the_fields_and_functions_are_the_expected_set() -> None:
     assert FIELDS == ("open", "high", "low", "close", "volume")
     assert set(FUNCTIONS) == {
-        "abs", "sqrt", "min", "max", "sma", "ema", "rsi",
-        "highest", "lowest", "change", "shift",
+        "abs", "sqrt", "log", "min", "max", "sma", "ema", "rsi",
+        "highest", "lowest", "stdev", "zscore", "change", "shift",
         "bollinger_lower", "bollinger_middle", "bollinger_upper",
     }
     # Every entry is a (min, max) arity pair that makes sense.
@@ -249,6 +249,28 @@ def test_the_exit_vocabulary_is_the_trade_and_no_indicators() -> None:
     formula = parse("pnl >= tp or pnl <= 0 - sl", EXIT_FIELDS, EXIT_FUNCTIONS)
     assert formula.fields == EXIT_FIELDS
     assert formula.condition is not None
+
+
+def test_names_with_no_history_validate_but_carry_nothing() -> None:
+    from lalala.formula import ENTRY_FIELDS, NO_HISTORY
+
+    assert NO_HISTORY == ("model_p", "spread", "liquidity", "days_left")
+    # They are part of the entry vocabulary, so a rule may name them.
+    assert set(NO_HISTORY) <= set(ENTRY_FIELDS)
+    assert "close" in ENTRY_FIELDS
+
+    formula = parse("spread > 0 and close < 10", ENTRY_FIELDS, FUNCTIONS)
+    assert formula.condition is not None
+    # Nothing here carries them, so they are not bar fields.
+    assert "spread" not in FIELDS
+
+
+def test_the_new_indicators_are_in_the_catalogue() -> None:
+    assert FUNCTIONS["stdev"] == (2, 2)
+    assert FUNCTIONS["zscore"] == (2, 2)
+    assert FUNCTIONS["log"] == (1, 1)
+    for source in ("stdev(close, 20)", "zscore(close, 20)", "log(close)"):
+        assert parse(f"close < {source}").condition is not None
 
 
 def test_the_exit_vocabulary_refuses_bar_names_and_indicators() -> None:

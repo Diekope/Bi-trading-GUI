@@ -344,14 +344,20 @@ width, defaulting to `1m`. It is only as tall as the title and that row.
 
 Under it, two tiles share the rest of the column **evenly**: **ENTRY RULES**
 and **EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
-with its own formula, its own title row of `Presets` / `Formulas` / `Code`
+with its own formula, its own title row of `Rules` / `Formula` / `Code`
 pills, and nothing shared between them.
 
-Each tile has **three tabs** — `Presets`, `Formulas`, `Code` — and starts on
-`Presets`, where ready-made rules are shown as a **gallery**: cards four to a
-row at most, left-aligned, each with a line about the rule. Picking one loads
-it and jumps straight to `Formulas`, ready to edit. `Formulas` is the
-drag-and-drop builder and `Code` the same formula as text.
+Each tile has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
+`Rules`, where ready-made rules are shown as a **gallery**: cards four to a row
+at most, left-aligned, each with a line about the rule. Picking one loads it and
+jumps straight to `Formula`, ready to edit. `Formula` is the drag-and-drop
+builder and `Code` the same formula as text.
+
+The palette carries the **market words** the mock shows — `model_p`, `spread`,
+`liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they
+validate so a rule can name them, they evaluate to nothing, and the tile says so
+under the rule (`⚠ spread: no history in a backtest`). The indicators gained `σ`
+(`stdev`), `zscore`, and maths gained `log`.
 
 | Tile | Presets |
 | --- | --- |

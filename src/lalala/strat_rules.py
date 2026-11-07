@@ -31,7 +31,14 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.cards import mono_font
-from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, FUNCTIONS, FormulaError
+from lalala.formula import (
+    ENTRY_FIELDS,
+    EXIT_FIELDS,
+    EXIT_FUNCTIONS,
+    FIELDS,
+    FUNCTIONS,
+    FormulaError,
+)
 from lalala.formula_builder import (
     EXIT_PALETTES,
     PALETTES,
@@ -47,8 +54,8 @@ PRESETS_PER_ROW = 4
 # The three ways a rule can be reached, in the order they appear: start from a
 # ready-made rule, drag one up, or write it as code.
 RULES_MODES = (
-    ("presets", "Presets"),
-    ("formulas", "Formulas"),
+    ("rules", "Rules"),
+    ("formula", "Formula"),
     ("code", "Code"),
 )
 
@@ -233,7 +240,7 @@ class RulesTile(Card):
         title: str = "ENTRY RULES",
         parent: QWidget | None = None,
         palettes: tuple | None = None,
-        fields: tuple = FIELDS,
+        fields: tuple = ENTRY_FIELDS,
         functions: dict | None = None,
         placeholder: str = "mid = sma(close, 20)\nclose < mid",
         presets: tuple | None = None,
@@ -331,7 +338,7 @@ class RulesTile(Card):
     def _use_preset(self, text: str) -> None:
         """Load a ready-made rule and go straight to where it can be edited."""
         self.set_text(text)
-        self.set_mode("formulas")
+        self.set_mode("formula")
 
     def _formula_page(self) -> QWidget:
         page = QWidget(self)
@@ -401,7 +408,7 @@ class RulesTile(Card):
             return
         self.pages.setCurrentIndex(index)
         mode = RULES_MODES[index][0]
-        if mode == "formulas":
+        if mode == "formula":
             self.formula.number_edit.setFocus()
         elif mode == "code":
             self._sync_code()

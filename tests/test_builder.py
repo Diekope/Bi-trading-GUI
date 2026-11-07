@@ -211,7 +211,7 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     labels = [label for key, label in ENTRY_MODES]
-    assert labels == ["Presets", "Formulas", "Code"]
+    assert labels == ["Rules", "Formula", "Code"]
 
     buttons = builder.mode_buttons
     assert list(buttons) == [key for key, _ in ENTRY_MODES]
@@ -220,10 +220,10 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
         assert button.isCheckable() is True
         assert builder.entry_tile.isAncestorOf(button)
 
-    # One at a time, and the presets are the default.
+    # One at a time, and the rules page is the default.
     assert builder.entry_modes.exclusive() is True
-    assert builder.entry_mode() == "presets"
-    assert buttons["presets"].isChecked() is True
+    assert builder.entry_mode() == "rules"
+    assert buttons["rules"].isChecked() is True
 
     picked: list[str] = []
     builder.entry_mode_changed.connect(picked.append)
@@ -232,7 +232,7 @@ def test_the_entry_tile_has_three_ways_to_write_a_rule(
 
     assert builder.entry_mode() == "code"
     assert buttons["code"].isChecked() is True
-    assert buttons["formulas"].isChecked() is False
+    assert buttons["formula"].isChecked() is False
     assert picked == ["code"]
     # Switching the mode changes nothing else yet.
     assert builder.name_edit.text() == ""
@@ -242,7 +242,7 @@ def test_the_formulas_page_builds_and_checks_a_formula(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     # The tiles are the page on show.
-    builder.mode_buttons["formulas"].click()
+    builder.mode_buttons["formula"].click()
     app.processEvents()
 
     assert builder.entry_pages.currentIndex() == 1
@@ -280,7 +280,7 @@ def test_building_a_formula_from_the_palette(
 ) -> None:
     from lalala.formula_builder import PALETTES
 
-    builder.mode_buttons["formulas"].click()
+    builder.mode_buttons["formula"].click()
     app.processEvents()
     formula = builder.formula
 
@@ -327,7 +327,7 @@ def test_building_a_formula_from_the_palette(
 def test_the_code_page_shows_the_tiles_as_editable_code(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    builder.mode_buttons["formulas"].click()
+    builder.mode_buttons["formula"].click()
     app.processEvents()
     # Build something with the tiles.
     builder.set_entry_formula("mid = sma(close, 20)\nclose < mid")
@@ -374,7 +374,7 @@ def test_the_code_page_respects_the_variables(
 def test_only_one_entry_page_shows_at_a_time(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    for key in ("formulas", "code"):
+    for key in ("rules", "formula", "code"):
         builder.mode_buttons[key].click()
         app.processEvents()
         visible = [
@@ -482,7 +482,7 @@ def test_clicking_a_preset_fills_the_tile(
     assert builder.entry_formula_error() == ""
     assert builder.entry_formula_parsed() is not None
     # Picking a preset goes straight to where the rule can be edited.
-    assert builder.entry_mode() == "formulas"
+    assert builder.entry_mode() == "formula"
     assert builder.entry_pages.currentIndex() == 1
 
     # The multi-line preset comes through whole.
@@ -540,14 +540,14 @@ def test_the_exit_tile_has_the_same_tabs_as_the_entry(
 ) -> None:
     # Same widget, same three tabs, its own formula.
     assert builder.exit_tile is not builder.entry_tile
-    assert list(builder.exit_tile.mode_buttons) == ["presets", "formulas", "code"]
-    assert builder.exit_mode() == "presets"
+    assert list(builder.exit_tile.mode_buttons) == ["rules", "formula", "code"]
+    assert builder.exit_mode() == "rules"
 
     builder.exit.set_mode("code")
     app.processEvents()
     assert builder.exit_mode() == "code"
     assert builder.exit_tile.pages.currentIndex() == 2
-    assert builder.entry_mode() == "presets"  # entry untouched
+    assert builder.entry_mode() == "rules"  # entry untouched
 
     # The two formulas are independent.
     builder.set_entry_formula("close < sma(close, 20)")

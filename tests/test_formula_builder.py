@@ -111,11 +111,11 @@ def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
     builder.show()
     app.processEvents()
 
-    # The short rows share a row: same top, left to right.
+    # A row of blocks reads left to right from the same top edge.
     data = builder.blocks["Data"]
-    tops = {block.geometry().top() for block in data}
-    assert len(tops) == 1
-    lefts = [block.geometry().left() for block in data]
+    first_row = [b for b in data if b.geometry().top() == data[0].geometry().top()]
+    assert len(first_row) >= 3
+    lefts = [block.geometry().left() for block in first_row]
     assert lefts == sorted(lefts)
 
     # A long row wraps rather than running off; Logic & Maths is the long one.

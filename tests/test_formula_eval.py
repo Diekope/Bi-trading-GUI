@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pytest
 
-from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, parse
+from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, FUNCTIONS, parse
 from lalala.formula_eval import (
     backtest,
     bar_context,
@@ -206,6 +207,33 @@ def test_the_walk_holds_one_position_at_a_time() -> None:
     assert all(
         entries[i] < exits[i] for i in range(len(exits))
     )
+
+
+def test_the_new_indicators_run() -> None:
+    bars = _bars([1, 2, 3, 4, 5, 6])
+
+    stdev = evaluate(parse("stdev(close, 3)"), bar_context(bars))
+    assert stdev[:2] == [None, None]
+    assert stdev[2] == pytest.approx((2 / 3) ** 0.5)  # [1, 2, 3]
+
+    zscore = evaluate(parse("zscore(close, 3)"), bar_context(bars))
+    assert zscore[:2] == [None, None]
+    assert zscore[2] == pytest.approx((3 - 2) / (2 / 3) ** 0.5)
+
+    log = evaluate(parse("log(close)"), bar_context(bars))
+    assert log[0] == pytest.approx(0.0)  # log(1)
+    assert log[1] == pytest.approx(math.log(2))
+
+
+def test_a_name_with_no_history_makes_a_rule_silent() -> None:
+    from lalala.formula import ENTRY_FIELDS
+
+    bars = _bars([1, 2, 3, 4, 5])
+    # The rule validates, but `spread` carries nothing, so it never fires.
+    rule = parse("close > 0 and spread > 0", ENTRY_FIELDS, FUNCTIONS)
+    assert entry_signals(rule, bars) == []
+    values = evaluate(rule, bar_context(bars))
+    assert values == [None] * len(bars) or not any(values)
 
 
 def test_the_walk_needs_both_rules() -> None:

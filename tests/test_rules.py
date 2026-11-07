@@ -39,9 +39,9 @@ def test_it_is_titled_with_three_modes(app: QApplication) -> None:
 
     assert tile.title.text() == "EXIT RULES"
     assert tile.title.objectName() == "tileTitle"
-    assert [key for key, _ in RULES_MODES] == ["presets", "formulas", "code"]
-    assert list(tile.mode_buttons) == ["presets", "formulas", "code"]
-    assert tile.mode() == "presets"  # a rule usually starts from a preset
+    assert [key for key, _ in RULES_MODES] == ["rules", "formula", "code"]
+    assert list(tile.mode_buttons) == ["rules", "formula", "code"]
+    assert tile.mode() == "rules"  # a rule usually starts from a preset
     assert tile.pages.count() == 3
     tile.close()
 
@@ -150,7 +150,7 @@ def test_two_tiles_do_not_share_a_formula(
 
     entry.set_mode("code")
     app.processEvents()
-    assert exit_.mode() == "presets"  # the other tile is untouched
+    assert exit_.mode() == "rules"  # the other tile is untouched
     assert exit_.code() == "close > sma(close, 50)"
     entry.close()
     exit_.close()
@@ -181,7 +181,7 @@ def test_presets_fill_the_tile(app: QApplication) -> None:
     assert tile.text() == "pnl >= tp"
     assert tile.error() == ""
     # It goes straight to the tiles, ready to edit.
-    assert tile.mode() == "formulas"
+    assert tile.mode() == "formula"
     assert tile.pages.currentIndex() == 1
 
     # A preset is an ordinary formula once it lands: editable like any other.

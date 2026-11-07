@@ -20,6 +20,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from lalala.formula import (
+    ENTRY_FIELDS,
     EXIT_FIELDS,
     FIELDS,
     FUNCTIONS,
@@ -57,7 +58,7 @@ def _value(bar, name: str):
     return float(raw)
 
 
-def bar_context(bars, fields=FIELDS) -> dict:
+def bar_context(bars, fields=ENTRY_FIELDS) -> dict:
     """One series per field, in the order the bars were given."""
     return {name: [_value(bar, name) for bar in bars] for name in fields}
 
@@ -193,6 +194,47 @@ def _bollinger(values, period: int, deviations: float):
     return middle, upper, lower
 
 
+def _stdev_series(values, period: int):
+    """Rolling standard deviation, the σ behind a z-score."""
+    out = [None] * len(values)
+    window: deque = deque(maxlen=period)
+    total = 0.0
+    total_squares = 0.0
+    for index, value in enumerate(values):
+        if value is None:
+            window.clear()
+            total = total_squares = 0.0
+            continue
+        if len(window) == period:
+            gone = window[0]
+            total -= gone
+            total_squares -= gone * gone
+        window.append(value)
+        total += value
+        total_squares += value * value
+        if len(window) == period:
+            mean = total / period
+            out[index] = max(0.0, total_squares / period - mean * mean) ** 0.5
+    return out
+
+
+def _zscore(values, period: int):
+    """How far the value sits from its own average, in deviations."""
+    middle = _sma(values, period)
+    spread = _stdev_series(values, period)
+    return [
+        None if value is None or mean is None or deviation in (None, 0)
+        else (value - mean) / deviation
+        for value, mean, deviation in zip(values, middle, spread)
+    ]
+
+
+def _log(value: float) -> float:
+    import math
+
+    return math.log(value) if value > 0 else 0.0
+
+
 def _change(values, bars: int):
     out = [None] * len(values)
     for index in range(bars, len(values)):
@@ -244,14 +286,18 @@ def _call(node: Call, scope: dict):
     args = [_eval(argument, scope) for argument in node.args]
     name = node.func
 
-    if name in ("abs", "sqrt"):
-        function = abs if name == "abs" else sqrt
+    if name in ("abs", "sqrt", "log"):
+        function = {"abs": abs, "sqrt": sqrt, "log": _log}[name]
         return _pairwise(args[0], function)
     if name in ("min", "max"):
         function = min if name == "min" else max
         return _between(args[0], args[1], function)
     if name == "sma":
         return _sma(args[0], _period(args[1], "sma"))
+    if name == "stdev":
+        return _stdev_series(args[0], _period(args[1], "stdev"))
+    if name == "zscore":
+        return _zscore(args[0], _period(args[1], "zscore"))
     if name == "ema":
         return _ema(args[0], _period(args[1], "ema"))
     if name == "rsi":
@@ -368,7 +414,7 @@ def evaluate(formula: Formula, context: dict):
     return _eval(formula.condition, scope)
 
 
-def entry_signals(formula: Formula, bars, fields=FIELDS) -> list[int]:
+def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
     """The bars where an entry rule is true."""
     if formula is None or formula.condition is None:
         return []
@@ -537,7 +583,7 @@ def backtest(
     fee: float = FEE,
     seed: int = 7,
     entry_chance: float = 0.03,
-    fields=FIELDS,
+    fields=ENTRY_FIELDS,
 ) -> Report:
     """The rule, a random-buy version of it, and buy and hold, over `bars`.
 

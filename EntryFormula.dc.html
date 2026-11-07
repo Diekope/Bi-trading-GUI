@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Entry rules</title><script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script></head>
+<body><x-dc><helmet><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet"><style>body{margin:0}
+.in{background:#1d1e23;border:1px solid #2a2b31;border-radius:6px;color:#e8e8ea;padding:8px 10px;font:400 13px Inter,sans-serif;width:100%;box-sizing:border-box}
+.m{font-family:"JetBrains Mono",monospace}
+.card{background:#17181c;border:1px solid #25262b;border-radius:10px;padding:14px 16px;box-sizing:border-box}
+.h{font:600 11px/1 Inter,sans-serif;letter-spacing:.18em;color:#e2e2e5;text-transform:uppercase;margin:0 0 12px}
+.lbl{font:400 11px Inter,sans-serif;color:#8b8d95;margin-bottom:5px;display:block}
+.k{font:400 11px Inter,sans-serif;color:#8b8d95}
+.btn{background:#231f10;border:1px solid #4a3f1a;color:#f2c94c;border-radius:6px;padding:9px 14px;font:500 13px Inter,sans-serif;cursor:pointer}
+.ghost{background:#1d1e23;border:1px solid #2a2b31;color:#c9cad0;border-radius:6px;padding:8px 12px;font:500 13px Inter,sans-serif;cursor:pointer}
+.tab{background:#1d1e23;border:1px solid #2a2b31;color:#8b8d95;border-radius:6px;padding:7px 0;font:500 12px Inter,sans-serif;flex:1;cursor:pointer}
+.on{background:#231f10;border-color:#4a3f1a;color:#f2c94c}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:5px 9px;border-radius:6px;border:1px solid #2a2b31;background:#1d1e23;font:500 12px "JetBrains Mono",monospace;color:#e8e8ea;cursor:grab;white-space:nowrap}
+.c1{border-color:#4a3f1a;color:#f2c94c;background:#1d1b12}
+.c2{border-color:#33366b;color:#a3a8ff;background:#181a30}
+.c4{border-color:#1f4a33;color:#5fe39a;background:#13211a}
+.cd{display:grid;grid-template-columns:1.2fr 64px 1.2fr 1.4fr 30px;gap:8px;align-items:center}
+.grp{border:1px dashed #3a3b42;border-radius:8px;padding:12px;background:#141519;display:flex;flex-direction:column;gap:8px}
+.pal{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.line{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px;border:1px dashed #3a3b42;border-radius:8px;background:#141519}
+.u{font:400 12px "JetBrains Mono",monospace;color:#8b8d95}
+.row{display:flex;justify-content:space-between;font:400 12px "JetBrains Mono",monospace;padding:5px 0;border-top:1px solid #25262b}
+.code div{display:flex;gap:14px;font:400 13px/22px "JetBrains Mono",monospace;color:#d6d7db;white-space:pre}
+.code i{font-style:normal;color:#6b6d75;width:18px;text-align:right}
+.kw{color:#f2c94c}.nb{color:#a3a8ff}.fn{color:#5fe39a}</style></helmet>
+<div style="width:900px;height:680px;box-sizing:border-box;background:#131417;border:1px solid #2c2d33;border-radius:12px;overflow:hidden;color:#e8e8ea;font-family:Inter,sans-serif;display:flex;flex-direction:column">
+<div style="height:40px;background:#3a3938;display:flex;align-items:center;padding:0 14px;position:relative;flex:none"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57;margin-right:8px"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e;margin-right:8px"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span><span style="position:absolute;left:0;right:0;text-align:center;font:600 14px Inter,sans-serif">lalala · entry rules · Formula</span></div>
+<div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:14px;min-height:0">
+<div style="display:flex;gap:6px;width:300px"><button class="tab">Rules</button><button class="tab on">Formula</button><button class="tab">Code</button></div>
+<div style="display:grid;grid-template-columns:210px 1fr 230px;gap:14px;flex:1;min-height:0">
+<div class="card"><h2 class="h">Blocs</h2>
+<label class="lbl" for="sb" style="display:none">Chercher un bloc</label><input id="sb" class="in" placeholder="Chercher un bloc…" style="margin-bottom:12px">
+<span class="k">Données</span><div class="pal" style="margin-top:6px"><span class="chip c2">price</span><span class="chip c2">model_p</span><span class="chip c2">volume</span><span class="chip c2">spread</span><span class="chip c2">liquidity</span><span class="chip c2">days_left</span></div>
+<span class="k">Indicateurs</span><div class="pal" style="margin-top:6px"><span class="chip c1">SMA</span><span class="chip c1">EMA</span><span class="chip c1">RSI</span><span class="chip c1">σ</span><span class="chip c1">zscore</span><span class="chip c1">Δ</span><span class="chip c1">max</span><span class="chip c1">min</span></div>
+<span class="k">Maths</span><div class="pal" style="margin-top:6px"><span class="chip">+</span><span class="chip">−</span><span class="chip">×</span><span class="chip">÷</span><span class="chip">( )</span><span class="chip">abs</span><span class="chip">log</span><span class="chip">&gt;</span><span class="chip">&lt;</span><span class="chip">≥</span><span class="chip">≤</span></div>
+<span class="k">Logique</span><div class="pal" style="margin-top:6px"><span class="chip c4">AND</span><span class="chip c4">OR</span><span class="chip c4">NOT</span></div></div>
+<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2 class="h" style="margin:0">Formule</h2>
+<span class="k">Variables</span>
+<div class="line"><span class="chip" style="cursor:text">z</span><span class="u">=</span><span class="chip c1">zscore</span><span class="u">(</span><span class="chip c2">price</span><span class="u">,</span><span class="chip">20</span><span class="u">)</span></div>
+<div class="line"><span class="chip" style="cursor:text">edge</span><span class="u">=</span><span class="chip c2">model_p</span><span class="chip">−</span><span class="chip c2">price</span></div>
+<span class="k" style="margin-top:4px">Condition d'entrée</span>
+<div class="line"><span class="m" style="font-size:11px;color:#f2c94c">BUY YES IF</span><span class="chip">z</span><span class="chip">&lt;</span><span class="chip">−2</span><span class="chip c4">AND</span><span class="chip">edge</span><span class="chip">&gt;</span><span class="chip">0.08</span><span class="u" style="border:1px dashed #4a3f1a;border-radius:6px;padding:5px 12px">+ glisser ici</span></div>
+<div class="m" style="margin-top:auto;padding:10px 12px;background:#101114;border-radius:6px;font-size:12px;color:#c9cad0">z &lt; −2 AND edge &gt; 0.08</div>
+<div style="font-size:12px;display:flex;flex-direction:column;gap:4px"><span style="color:#3ddc84">✓ Syntaxe valide · 64 signaux</span><span style="color:#f2c94c">⚠ spread : pas d'historique en backtest</span></div></div>
+<div class="card"><h2 class="h">Bloc sélectionné</h2>
+<span class="chip c1" style="margin-bottom:12px">zscore</span>
+<label class="lbl" for="src">Source</label><select id="src" class="in" style="margin-bottom:10px"><option>price</option></select>
+<label class="lbl" for="wn">Fenêtre (barres)</label><input id="wn" class="in m" value="20" style="text-align:right;margin-bottom:10px">
+<label class="lbl" for="sh">Décalage</label><input id="sh" class="in m" value="0" style="text-align:right;margin-bottom:16px">
+<h2 class="h">Valeurs en direct</h2>
+<div class="row"><span>price</span><span>0.41</span></div><div class="row"><span>z</span><span>−2.31</span></div><div class="row"><span>edge</span><span>0.09</span></div><div class="row"><span>résultat</span><span style="color:#3ddc84">TRUE</span></div></div></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto"><span class="k">Odds reversion · brouillon non enregistré</span><div style="display:flex;gap:10px"><button class="ghost">Cancel</button><button class="btn">Apply to strategy</button></div></div></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":900,"height":680}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script></body></html>

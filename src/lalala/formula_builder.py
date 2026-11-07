@@ -43,8 +43,10 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.formula import (
+    ENTRY_FIELDS,
     EXIT_FIELDS,
     FIELDS,
+    NO_HISTORY,
     FUNCTIONS,
     FormulaError,
     parse,
@@ -57,7 +59,7 @@ MIME = "application/x-lalala-chip"
 HANDLE = "⠿"
 LOGIC_WORDS = ("and", "or", "not")
 # Names that read as "the bar" or "the trade": both are data, coloured alike.
-DATA_NAMES = frozenset(FIELDS) | frozenset(EXIT_FIELDS)
+DATA_NAMES = frozenset(ENTRY_FIELDS) | frozenset(EXIT_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,7 @@ class Item:
     tokens: tuple = ()
     note: str = ""
     call: tuple | None = None  # (func, series, params, label)
+    missing: bool = False      # named, but nothing here carries it
 
 
 LOGIC_ITEMS: tuple = (
@@ -89,6 +92,7 @@ LOGIC_ITEMS: tuple = (
     Item("÷", ("/",)),
     Item("%", ("%",)),
     Item("^", ("^",)),
+    Item("log", ("log",), "natural log"),
     Item("<", ("<",)),
     Item("<=", ("<=",)),
     Item(">", (">",)),
@@ -107,6 +111,14 @@ PALETTES: tuple = (
             Item("high", ("high",)),
             Item("low", ("low",)),
             Item("volume", ("volume",)),
+            Item("model_p", ("model_p",), "a model's probability — no history here",
+                 missing=True),
+            Item("spread", ("spread",), "the bid/ask spread — no history here",
+                 missing=True),
+            Item("liquidity", ("liquidity",), "book depth — no history here",
+                 missing=True),
+            Item("days_left", ("days_left",), "time to expiry — no history here",
+                 missing=True),
         ),
     ),
     (
@@ -122,6 +134,8 @@ PALETTES: tuple = (
             Item("Boll low", note="bollinger_lower(close, period, dev)", call=("bollinger_lower", "close", ("20", "2"), "Boll low")),
             Item("Boll mid", note="bollinger_middle(close, period, dev)", call=("bollinger_middle", "close", ("20", "2"), "Boll mid")),
             Item("Boll up", note="bollinger_upper(close, period, dev)", call=("bollinger_upper", "close", ("20", "2"), "Boll up")),
+            Item("σ", note="stdev(close, period)", call=("stdev", "close", ("20",), "σ")),
+            Item("zscore", note="zscore(close, period)", call=("zscore", "close", ("20",), "zscore")),
         ),
     ),
     ("Logic & Maths", LOGIC_ITEMS),
@@ -341,6 +355,7 @@ class PaletteBlock(QFrame):
             "group",
             "indicator" if item.call else group_for_token(item.tokens[0]),
         )
+        self.setProperty("missing", bool(item.missing))
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setToolTip(item.note or f"drag {item.label} onto a line")
 
@@ -795,7 +810,7 @@ class FormulaBuilder(QWidget):
         self,
         parent: QWidget | None = None,
         palettes: tuple | None = None,
-        fields: tuple = FIELDS,
+        fields: tuple = ENTRY_FIELDS,
         functions: dict | None = None,
     ) -> None:
         super().__init__(parent)
@@ -935,6 +950,12 @@ class FormulaBuilder(QWidget):
         self.error_label.setObjectName("formulaError")
         self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
+
+        # The mock's amber line: a word in the rule that nothing here carries.
+        self.warning_label = QLabel("", box)
+        self.warning_label.setObjectName("formulaWarning")
+        self.warning_label.setWordWrap(True)
+        layout.addWidget(self.warning_label)
         layout.addStretch(1)
         return box
 
@@ -1092,6 +1113,24 @@ class FormulaBuilder(QWidget):
     def error(self) -> str:
         return self.error_label.text()
 
+    def warning(self) -> str:
+        return self.warning_label.text()
+
+    def missing_names(self) -> list:
+        """Names in the formula that nothing here carries, in order."""
+        return [
+            name for name in self._used_names() if name in NO_HISTORY
+        ]
+
+    def _used_names(self) -> list:
+        seen: list = []
+        for strip in self.strips:
+            for chip in strip.chips():
+                for token in chip.tokens():
+                    if token in NO_HISTORY and token not in seen:
+                        seen.append(token)
+        return seen
+
     def parsed(self):
         return self._parsed
 
@@ -1182,6 +1221,7 @@ class FormulaBuilder(QWidget):
         self.changed.emit()
 
     def _refresh(self) -> None:
+        self._refresh_warning()
         # Series lines read "LET", the last line reads "IF".
         for index, strip in enumerate(self.strips):
             last = index == len(self.strips) - 1
@@ -1211,6 +1251,16 @@ class FormulaBuilder(QWidget):
         else:
             self._set_state("ok")
             self.error_label.setText("")
+
+    def _refresh_warning(self) -> None:
+        missing = self.missing_names()
+        if missing:
+            names = ", ".join(missing)
+            self.warning_label.setText(
+                f"⚠ {names}: no history in a backtest"
+            )
+        else:
+            self.warning_label.setText("")
 
     def _set_state(self, state: str) -> None:
         self.status.setText(

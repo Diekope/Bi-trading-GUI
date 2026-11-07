@@ -30,11 +30,13 @@ import re
 from dataclasses import dataclass, field
 
 __all__ = [
+    "ENTRY_FIELDS",
     "EXIT_FIELDS",
     "EXIT_FUNCTIONS",
     "FIELDS",
     "FUNCTIONS",
     "HINT",
+    "NO_HISTORY",
     "Assignment",
     "Binary",
     "Call",
@@ -56,11 +58,21 @@ FIELDS = ("open", "high", "low", "close", "volume")
 # are percentages; `price` is the close while the trade is open.
 EXIT_FIELDS = ("price", "entry", "tp", "sl", "pnl", "bars")
 
+# Market words a rule may mention but nothing here carries: there is no model
+# probability, spread, book or expiry in the candle store. They validate, and
+# they evaluate to nothing, so a rule that leans on one says so rather than
+# quietly reading zero.
+NO_HISTORY = ("model_p", "spread", "liquidity", "days_left")
+
+# The entry vocabulary: the bar, plus those words.
+ENTRY_FIELDS = FIELDS + NO_HISTORY
+
 # name -> (min arguments, max arguments). A `series` argument is any
 # expression; a period is a number of bars.
 FUNCTIONS: dict[str, tuple[int, int]] = {
     "abs": (1, 1),
     "sqrt": (1, 1),
+    "log": (1, 1),
     "min": (2, 2),
     "max": (2, 2),
     "sma": (2, 2),          # sma(series, period)
@@ -68,6 +80,8 @@ FUNCTIONS: dict[str, tuple[int, int]] = {
     "rsi": (2, 2),          # rsi(series, period)
     "highest": (2, 2),      # highest(series, period)
     "lowest": (2, 2),       # lowest(series, period)
+    "stdev": (2, 2),        # stdev(series, period)
+    "zscore": (2, 2),       # zscore(series, period)
     "change": (2, 2),       # change(series, bars)
     "shift": (2, 2),        # shift(series, bars)
     "bollinger_lower": (3, 3),   # bollinger_lower(series, period, deviations)
