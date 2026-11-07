@@ -43,7 +43,7 @@ from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 from lalala.formula_builder import EXIT_PALETTES
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
-from lalala.strat_preview import PreviewTile
+from lalala.strat_report import ReportTile
 from lalala.strat_rules import EXIT_PRESETS, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
@@ -130,9 +130,9 @@ class StrategyBuilderWindow(QMainWindow):
             placeholder="pnl >= tp or pnl <= 0 - sl",
             presets=EXIT_PRESETS,
         )
-        # The right rail runs the rule over the candles on disk.
-        self.preview = PreviewTile(self.splitter)
-        self.right = self.preview
+        # The right rail reports what the rule did over the candles on disk.
+        self.report = ReportTile(self.splitter)
+        self.right = self.report
 
         # One tile, one row: the strategy's name and the timeframe it acts on.
         # The tile is titled, and nothing else is spaced around them.
@@ -182,7 +182,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.entry.mode_changed.connect(self.entry_mode_changed)
         self.exit.changed.connect(self._exit_changed)
         self.exit.mode_changed.connect(self.exit_mode_changed)
-        self.timeframe.currentTextChanged.connect(self._sync_preview)
+        self.timeframe.currentTextChanged.connect(self._sync_report)
 
         for tile in (self.strategy_tile, self.entry_tile, self.exit_tile):
             self.center.addWidget(tile)
@@ -213,16 +213,16 @@ class StrategyBuilderWindow(QMainWindow):
         """The entry builder changed; pass the word on and re-fit the tiles."""
         self.entry_formula_changed.emit()
         self._schedule_fit()
-        self._sync_preview()
+        self._sync_report()
 
     def _exit_changed(self) -> None:
         self.exit_formula_changed.emit()
         self._schedule_fit()
-        self._sync_preview()
+        self._sync_report()
 
-    def _sync_preview(self) -> None:
+    def _sync_report(self) -> None:
         """Show the rules as they now stand on the candles."""
-        self.preview.configure(
+        self.report.configure(
             self.entry.parsed(),
             self.exit.parsed(),
             self.timeframe.currentText(),
@@ -284,7 +284,7 @@ class StrategyBuilderWindow(QMainWindow):
         if not self._column_set:
             self._column_set = True
             self._schedule_fit()
-        self._sync_preview()
+        self._sync_report()
 
     def _schedule_fit(self) -> None:
         """Fit the column once Qt has settled, not mid-change.

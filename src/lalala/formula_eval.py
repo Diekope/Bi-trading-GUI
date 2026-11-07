@@ -17,6 +17,7 @@ evaluated a bar at a time against the open trade's numbers.
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 
 from lalala.formula import (
     EXIT_FIELDS,
@@ -32,6 +33,9 @@ from lalala.formula import (
 )
 
 __all__ = [
+    "FEE",
+    "Report",
+    "backtest",
     "bar_context",
     "entry_signals",
     "evaluate",
@@ -427,3 +431,137 @@ def simulate(
             exits.append(index)
             open_trade = False
     return entries, exits
+
+
+# -- the whole thing, with something to compare it to -----------------------
+
+
+@dataclass
+class Report:
+    """One run: the curves to draw, and the numbers above them."""
+
+    capital: float
+    strategy: list
+    random: list
+    hold: list
+    trades: int
+    wins: int
+
+    @property
+    def pnl(self) -> float:
+        return self.return_of(self.strategy)
+
+    @property
+    def win_rate(self) -> float:
+        return self.wins / self.trades if self.trades else 0.0
+
+    def return_of(self, curve) -> float:
+        if not curve or curve[0] <= 0:
+            return 0.0
+        return curve[-1] / curve[0] - 1.0
+
+    @property
+    def sharpe(self) -> float:
+        """Mean over deviation of the per-bar book returns, not annualised."""
+        returns = [
+            curve / previous - 1.0
+            for previous, curve in zip(self.strategy, self.strategy[1:])
+            if previous > 0
+        ]
+        if len(returns) < 2:
+            return 0.0
+        mean = sum(returns) / len(returns)
+        variance = sum((value - mean) ** 2 for value in returns) / (len(returns) - 1)
+        deviation = variance ** 0.5
+        return mean / deviation if deviation else 0.0
+
+    @property
+    def max_drawdown(self) -> float:
+        peak = self.capital
+        worst = 0.0
+        for value in self.strategy:
+            peak = max(peak, value)
+            if peak > 0:
+                worst = min(worst, value / peak - 1.0)
+        return worst
+
+
+FEE = 0.0006
+
+
+def _walk(closes, signals, exit_, tp, sl, capital, fee):
+    """Mark-to-market equity for one set of entries, one position at a time."""
+    equity: list[float] = []
+    results: list[float] = []
+    cash = capital
+    quantity = 0.0
+    entry_price = 0.0
+    entry_index = 0
+
+    for index, price in enumerate(closes):
+        if price is None:
+            equity.append(equity[-1] if equity else capital)
+            continue
+        if quantity > 0:
+            profit = (price / entry_price - 1.0) * 100.0 if entry_price else 0.0
+            context = {
+                "price": price,
+                "entry": entry_price,
+                "tp": tp,
+                "sl": sl,
+                "pnl": profit,
+                "bars": index - entry_index,
+            }
+            if exit_ is None or exit_.condition is None or evaluate_scalar(
+                exit_, context
+            ):
+                cash += quantity * price * (1.0 - fee)
+                results.append(price / entry_price - 1.0 if entry_price else 0.0)
+                quantity = 0.0
+        elif index in signals and cash > 0:
+            quantity = cash * (1.0 - fee) / price
+            cash = 0.0
+            entry_price = price
+            entry_index = index
+        equity.append(cash + quantity * price)
+    return equity, results
+
+
+def backtest(
+    bars,
+    entry: Formula | None,
+    exit_: Formula | None,
+    tp: float = 2.0,
+    sl: float = 1.0,
+    capital: float = 10_000.0,
+    fee: float = FEE,
+    seed: int = 7,
+    entry_chance: float = 0.03,
+    fields=FIELDS,
+) -> Report:
+    """The rule, a random-buy version of it, and buy and hold, over `bars`.
+
+    All three start with the same capital. The random version opens on a coin
+    flip with the same exits, so a rule that cannot beat it has no edge. Buy
+    and hold puts the whole book in at the first bar and never sells.
+    """
+    import random
+
+    closes = [_value(bar, "close") for bar in bars]
+    first = next((value for value in closes if value), None)
+    if first is None:
+        return Report(capital, [], [], [], 0, 0)
+
+    signals = set(entry_signals(entry, bars, fields))
+    strategy, results = _walk(closes, signals, exit_, tp, sl, capital, fee)
+
+    rng = random.Random(seed)
+    picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
+    random_curve, _ = _walk(closes, picks, exit_, tp, sl, capital, fee)
+
+    hold = [
+        capital * (value / first) if value else capital for value in closes
+    ]
+
+    wins = sum(1 for value in results if value > 0)
+    return Report(capital, strategy, random_curve, hold, len(results), wins)

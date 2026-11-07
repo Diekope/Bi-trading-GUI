@@ -8,6 +8,7 @@ import pytest
 
 from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, parse
 from lalala.formula_eval import (
+    backtest,
     bar_context,
     entry_signals,
     evaluate,
@@ -211,3 +212,50 @@ def test_the_walk_needs_both_rules() -> None:
     bars = _bars([80, 80, 80])
     assert simulate(bars, None, None) == ([], [])
     assert simulate(bars, parse("close < 90"), None) == ([0], [])
+
+
+# -- the run, and what to compare it to ------------------------------------
+
+
+def test_a_run_draws_three_curves_from_the_same_capital() -> None:
+    bars = _bars([100 + index % 20 for index in range(300)])
+    report = backtest(bars, parse("close < sma(close, 5)"), None, capital=1_000.0)
+
+    assert len(report.strategy) == len(bars)
+    assert len(report.random) == len(bars)
+    assert len(report.hold) == len(bars)
+    # All three start where they started.
+    assert report.strategy[0] == pytest.approx(1_000.0)
+    assert report.hold[0] == pytest.approx(1_000.0)
+    assert report.capital == 1_000.0
+
+
+def test_the_numbers_above_the_curves() -> None:
+    bars = _bars([100 + index % 20 for index in range(300)])
+    exit_ = parse("pnl >= tp or pnl <= 0 - sl", EXIT_FIELDS, EXIT_FUNCTIONS)
+    report = backtest(
+        bars, parse("close < sma(close, 5)"), exit_, tp=2.0, sl=1.0
+    )
+
+    assert report.trades > 0
+    assert 0.0 <= report.win_rate <= 1.0
+    assert report.wins <= report.trades
+    assert report.pnl == pytest.approx(report.return_of(report.strategy))
+    assert report.max_drawdown <= 0.0
+    assert isinstance(report.sharpe, float)
+
+
+def test_buy_and_hold_is_the_whole_book_from_the_first_bar() -> None:
+    bars = _bars([100, 110, 90, 120])
+    report = backtest(bars, None, None, capital=1_000.0)
+
+    assert report.hold == pytest.approx([1_000.0, 1_100.0, 900.0, 1_200.0])
+
+
+def test_a_run_with_no_bars_is_empty() -> None:
+    report = backtest([], parse("close < 10"), None)
+    assert report.strategy == []
+    assert report.trades == 0
+    assert report.pnl == 0.0
+    assert report.win_rate == 0.0
+    assert report.sharpe == 0.0

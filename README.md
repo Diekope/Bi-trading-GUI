@@ -258,7 +258,7 @@ src/lalala/
   formula.py       the entry/exit formula language: parse and check (no Qt)
   formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
-  strat_preview.py the right rail: the rule run over the candles on disk
+  strat_report.py the right rail: the rule run over the candles on disk
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -284,7 +284,7 @@ tests/             369 tests: parsing/search/aliases, slug math, candle + book
                    strategy builder window, its locked 21/47/32 columns, its
                    compact STRATEGY tile, the two rules tiles, their presets and
                    their code refusal, the drag-and-drop formula builder, the
-                   formula language, its evaluator and the preview tile, the chart and backtest settings, the
+                   formula language, its evaluator and the results tile, the chart and backtest settings, the
                    silent log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
@@ -436,19 +436,30 @@ leaving the tiles and the code out of step.
 Reading text back keeps indicators whole: `bollinger_lower(close, 20, 2)` comes
 back as one tile holding `20` and `2`, not a run of separate chips.
 
-### Preview tile
+### Results tile
 
-The right rail runs the rule over the candles already on disk. It takes the
-newest year in the store, keeps the tail of it — 220 bars in view, 400 more
-behind them so the indicators have history — compacts them to the bar the
-STRATEGY tile names, and runs the rules with `lalala.formula_eval`.
+The right rail reports what the rule did over the candles already on disk. It
+takes the newest year in the store, keeps the tail of it (1,200 bars in view,
+200 more behind them so the indicators have history), compacts them to the bar
+the STRATEGY tile names, and runs `lalala.formula_eval.backtest`.
 
-Entries are marked under the bar they fire on, exits above it, and the note
-reads `2026 · 1h · 5 entries in view · tp 2 / sl 1`.
+Five numbers in **two rows** — `PnL`, `Sharpe`, `Max DD`, then `Trades` and
+`Win rate` — and under them three curves, drawn as **return since the start**:
 
-`tp` and `sl` are the preview's own defaults: the run's parameters live in the
-other window, and nothing is wired between them yet. It downloads nothing and
-writes nothing; an empty store says so instead of drawing an empty chart.
+| Curve | What it is |
+| --- | --- |
+| **strategy** (amber) | the rule as written |
+| **random buy** (indigo) | the same exits and fees, entries on a coin flip |
+| **buy & hold** (grey, dotted) | the whole book in at the first bar, never sold |
+
+The legend under the chart carries each one's running total. Return, not
+balance: over a long span buy and hold compounds many times over while a rule
+that is in and out of the market barely moves, and in dollars the first would
+flatten the other two into the axis.
+
+`tp` and `sl` are this tile's own defaults, since the run's parameters live in
+the other window and nothing is wired between them yet. It downloads nothing
+and writes nothing; an empty store says so instead of drawing an empty chart.
 
 ## The evaluator
 
