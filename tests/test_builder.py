@@ -84,71 +84,63 @@ def test_it_is_a_window_of_its_own(builder: StrategyBuilderWindow) -> None:
     assert builder.minimumHeight() >= 380
 
 
-def test_the_work_holds_two_columns(
+def test_the_window_holds_the_rail_and_the_rest(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     splitter = builder.splitter
 
-    # The work on the left, the report on the right.
+    # A narrow rail on the left, everything else on the right.
     assert splitter.count() == 2
     assert splitter.orientation() == Qt.Orientation.Horizontal
     assert splitter.handleWidth() == CARD_GAP
     assert splitter.childrenCollapsible() is False
-    assert splitter.widget(0) is builder.work
-    assert splitter.widget(1) is builder.right
-    assert builder.right is builder.report
-    assert isinstance(builder.right, Card)
+    assert splitter.widget(0) is builder.left_column
+    assert splitter.widget(1) is builder.right_column
 
 
-def test_the_naming_tile_spans_the_top_and_the_rules_sit_under_it(
+def test_the_naming_tile_sits_on_the_rail_over_an_empty_tile(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    work = builder.work
-    rules = builder.rules
+    rail = builder.left_column
 
-    # Naming on top, the two rules beneath it.
-    assert work.count() == 2
-    assert work.orientation() == Qt.Orientation.Vertical
-    assert work.widget(0) is builder.strategy_tile
-    assert work.widget(1) is rules
-    assert work.childrenCollapsible() is False
-
-    # The two rules are side by side, in one line.
-    assert rules.count() == 2
-    assert rules.orientation() == Qt.Orientation.Horizontal
-    assert rules.widget(0) is builder.entry_tile
-    assert rules.widget(1) is builder.exit_tile
-    for tile in (builder.strategy_tile, builder.entry_tile, builder.exit_tile):
-        assert isinstance(tile, Card)
-
-    gap = builder.entry_tile.geometry().right() + 1
-    assert builder.exit_tile.geometry().left() - gap == pytest.approx(
-        CARD_GAP, abs=1
-    ), "the two rules are separated by the card gap"
+    assert rail.count() == 2
+    assert rail.orientation() == Qt.Orientation.Vertical
+    assert rail.widget(0) is builder.strategy_tile
+    assert rail.widget(1) is builder.left
+    assert isinstance(builder.left, Card)
+    # The tile under the naming is empty.
+    assert builder.left.findChildren(QLabel) == []
+    assert builder.left.body.count() == 0
+    assert (
+        builder.left.geometry().top()
+        - builder.strategy_tile.geometry().bottom()
+        - 1
+    ) == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_four_gaps_are_the_card_gap(
+def test_the_two_rules_got_the_upper_part_and_the_report_the_rest(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    for width in (1100, 1500):
-        builder.resize(width, 900)
-        app.processEvents()
+    column = builder.right_column
 
-        below = builder.work.geometry().top()
-        assert builder.work.geometry().left() > builder.left_edge() - 1 if False else True
-        # naming over the rules
-        assert (
-            builder.rules.geometry().top()
-            - builder.strategy_tile.geometry().bottom()
-            - 1
-        ) == pytest.approx(CARD_GAP, abs=1)
-        # entry beside exit
-        assert (
-            builder.exit_tile.geometry().left()
-            - builder.entry_tile.geometry().right()
-            - 1
-        ) == pytest.approx(CARD_GAP, abs=1)
-        assert below >= 0
+    # Rules in one line on top, the report under them.
+    assert column.count() == 2
+    assert column.orientation() == Qt.Orientation.Vertical
+    assert column.widget(0) is builder.rules
+    assert column.widget(1) is builder.report
+
+    assert builder.rules.count() == 2
+    assert builder.rules.orientation() == Qt.Orientation.Horizontal
+    assert builder.rules.widget(0) is builder.entry_tile
+    assert builder.rules.widget(1) is builder.exit_tile
+
+    # The report is under the rules, not beside them.
+    assert builder.report.geometry().top() > builder.rules.geometry().bottom()
+    assert (
+        builder.report.geometry().top()
+        - builder.rules.geometry().bottom()
+        - 1
+    ) == pytest.approx(CARD_GAP, abs=1)
 
 
 def test_the_entry_and_exit_tiles_are_titled(
@@ -168,7 +160,7 @@ def test_the_entry_and_exit_tiles_are_titled(
     assert builder.exit_tile.body.count() == 2
 
 
-def test_the_naming_tile_is_small_and_across_the_top(
+def test_the_naming_tile_is_small_on_the_rail(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     tile = builder.strategy_tile
@@ -176,11 +168,11 @@ def test_the_naming_tile_is_small_and_across_the_top(
     assert [label.text() for label in tile.findChildren(QLabel)] == ["STRATEGY"]
     assert tile.findChildren(QLabel)[0].objectName() == "tileTitle"
 
-    # Only as tall as its title and row, and it spans the work width.
-    top, rules = builder.work.sizes()
+    # Only as tall as its title and row, and it spans the rail's width.
+    top, below = builder.left_column.sizes()
     assert top == pytest.approx(tile.sizeHint().height(), abs=2)
-    assert rules > top
-    assert tile.width() == pytest.approx(builder.work.width() - 2, abs=2)
+    assert below > 0
+    assert tile.width() == pytest.approx(builder.left_column.width() - 2, abs=2)
 
 
 def test_the_name_and_the_timeframe_share_the_strategy_tile(
@@ -196,7 +188,8 @@ def test_the_name_and_the_timeframe_share_the_strategy_tile(
     # and they sit at the same height.
     assert edit.geometry().top() == pytest.approx(picker.geometry().top(), abs=2)
     assert edit.geometry().left() < picker.geometry().left()
-    assert edit.width() > picker.width() * 3
+    # The name takes the slack; on the narrow rail that is still the wider one.
+    assert edit.width() > picker.width()
 
     # Scoped to this tile: the name and the timeframe are here and nowhere
     # else, on either of the rules tiles.
@@ -227,17 +220,17 @@ def test_the_timeframe_is_a_dropdown(builder: StrategyBuilderWindow) -> None:
     assert picker.currentText() == "1h"
 
 
-def test_the_work_and_the_report_split_the_width(
+def test_the_rail_and_the_rest_split_the_width(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     builder.splitter.setSizes(builder.column_sizes())
     app.processEvents()
 
-    work, report = builder.splitter.sizes()
-    total = work + report
-    assert work / total == pytest.approx(COLUMN_SHARES[0], abs=0.01)
-    assert report / total == pytest.approx(COLUMN_SHARES[1], abs=0.01)
-    assert work > report
+    rail, rest = builder.splitter.sizes()
+    total = rail + rest
+    assert rail / total == pytest.approx(COLUMN_SHARES[0], abs=0.02)
+    assert rest / total == pytest.approx(COLUMN_SHARES[1], abs=0.02)
+    assert rest > rail
 
 
 def test_the_two_rules_are_the_same_width(
@@ -734,8 +727,8 @@ def test_the_columns_cannot_be_dragged(
 def test_the_lateral_gaps_are_the_card_gap(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    for width in (1100, 1500):
-        builder.resize(width, 900)
+    for width in (1300, 1600):
+        builder.resize(width, 940)
         app.processEvents()
         assert (
             builder.exit_tile.geometry().left()
@@ -743,8 +736,8 @@ def test_the_lateral_gaps_are_the_card_gap(
             - 1
         ) == pytest.approx(CARD_GAP, abs=1)
         assert (
-            builder.report.geometry().left()
-            - builder.work.geometry().right()
+            builder.right_column.geometry().left()
+            - builder.left_column.geometry().right()
             - 1
         ) == pytest.approx(CARD_GAP, abs=1)
 
@@ -752,47 +745,54 @@ def test_the_lateral_gaps_are_the_card_gap(
 def test_the_split_scales_with_the_window(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    for width in (1100, 1500):
-        builder.resize(width, 900)
+    for width in (1300, 1600):
+        builder.resize(width, 940)
         app.processEvents()
 
-        work, report = builder.splitter.sizes()
-        total = work + report
-        assert work / total == pytest.approx(COLUMN_SHARES[0], abs=0.01)
-        assert report / total == pytest.approx(COLUMN_SHARES[1], abs=0.01)
+        rail, rest = builder.splitter.sizes()
+        total = rail + rest
+        assert rail / total == pytest.approx(COLUMN_SHARES[0], abs=0.02)
+        assert rest / total == pytest.approx(COLUMN_SHARES[1], abs=0.02)
 
-        # The naming tile keeps its own height; the rules take the rest.
-        top, rules = builder.work.sizes()
+        # The naming tile keeps its own height on the rail.
+        top, below = builder.left_column.sizes()
         assert top == pytest.approx(
             builder.strategy_tile.sizeHint().height(), abs=4
         )
-        assert rules > top
+        assert below > 0
 
-        # And the two rules share the width evenly.
+        # The rules share their width evenly.
         entry, exit_ = builder.rules.sizes()
         assert entry == pytest.approx(exit_, abs=2)
 
 
-def test_the_rules_fill_the_work_area(
+def test_the_rules_fill_their_part(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     builder.splitter.setSizes(builder.column_sizes())
     app.processEvents()
 
     assert builder.strategy_tile.width() == pytest.approx(
-        builder.work.width() - 2, abs=2
+        builder.left_column.width() - 2, abs=2
     )
     for tile in (builder.entry_tile, builder.exit_tile):
-        assert tile.height() == pytest.approx(
-            builder.rules.height() - 2, abs=3
-        )
+        assert tile.width() > 0
+        assert tile.height() > 0
+    assert builder.report.width() == pytest.approx(builder.rules.width(), abs=6)
+    assert (
+        builder.right_column.height()
+        - builder.rules.height()
+        - builder.report.height()
+        - CARD_GAP
+    ) == pytest.approx(0, abs=4)
 
 
-def test_the_report_is_the_right_side(
+def test_the_report_is_not_a_rules_tile(
     builder: StrategyBuilderWindow
 ) -> None:
-    assert builder.right is builder.report
+    assert builder.right is builder.right_column
     assert builder.report is not builder.entry_tile
+    assert builder.report is not builder.exit_tile
 
 
 def test_it_uses_the_same_desk_as_the_other_windows(

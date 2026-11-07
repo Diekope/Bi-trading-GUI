@@ -51,7 +51,10 @@ from lalala.strat_rules import EXIT_PRESETS, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
-COLUMN_SHARES = (0.68, 0.32)
+COLUMN_SHARES = (0.21, 0.79)
+
+# How much of the right column the two rules take; the report has the rest.
+RULES_SHARE = 0.58
 
 # The bar the strategy reads, one of the compactions the store supports.
 TIMEFRAMES = ("1m", "5m", "15m", "1h")
@@ -92,8 +95,8 @@ class StrategyBuilderWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("lalala · create a strategy")
-        # Two rules tiles of three columns each, plus the report.
-        self.setMinimumSize(1040, 620)
+        # Two rules tiles of three columns each, beside the rail.
+        self.setMinimumSize(1180, 640)
         self.resize(1280, 960)
 
         canvas = QWidget(self)
@@ -105,27 +108,33 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setContentsMargins(CARD_GAP, CARD_GAP, CARD_GAP, CARD_GAP)
         layout.setSpacing(CARD_GAP)
 
-        # Two columns: the work on the left, the report on the right. The
-        # handles are locked: the share is fixed, and changes only when the
-        # window does.
+        # Three regions: a narrow rail on the left, then the two rules side by
+        # side with the report under them. The outer handles are locked: the
+        # share is fixed, and changes only when the window does.
         self.splitter = LockedSplitter(Qt.Orientation.Horizontal, canvas)
         self.splitter.setObjectName("builderSplitter")
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(CARD_GAP)
 
-        # The work is a vertical split: the small naming tile across the top,
-        # then the two rules tiles side by side under it.
-        self.work = QSplitter(Qt.Orientation.Vertical, self.splitter)
-        self.work.setObjectName("builderWork")
-        self.work.setChildrenCollapsible(False)
-        self.work.setHandleWidth(CARD_GAP)
+        # The left rail: the small naming tile over an empty tile.
+        self.left_column = QSplitter(Qt.Orientation.Vertical, self.splitter)
+        self.left_column.setObjectName("builderLeft")
+        self.left_column.setChildrenCollapsible(False)
+        self.left_column.setHandleWidth(CARD_GAP)
 
-        self.rules = QSplitter(Qt.Orientation.Horizontal, self.work)
+        # The rest: the two rules in one line, the report under them.
+        self.right_column = QSplitter(Qt.Orientation.Vertical, self.splitter)
+        self.right_column.setObjectName("builderRight")
+        self.right_column.setChildrenCollapsible(False)
+        self.right_column.setHandleWidth(CARD_GAP)
+
+        self.rules = QSplitter(Qt.Orientation.Horizontal, self.right_column)
         self.rules.setObjectName("builderRules")
         self.rules.setChildrenCollapsible(False)
         self.rules.setHandleWidth(CARD_GAP)
 
-        self.strategy_tile = Card(self.work)
+        self.strategy_tile = Card(self.left_column)
+        self.left = Card(self.left_column)
         self.entry_tile = RulesTile("ENTRY RULES", self.rules)
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
@@ -138,9 +147,9 @@ class StrategyBuilderWindow(QMainWindow):
             placeholder="pnl >= tp or pnl <= 0 - sl",
             presets=EXIT_PRESETS,
         )
-        # The right side reports what the rule did over the candles on disk.
-        self.report = ReportTile(self.splitter)
-        self.right = self.report
+        # Under the two rules: what they did over the candles on disk.
+        self.report = ReportTile(self.right_column)
+        self.right = self.right_column
 
         # One tile, one row: the strategy's name and the timeframe it acts on.
         # The tile is titled, and nothing else is spaced around them.
@@ -194,17 +203,22 @@ class StrategyBuilderWindow(QMainWindow):
         self.timeframe.currentTextChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._describe_draft)
 
-        # The naming tile is small and spans the top; the two rules sit under
-        # it, side by side, each keeping only the width it can use.
-        self.work.addWidget(self.strategy_tile)
-        self.work.addWidget(self.rules)
+        # The naming tile is small and sits at the top of the left rail; the
+        # empty tile takes the rest of it. The two rules share the width above
+        # the report.
+        self.left_column.addWidget(self.strategy_tile)
+        self.left_column.addWidget(self.left)
+        self.right_column.addWidget(self.rules)
+        self.right_column.addWidget(self.report)
         self.rules.addWidget(self.entry_tile)
         self.rules.addWidget(self.exit_tile)
         self.strategy_tile.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
-        self.work.setStretchFactor(0, 0)   # naming: its own small height
-        self.work.setStretchFactor(1, 1)   # the rules take the rest
+        self.left_column.setStretchFactor(0, 0)   # naming: its own small height
+        self.left_column.setStretchFactor(1, 1)
+        self.right_column.setStretchFactor(0, 1)  # the rules take the upper part
+        self.right_column.setStretchFactor(1, 1)
         self.rules.setStretchFactor(0, 1)
         self.rules.setStretchFactor(1, 1)
         self._column_set = False
@@ -212,11 +226,11 @@ class StrategyBuilderWindow(QMainWindow):
         self.entry_tile.installEventFilter(self)
         self.exit_tile.installEventFilter(self)
 
-        for column in (self.work, self.report):
+        for column in (self.left_column, self.right_column):
             self.splitter.addWidget(column)
             column.setMinimumWidth(160)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
         self._proportions_set = False
 
         layout.addWidget(self.splitter, 1)
@@ -338,8 +352,8 @@ class StrategyBuilderWindow(QMainWindow):
     def column_sizes(self) -> list[int]:
         """Pixel widths that satisfy `COLUMN_SHARES`, in the current width."""
         usable = max(3, self.splitter.width() - CARD_GAP)
-        work = round(usable * COLUMN_SHARES[0])
-        return [work, usable - work]
+        left = round(usable * COLUMN_SHARES[0])
+        return [left, usable - left]
 
     def entry_mode(self) -> str:
         """Which entry editor is showing."""
@@ -379,21 +393,31 @@ class StrategyBuilderWindow(QMainWindow):
 
     def _maybe_fit(self) -> None:
         self._fit_pending = False
-        # The work and the report keep their exact share of the width.
+        # The rail and the rest keep their exact share of the width.
         columns = self.column_sizes()
         if self.splitter.sizes() != columns and self.splitter.width() > 0:
             self.splitter.setSizes(columns)
 
-        # The naming tile across the top, the rules taking the rest of the
-        # work area, and the two rules sharing that width evenly.
+        # The naming tile at the top of the rail, the empty tile under it.
         top = self.strategy_tile.sizeHint().height()
-        rest = max(0, self.work.height() - top - CARD_GAP)
-        heights = self.work.sizes()
+        rest = max(0, self.left_column.height() - top - CARD_GAP)
+        heights = self.left_column.sizes()
         wanted = [top, rest]
         if len(heights) != 2 or any(
             abs(heights[i] - wanted[i]) > 1 for i in range(2)
         ):
-            self.work.setSizes(wanted)
+            self.left_column.setSizes(wanted)
+
+        # The two rules on the upper part of the right column, the report
+        # under them, and the rules sharing that width evenly.
+        available = max(0, self.right_column.height() - CARD_GAP)
+        upper = int(available * RULES_SHARE)
+        heights = self.right_column.sizes()
+        wanted = [upper, available - upper]
+        if len(heights) != 2 or any(
+            abs(heights[i] - wanted[i]) > 1 for i in range(2)
+        ):
+            self.right_column.setSizes(wanted)
 
         width = self.rules.width()
         half = width // 2
@@ -402,11 +426,7 @@ class StrategyBuilderWindow(QMainWindow):
             self.rules.setSizes(widths)
 
     def _fit_column(self) -> None:
-        """The naming tile keeps its height; the two rules share what is left.
-
-        Both rules tiles are the same width, side by side, and the report keeps
-        the right-hand column.
-        """
+        """The rail keeps its share; the rules over the report in the rest."""
         self._maybe_fit()
 
     def eventFilter(self, obj, event):  # noqa: N802

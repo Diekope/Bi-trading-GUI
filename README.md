@@ -333,14 +333,15 @@ nothing in it:
 uv run lalala-builder
 ```
 
-Two columns side by side, splitting the width **68 / 32** — the work on the
-left, the report on the right — separated by the same 8 px gap and nothing
-else. The split is **locked**: dragging a handle does nothing, so the share
-changes only when the window is resized.
+Two columns side by side, splitting the width **21 / 79** — a narrow rail on
+the left, everything else on the right — separated by the same 8 px gap and
+nothing else. The split is **locked**: dragging a handle does nothing, so the
+share changes only when the window is resized.
 
-The work is a vertical split: the small **STRATEGY** tile across the top, and
-under it the two rules tiles **side by side**, sharing that width evenly each
-one three columns wide. The window will not shrink past what those two need.
+The rail holds the small **STRATEGY** tile on top and an empty tile under it.
+The rest holds the two rules tiles **side by side** in one line, with the
+**results** under them, the rules taking the upper part. The window will not
+shrink past what the two rules need.
 
 A **footer** spans the bottom of the window, as in the mock: the draft's name
 on the left, and `Reset` and `Save` on the right. `Reset` clears the draft —
@@ -349,14 +350,13 @@ under its name, replacing an earlier one of the same name rather than piling
 up; it needs a name and rules that check out, and the footer says which is
 missing.
 
-The **STRATEGY** tile across the top is
+The **STRATEGY** tile at the top of the rail is
 `STRATEGY` and holds one row: a text field (`name` as its placeholder) taking
 the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own width,
-defaulting to `1m`. It is only as tall as the title and that row, and it spans
-the whole work area.
+defaulting to `1m`. It is only as tall as the title and that row.
 
-Under it, two tiles share the rest **evenly**: **ENTRY RULES** and
-**EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
+In the right-hand column the two rules share one line: **ENTRY RULES** and
+**EXIT RULES**, with the **results** under them. They are the same widget — `strat_rules.RulesTile` — each
 with its own formula, its own title row of `Rules` / `Formula` / `Code`
 pills, and nothing shared between them.
 
@@ -468,7 +468,7 @@ back as one tile holding `20` and `2`, not a run of separate chips.
 
 ### Results tile
 
-The right rail reports what the rule did over the candles already on disk. It
+Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
 200 more behind them so the indicators have history), compacts them to the bar
 the STRATEGY tile names, and runs `lalala.formula_eval.backtest`.
