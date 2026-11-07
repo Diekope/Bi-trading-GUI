@@ -34,7 +34,9 @@ __all__ = [
     "EXIT_FIELDS",
     "EXIT_FUNCTIONS",
     "FIELDS",
+    "FIELD_NOTES",
     "FUNCTIONS",
+    "FUNCTION_NOTES",
     "HINT",
     "NO_HISTORY",
     "Assignment",
@@ -66,6 +68,46 @@ NO_HISTORY = ("model_p", "spread", "liquidity", "days_left")
 
 # The entry vocabulary: the bar, plus those words.
 ENTRY_FIELDS = FIELDS + NO_HISTORY
+
+# A line about each word, shown when it is selected in the code tab.
+FIELD_NOTES: dict[str, str] = {
+    "open": "the bar's opening price",
+    "high": "the bar's highest price",
+    "low": "the bar's lowest price",
+    "close": "the bar's closing price",
+    "volume": "how much traded in the bar",
+    "price": "the close while the trade is open",
+    "entry": "the price the trade was entered at",
+    "tp": "the take-profit target, as a percentage",
+    "sl": "the stop-loss level, as a percentage",
+    "pnl": "the open profit or loss, as a percentage",
+    "bars": "how many bars the trade has been open",
+    "model_p": "the model's probability — no history in a backtest",
+    "spread": "the bid/ask spread — no history in a backtest",
+    "liquidity": "how deep the book is — no history in a backtest",
+    "days_left": "days until the market closes — no history in a backtest",
+}
+
+# A line about each function, shown beside its name in the code tab.
+FUNCTION_NOTES: dict[str, str] = {
+    "abs": "absolute value",
+    "sqrt": "square root",
+    "log": "natural logarithm",
+    "min": "the smaller of two values",
+    "max": "the larger of two values",
+    "sma": "simple moving average of a series over N bars",
+    "ema": "exponential moving average over N bars",
+    "rsi": "relative strength index over N bars",
+    "highest": "the highest value over N bars",
+    "lowest": "the lowest value over N bars",
+    "stdev": "the standard deviation over N bars",
+    "zscore": "how far from the mean, in standard deviations",
+    "change": "the difference over N bars",
+    "shift": "the value N bars ago",
+    "bollinger_lower": "the lower Bollinger band, from a period and deviations",
+    "bollinger_middle": "the middle Bollinger band, from a period and deviations",
+    "bollinger_upper": "the upper Bollinger band, from a period and deviations",
+}
 
 # name -> (min arguments, max arguments). A `series` argument is any
 # expression; a period is a number of bars.

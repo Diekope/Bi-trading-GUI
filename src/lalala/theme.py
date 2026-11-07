@@ -358,7 +358,7 @@ QLineEdit#numberEdit:focus {{
 }}
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
 #valueRow, #codeValues, #listScroll, #listInner, #stripArea,
-#selectedScroll, #selectedBody {{
+#selectedScroll, #selectedBody, #codeRail {{
     background-color: transparent;
 }}
 #pageScroll > QWidget > QWidget {{
@@ -425,6 +425,21 @@ QLabel#valueResult[state="off"] {{
     color: {DOWN};
     font-size: 10px;
     font-weight: bold;
+}}
+/* A word in the vocabulary: hovering says it is a choice, and the picked one
+   stays lit while its description shows below. */
+#valueRow[selectable="true"]:hover {{
+    background-color: {PANEL};
+    border-radius: 4px;
+}}
+#valueRow[selected="true"] {{
+    background-color: {ACCENT_BG};
+    border-radius: 4px;
+}}
+QLabel#variableNote {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 2px 2px 6px 2px;
 }}
 
 QLabel#draftLabel {{

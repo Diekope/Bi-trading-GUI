@@ -701,14 +701,59 @@ def test_the_code_lists_scroll_in_place(
         lists[0].verticalScrollBarPolicy()
         == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     )
-    # They sit side by side, not one over the other.
-    vocab = lists[0].parentWidget().geometry()
-    values = lists[1].parentWidget().geometry()
-    assert vocab.left() != values.left()
-    assert vocab.top() == values.top()
+    # They are stacked in the right rail: the vocabulary on top, the values
+    # under it, both to the right of the code.
+    vocab_card = lists[0].parentWidget()
+    values_card = lists[1].parentWidget()
+    vocab = vocab_card.geometry().translated(
+        vocab_card.mapTo(page, vocab_card.rect().topLeft())
+    )
+    values = values_card.geometry().translated(
+        values_card.mapTo(page, values_card.rect().topLeft())
+    )
+    assert vocab.left() == values.left()
+    assert vocab.top() < values.top()
+    code = builder.entry.code_edit.parentWidget()
+    code_rect = code.geometry().translated(code.mapTo(page, code.rect().topLeft()))
+    assert vocab.left() > code_rect.right()
     assert min(vocab.left(), values.left()) >= 0
     # The page itself no longer scrolls: the lists do, so the code stays put.
     assert page.findChild(QScrollArea, "pageScroll") is None
+
+
+def test_clicking_a_variable_describes_it_on_the_right(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.mode_buttons["code"].click()
+    app.processEvents()
+
+    row = builder.entry.vocab_rows["close"]
+    row.clicked.emit("close")
+    app.processEvents()
+
+    assert builder.entry.selected_variable == "close"
+    assert row.property("selected") is True
+    texts = [
+        label.text()
+        for label in builder.entry.values_card.findChildren(QLabel)
+    ]
+    assert "close" in texts
+    assert "the bar's closing price" in texts
+
+    # Clicking another word moves the description; clicking it again clears.
+    sma = builder.entry.vocab_rows["sma()"]
+    sma.clicked.emit("sma()")
+    app.processEvents()
+    assert builder.entry.selected_variable == "sma()"
+    assert row.property("selected") is False
+    texts = [
+        label.text()
+        for label in builder.entry.values_card.findChildren(QLabel)
+    ]
+    assert "simple moving average of a series over N bars" in texts
+    sma.clicked.emit("sma()")
+    app.processEvents()
+    assert builder.entry.selected_variable is None
 
 
 def test_the_live_values_reach_both_panels(

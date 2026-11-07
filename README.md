@@ -390,12 +390,14 @@ selects it: the card shows its name, its source and its window, all editable,
 and under them the live values that name reads on the newest bar, with the
 rule's result.
 
-The `Code` tab is the code, and under it `Variables`, the whole vocabulary
-with its types, beside `Values`, the same last-bar numbers. The two lists sit
-side by side and **scroll in place**; `Variables` hides its bar so the names
-get the width, while the page around them does not scroll, so the code stays
-put while you read them. The code block and the formula bar sit in **wells** —
-darker than the card they are on, the way the mock draws them.
+The `Code` tab is the code on the left, with a right rail holding `Variables`,
+the whole vocabulary with its types, over `Values`, the last bar's numbers.
+The two lists are stacked and **scroll in place**; `Variables` hides its bar so
+the names get the width, while the page around them does not scroll, so the
+code stays put while you read them. Clicking a word in `Variables` picks it:
+the row stays lit and `Values` explains it in a line and shows its number on
+the newest bar. The code block and the formula bar sit in **wells** — darker
+than the card they are on, the way the mock draws them.
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,
 `liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they

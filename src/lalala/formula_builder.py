@@ -1050,6 +1050,9 @@ class FormulaBuilder(QWidget):
         self.warning_label.setObjectName("formulaWarning")
         self.warning_label.setWordWrap(True)
         layout.addWidget(self.warning_label)
+        # The card does not stretch its title: the spare height goes to the
+        # blank under the warnings, so FORMULA sits at the top like BLOCKS.
+        layout.addStretch(1)
         return box
 
     # -- the selected block ------------------------------------------------

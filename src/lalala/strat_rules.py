@@ -37,7 +37,9 @@ from lalala.formula import (
     EXIT_FIELDS,
     EXIT_FUNCTIONS,
     FIELDS,
+    FIELD_NOTES,
     FUNCTIONS,
+    FUNCTION_NOTES,
     FormulaError,
 )
 from lalala.formula_builder import (
@@ -230,6 +232,44 @@ class PresetCard(QFrame):
             self.clicked.emit()
 
 
+class VariableRow(QFrame):
+    """One word in the vocabulary: its name, its kind, and a click."""
+
+    clicked = Signal(str)
+
+    def __init__(self, name: str, kind: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.name = name
+        self.setObjectName("valueRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("selectable", True)
+        self.setProperty("selected", False)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(f"select {name} to see what it is")
+
+        line = QHBoxLayout(self)
+        line.setContentsMargins(2, 2, 2, 2)
+        line.setSpacing(6)
+        key = QLabel(name, self)
+        key.setObjectName("valueKey")
+        shown = QLabel(kind, self)
+        shown.setObjectName("groupLabel")
+        line.addWidget(key, 1)
+        line.addWidget(shown)
+
+    def set_selected(self, selected: bool) -> None:
+        if self.property("selected") == selected:
+            return
+        self.setProperty("selected", selected)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.name)
+        super().mouseReleaseEvent(event)
+
+
 class RulesTile(Card):
     """A titled tile holding one formula, written with tiles or as code."""
 
@@ -385,11 +425,11 @@ class RulesTile(Card):
         """The code on the left, its vocabulary and its values on the right."""
         page = QWidget(self)
         page.setObjectName("entryPage")
-        layout = QVBoxLayout(page)
+        layout = QHBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # The code itself, in a card, with its vocabulary and values under it.
+        # The code itself, in a card, taking the width the right rail leaves.
         code_card = QFrame(page)
         code_card.setObjectName("formulaCard")
         code_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -432,44 +472,53 @@ class RulesTile(Card):
         self.code_note.setWordWrap(True)
         code_layout.addWidget(self.code_error)
         code_layout.addWidget(self.code_note)
-        layout.addWidget(code_card, 3)
+        layout.addWidget(code_card, 1)
 
-        # The vocabulary and what it reads right now, under the code, side by
-        # side. Each one scrolls in place: the lists are longer than any tile,
-        # and the code above should not be pushed off while you read them.
-        side = QHBoxLayout()
-        side.setContentsMargins(0, 0, 0, 0)
-        side.setSpacing(8)
+        # The right rail: the vocabulary over the values, as in the mock.
+        # Each list scrolls in place, so the code beside them stays put.
+        rail = QWidget(page)
+        rail.setObjectName("codeRail")
+        rail.setFixedWidth(250)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(0, 0, 0, 0)
+        rail_layout.setSpacing(8)
 
-        vocab, vocab_scroll = self._list_card(
-            page, "VARIABLES", bar=False
-        )
+        vocab, vocab_scroll = self._list_card(rail, "VARIABLES", bar=False)
+        self.vocab_card = vocab
+        self.selected_variable: str | None = None
+        self.vocab_rows: dict[str, VariableRow] = {}
         vocab_inner = QWidget()
         vocab_inner.setObjectName("listInner")
         vocab_layout = QVBoxLayout(vocab_inner)
         vocab_layout.setContentsMargins(0, 0, 0, 0)
         vocab_layout.setSpacing(0)
         for name in self.fields:
-            vocab_layout.addWidget(
-                self._variable_row(vocab_inner, name, "float")
-            )
+            row = VariableRow(name, "float", vocab_inner)
+            row.clicked.connect(self._select_variable)
+            self.vocab_rows[name] = row
+            vocab_layout.addWidget(row)
         for name in sorted(self.functions):
-            vocab_layout.addWidget(
-                self._variable_row(vocab_inner, f"{name}()", "function")
-            )
+            label = f"{name}()"
+            row = VariableRow(label, "function", vocab_inner)
+            row.clicked.connect(self._select_variable)
+            self.vocab_rows[label] = row
+            vocab_layout.addWidget(row)
         vocab_layout.addStretch(1)
         vocab_scroll.setWidget(vocab_inner)
 
-        values_card, values_scroll = self._list_card(page, "VALUES")
+        values_card, values_scroll = self._list_card(rail, "VALUES")
+        self.values_card = values_card
         self.code_values = QWidget()
         self.code_values.setObjectName("valuesBox")
         self.code_values_layout = QVBoxLayout(self.code_values)
         self.code_values_layout.setContentsMargins(0, 0, 0, 0)
         self.code_values_layout.setSpacing(0)
         values_scroll.setWidget(self.code_values)
-        side.addWidget(vocab, 2)
-        side.addWidget(values_card, 1)
-        layout.addLayout(side, 2)
+
+        rail_layout.addWidget(vocab, 3)
+        rail_layout.addWidget(values_card, 2)
+        layout.addWidget(rail, 0)
+
         # The page itself does not scroll: the two lists scroll in place, so
         # the code above stays put while you read the vocabulary.
         return page
@@ -517,8 +566,25 @@ class RulesTile(Card):
         line.addWidget(shown)
         return row
 
+    def _select_variable(self, name: str) -> None:
+        """Show what the picked word is and what it reads right now."""
+        self.selected_variable = (
+            None if self.selected_variable == name else name
+        )
+        for key, row in self.vocab_rows.items():
+            row.set_selected(key == self.selected_variable)
+        self._refresh_code_values()
+
+    def _describe_variable(self, name: str) -> tuple[str, str]:
+        if name.endswith("()"):
+            base = name[:-2]
+            return base, FUNCTION_NOTES.get(
+                base, "a function the rule may call"
+            )
+        return name, FIELD_NOTES.get(name, "a word the rule may use")
+
     def _refresh_code_values(self) -> None:
-        """The newest bar's numbers, under the vocabulary."""
+        """The newest bar's numbers, or the picked variable's description."""
         if not hasattr(self, "code_values_layout"):
             return
         while self.code_values_layout.count():
@@ -528,11 +594,29 @@ class RulesTile(Card):
                 widget.setParent(None)
                 widget.deleteLater()
         values, result = self.formula.values, self.formula.result
-        for name, value in values.items():
-            shown = "—" if value is None else f"{value:,.4g}"
+        selected = getattr(self, "selected_variable", None)
+        if selected:
+            name, note = self._describe_variable(selected)
+            kind = "function" if selected.endswith("()") else "float"
             self.code_values_layout.addWidget(
-                self._variable_row(self.code_values, name, shown)
+                self._variable_row(self.code_values, name, kind)
             )
+            caption = QLabel(note, self.code_values)
+            caption.setObjectName("variableNote")
+            caption.setWordWrap(True)
+            self.code_values_layout.addWidget(caption)
+            if name in values:
+                value = values[name]
+                shown = "—" if value is None else f"{value:,.4g}"
+                self.code_values_layout.addWidget(
+                    self._variable_row(self.code_values, "value", shown)
+                )
+        else:
+            for name, value in values.items():
+                shown = "—" if value is None else f"{value:,.4g}"
+                self.code_values_layout.addWidget(
+                    self._variable_row(self.code_values, name, shown)
+                )
         if result is not None:
             row = QWidget(self.code_values)
             row.setObjectName("valueRow")
@@ -546,6 +630,7 @@ class RulesTile(Card):
             line.addWidget(key, 1)
             line.addWidget(shown)
             self.code_values_layout.addWidget(row)
+        self.code_values_layout.addStretch(1)
 
     def set_values(self, values, result=None) -> None:
         """What the rule reads on the newest bar, for both panels."""

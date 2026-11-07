@@ -762,6 +762,23 @@ def test_the_three_columns_with_the_selected_block_on_the_right(
     assert builder.formula_card.width() > selected.width()
 
 
+def test_the_formula_title_sits_at_the_top_of_its_card(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    builder.resize(760, 420)
+    app.processEvents()
+
+    # The spare height goes to the blank under the lines, so FORMULA stays at
+    # the top like the other cards' titles rather than floating mid-card.
+    titles = [
+        label
+        for label in builder.formula_card.findChildren(QLabel)
+        if label.objectName() == "panelTitle"
+    ]
+    assert [title.text() for title in titles] == ["FORMULA"]
+    assert titles[0].geometry().top() < 20
+
+
 def test_the_lines_do_not_scroll_inside_the_formula_card(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
