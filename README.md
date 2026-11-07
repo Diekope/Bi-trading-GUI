@@ -436,8 +436,8 @@ The two lists are stacked and **scroll in place**; `Variables` hides its bar so
 the names get the width, while the page around them does not scroll, so the
 code stays put while you read them. Clicking a word in `Variables` picks it:
 the row stays lit and `Values` explains it in a line and shows its number on
-the newest bar. The code block and the formula bar sit in **wells** — darker
-than the card they are on, the way the mock draws them.
+the newest bar. The code block and the formula bar share the card's fill, with
+only a border to mark them, so the text never sits on a darker patch.
 
 ![The Code tab: the code on the left, Variables over Values in the right rail, with close selected](docs/images/builder-code.png)
 

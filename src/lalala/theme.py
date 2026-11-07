@@ -17,9 +17,6 @@ CANVAS = "#0b0b0d"      # main window, darkest: the panels read as raised
 PANEL = "#17181b"       # floating cards, a shade lighter than the canvas
 PANEL_ALT = "#1e1f23"   # hover / striping inside a card, lighter still
 BORDER = "#25262a"      # card edges, splitter hairline
-# The wells inside a card: the code block and the formula bar. Darker than the
-# card, the way the mock draws them, but not as dark as the canvas.
-WELL = "#101114"
 
 CARD_RADIUS = 6
 CARD_GAP = 8
@@ -293,11 +290,12 @@ QPushButton#addLine:disabled {{
     color: {TEXT_FAINT};
 }}
 
-/* The formula text and the checker's word on it. The text sits in a well,
-   as the mock draws it, in one line that scrolls sideways. */
+/* The formula text and the checker's word on it, in one line that scrolls
+   sideways. The fill matches the card so the text does not sit on a darker
+   patch; the border is what marks the field. */
 QLabel#formulaPreview, QLineEdit#formulaPreview {{
-    background-color: {WELL};
-    border: 1px solid transparent;
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
     border-radius: 6px;
     color: {TEXT};
     font-size: 10px;
@@ -306,7 +304,7 @@ QLabel#formulaPreview, QLineEdit#formulaPreview {{
 
 /* The code view: the same formula as text, editable. */
 QPlainTextEdit#codeEdit {{
-    background-color: {WELL};
+    background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
     border-radius: 6px;
     color: {TEXT};
@@ -345,7 +343,7 @@ QLabel#formulaError {{
 }}
 
 QLineEdit#numberEdit {{
-    background-color: {CANVAS};
+    background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
     border-radius: 6px;
     color: {TEXT};
@@ -387,7 +385,7 @@ QLabel#groupLabel {{
     font-size: 10px;
 }}
 QLineEdit#searchEdit {{
-    background-color: {CANVAS};
+    background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
     border-radius: 6px;
     color: {TEXT};
