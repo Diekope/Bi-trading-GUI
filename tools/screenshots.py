@@ -97,15 +97,16 @@ def builder(app: QApplication) -> None:
     window.entry.set_text(
         "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0"
     )
+    window.exit.set_text("pnl >= tp or pnl <= 0 - sl or bars >= 90")
 
-    # Results: the two subwindows. Overview first, then Compare.
-    window.report.set_side("overview")
+    # Results: the three subwindows. Overview first, then Compare.
+    window.report.set_view("overview")
     _settle(app)
     _save(window.report, "part-report.png")
-    window.report.set_side("compare")
+    window.report.set_view("compare")
     _settle(app)
     _save(window.report, "part-report-compare.png")
-    window.report.set_side("overview")
+    window.report.set_view("overview")
     _settle(app)
 
     # Rules: the presets gallery, first of the three tabs.

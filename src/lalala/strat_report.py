@@ -33,9 +33,27 @@ from PySide6.QtWidgets import (
 
 from lalala.candles import candle_file, tail_rows
 from lalala.cards import mono_font
-from lalala.formula_eval import backtest, watch_values
+from lalala.formula_eval import (
+    REASON_END,
+    REASON_RULE,
+    REASON_STOP_LOSS,
+    REASON_TAKE_PROFIT,
+    REASON_TIME,
+    backtest,
+    watch_values,
+)
 from lalala.panels import Card
-from lalala.theme import ACCENT, BAND, BORDER, TEXT, TEXT_FAINT, TEXT_MUTED, UP, DOWN
+from lalala.theme import (
+    ACCENT,
+    BAND,
+    BORDER,
+    DOWN,
+    PANEL_ALT,
+    TEXT,
+    TEXT_FAINT,
+    TEXT_MUTED,
+    UP,
+)
 
 # Bars per displayed slot, and how much history to keep out of sight.
 FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
@@ -50,6 +68,21 @@ PREVIEW_SL = 1.0
 STRATEGY_COLOUR = ACCENT
 RANDOM_COLOUR = BAND
 HOLD_COLOUR = TEXT_MUTED
+
+# How a trade ended, in the colour its bar takes: green when it took profit,
+# red when it stopped, indigo on time, amber on the rule's own condition, grey
+# when the data simply ran out.
+REASON_COLOURS = {
+    REASON_TAKE_PROFIT: UP,
+    REASON_STOP_LOSS: DOWN,
+    REASON_TIME: BAND,
+    REASON_RULE: ACCENT,
+    REASON_END: TEXT_MUTED,
+}
+
+# The results rail on the right, and the height of one reason row.
+RAIL_WIDTH = 250
+ROW_H = 26
 
 MIN_SPAN = 0.4  # percent; never let the scale collapse to a flat line
 PAD = 0.08
@@ -155,9 +188,9 @@ class CurveChart(QWidget):
         strategy = _returns(report.strategy)
         random_buy = _returns(report.random)
         hold = _returns(report.hold)
-        # The scale follows the two rules; buy and hold may run past it.
-        low = min(strategy + random_buy + [0.0])
-        high = max(strategy + random_buy + [0.0])
+        # The scale fits all three curves, so every line is in view.
+        low = min(strategy + random_buy + hold + [0.0])
+        high = max(strategy + random_buy + hold + [0.0])
         span = max(high - low, MIN_SPAN)
         low -= span * PAD
         high += span * PAD
@@ -196,61 +229,141 @@ class CurveChart(QWidget):
                 [QPointF(x_of(i), y_of(v)) for i, v in enumerate(curve)]
             )
 
-        if hold and hold[-1] > high:
-            painter.setPen(QColor(TEXT_MUTED))
-            painter.drawText(
-                QRectF(right - 170, top - 2, 170, 13),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                "buy & hold is off the top",
-            )
-
 
 def _percent(value: float) -> str:
     return f"{value * 100:+,.2f}%"
 
 
-class ReportTile(Card):
-    """The run's numbers and its curves, over two subwindows.
+def _money(value: float) -> str:
+    return f"${value:,.0f}"
 
-    `OVERVIEW` is what the rule did; `COMPARE` is set aside for putting two
-    runs side by side. Their names are the switch, the way ENTRY / EXIT switch
-    in the rules tile, and each keeps its own content.
-    """
 
-    side_changed = Signal(str)
-
-    SIDES = (("overview", "OVERVIEW"), ("compare", "COMPARE"))
+class ReasonBars(QWidget):
+    """How the trades ended: a labelled bar per reason, most first."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.current_side = "overview"
+        self.rows: list[tuple[str, float, str]] = []
+        self.message = "no trades yet"
+        self.setMinimumHeight(40)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
 
-        # The two subwindows are switched by their names, as in the rules
-        # tile: one lit, the other a quiet invitation.
+    def set_report(self, report) -> None:
+        shares = report.reason_shares if report is not None else []
+        self.rows = [
+            (label, share, REASON_COLOURS.get(label, TEXT_MUTED))
+            for label, _count, share in shares
+        ]
+        self.setMinimumHeight(max(1, len(self.rows)) * ROW_H + 4)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = float(self.width())
+        if not self.rows:
+            painter.setFont(mono_font(9))
+            painter.setPen(QColor(TEXT_FAINT))
+            painter.drawText(
+                QRectF(0, 0, width, float(self.height())),
+                Qt.AlignmentFlag.AlignCenter,
+                self.message,
+            )
+            return
+
+        label_w, gap, pct_w = 84.0, 8.0, 38.0
+        track_left = label_w + gap
+        track_right = width - pct_w - gap
+        track_w = max(4.0, track_right - track_left)
+        painter.setFont(mono_font(9))
+        for index, (label, share, colour) in enumerate(self.rows):
+            top = index * ROW_H
+            middle = top + ROW_H / 2.0
+            painter.setPen(QColor(TEXT_MUTED))
+            painter.drawText(
+                QRectF(0, top, label_w, ROW_H),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                label,
+            )
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(PANEL_ALT))
+            painter.drawRoundedRect(
+                QRectF(track_left, middle - 4, track_w, 8), 4, 4
+            )
+            painter.setBrush(QColor(colour))
+            painter.drawRoundedRect(
+                QRectF(track_left, middle - 4, max(2.0, track_w * share), 8), 4, 4
+            )
+            painter.setPen(QColor(TEXT_MUTED))
+            painter.drawText(
+                QRectF(width - pct_w, top, pct_w, ROW_H),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                f"{share * 100:,.0f}%",
+            )
+
+
+class ReportTile(Card):
+    """The run's numbers and its curves, over three subwindows.
+
+    `Overview` is the split — the figures and the three curves on the left, how
+    the trades ended on the right; `Trades` is set aside for the trade list,
+    and `Compare` for putting two runs side by side. Their names are the
+    switch, the way `Rules` / `Formula` / `Code` switch in the rules tile.
+    """
+
+    view_changed = Signal(str)
+
+    VIEWS = (
+        ("overview", "Overview"),
+        ("trades", "Trades"),
+        ("compare", "Compare"),
+    )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.current_view = "overview"
+
+        # RESULTS on the left with the span under it, the view pills on the
+        # right, as in the mock.
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(6)
-        self.sides = QButtonGroup(self)
-        self.sides.setExclusive(True)
-        self.side_buttons: dict[str, QPushButton] = {}
-        for index, (key, label) in enumerate(self.SIDES):
+        header.setSpacing(8)
+
+        heading = QVBoxLayout()
+        heading.setContentsMargins(0, 0, 0, 0)
+        heading.setSpacing(2)
+        title = QLabel("RESULTS", self)
+        title.setObjectName("tileTitle")
+        heading.addWidget(title)
+        self.note = QLabel("no rule yet", self)
+        self.note.setObjectName("hintLabel")
+        self.note.setWordWrap(True)
+        heading.addWidget(self.note)
+        header.addLayout(heading, 1)
+
+        self.views = QButtonGroup(self)
+        self.views.setExclusive(True)
+        self.view_buttons: dict[str, QPushButton] = {}
+        for index, (key, label) in enumerate(self.VIEWS):
             button = QPushButton(label, self)
-            button.setObjectName("sideButton")
-            button.setProperty("side", key)
+            button.setObjectName("modeButton")
+            button.setProperty("view", key)
             button.setCheckable(True)
             button.setChecked(index == 0)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.sides.addButton(button, index)
-            self.side_buttons[key] = button
-            header.addWidget(button)
-        header.addStretch(1)
-        self.sides.idClicked.connect(self._pick_side)
+            self.views.addButton(button, index)
+            self.view_buttons[key] = button
+            header.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
+        self.views.idClicked.connect(self._pick_view)
         self.body.addLayout(header)
 
         # One page per subwindow, only one on show.
         self.pages = QStackedWidget(self)
         self.pages.setObjectName("resultsStack")
         self.pages.addWidget(self._overview_page())
+        self.pages.addWidget(self._trades_page())
         self.pages.addWidget(self._compare_page())
         self.pages.setCurrentIndex(0)
         self.body.addWidget(self.pages, 1)
@@ -267,42 +380,40 @@ class ReportTile(Card):
     # -- the subwindows ----------------------------------------------------
 
     def _overview_page(self) -> QWidget:
+        """The split: figures and curves left, how trades ended right."""
         page = QWidget(self)
         page.setObjectName("resultsPage")
-        layout = QVBoxLayout(page)
+        layout = QHBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(12)
 
-        self.note = QLabel("no rule yet", page)
-        self.note.setObjectName("hintLabel")
-        self.note.setWordWrap(True)
-        layout.addWidget(self.note)
+        # Left: the six figures in one row, the curve under them, the legend.
+        left = QVBoxLayout()
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(8)
 
-        # Five numbers, two rows: PnL, Sharpe, max drawdown, then the two
-        # counting ones.
         self._metrics: list[tuple[QLabel, QLabel]] = []
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(2)
         for index, caption in enumerate(
-            ("PnL", "Sharpe", "Max DD", "Trades", "Win rate")
+            ("PnL", "Sharpe", "Max DD", "Trades", "Win rate", "Fees")
         ):
-            row, column = divmod(index, 3)
             label = QLabel(caption, page)
             label.setObjectName("fieldLabel")
             value = QLabel("—", page)
             value.setObjectName("metricValue_text")
             value.setFont(mono_font(9, bold=True))
-            grid.addWidget(label, row * 2, column)
-            grid.addWidget(value, row * 2 + 1, column)
+            grid.addWidget(label, 0, index)
+            grid.addWidget(value, 1, index)
             self._metrics.append((label, value))
-        for column in range(3):
+        for column in range(6):
             grid.setColumnStretch(column, 1)
-        layout.addLayout(grid)
+        left.addLayout(grid)
 
         self.chart = CurveChart(page)
-        layout.addWidget(self.chart, 1)
+        left.addWidget(self.chart, 1)
 
         # The legend reads along the bottom, under the lines it names.
         legend = QHBoxLayout()
@@ -320,23 +431,53 @@ class ReportTile(Card):
             legend.addWidget(label)
             self.legend[key] = label
         legend.addStretch(1)
-        layout.addLayout(legend)
+        left.addLayout(legend)
+        layout.addLayout(left, 1)
+
+        # Right: how the trades ended, most-appearing reason first.
+        rail = QWidget(page)
+        rail.setObjectName("resultsRail")
+        rail.setFixedWidth(RAIL_WIDTH)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(0, 0, 0, 0)
+        rail_layout.setSpacing(6)
+        caption = QLabel("How trades end", rail)
+        caption.setObjectName("panelTitle")
+        rail_layout.addWidget(caption)
+        self.reasons = ReasonBars(rail)
+        rail_layout.addWidget(self.reasons)
+        self.reasons_note = QLabel("no trades yet", rail)
+        self.reasons_note.setObjectName("hintLabel")
+        self.reasons_note.setWordWrap(True)
+        rail_layout.addWidget(self.reasons_note)
+        rail_layout.addStretch(1)
+        layout.addWidget(rail, 0)
         return page
 
-    def _compare_page(self) -> QWidget:
-        """The second subwindow. Set aside: two runs will sit here."""
+    def _trades_page(self) -> QWidget:
+        """Set aside for the trade list."""
         page = QWidget(self)
         page.setObjectName("resultsPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-
-        self.compare_note = QLabel("nothing to compare yet", page)
-        self.compare_note.setObjectName("hintLabel")
-        self.compare_note.setWordWrap(True)
-        layout.addWidget(self.compare_note)
         layout.addStretch(1)
+        self.trades_message = QLabel("the trade list will sit here", page)
+        self.trades_message.setObjectName("emptyNote")
+        self.trades_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.trades_message.setWordWrap(True)
+        layout.addWidget(self.trades_message, 1)
+        layout.addStretch(1)
+        return page
 
+    def _compare_page(self) -> QWidget:
+        """Set aside: two runs will sit here side by side."""
+        page = QWidget(self)
+        page.setObjectName("resultsPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addStretch(1)
         self.compare_message = QLabel(
             "put two runs side by side here", page
         )
@@ -347,22 +488,22 @@ class ReportTile(Card):
         layout.addStretch(1)
         return page
 
-    def side(self) -> str:
-        return self.current_side
+    def view(self) -> str:
+        return self.current_view
 
-    def set_side(self, key: str) -> None:
-        for index, (name, _) in enumerate(self.SIDES):
+    def set_view(self, key: str) -> None:
+        for index, (name, _) in enumerate(self.VIEWS):
             if name == key:
-                self.sides.button(index).setChecked(True)
-                self._pick_side(index)
+                self.views.button(index).setChecked(True)
+                self._pick_view(index)
                 return
 
-    def _pick_side(self, index: int) -> None:
-        if not 0 <= index < len(self.SIDES):
+    def _pick_view(self, index: int) -> None:
+        if not 0 <= index < len(self.VIEWS):
             return
-        self.current_side = self.SIDES[index][0]
+        self.current_view = self.VIEWS[index][0]
         self.pages.setCurrentIndex(index)
-        self.side_changed.emit(self.current_side)
+        self.view_changed.emit(self.current_view)
 
     # -- what to show ------------------------------------------------------
 
@@ -402,6 +543,12 @@ class ReportTile(Card):
             f" · tp {self.tp:g} / sl {self.sl:g}"
         )
         self.chart.set_report(report)
+        self.reasons.set_report(report)
+        self.reasons_note.setText(
+            f"{report.trades:,} trades · {len(report.reasons)} ways they ended"
+            if report.trades
+            else "no trades yet"
+        )
         self._show_metrics(report)
         self._show_legend(report)
 
@@ -411,6 +558,8 @@ class ReportTile(Card):
         self.chart.message = "write an entry rule to see it here"
         for _, value in self._metrics:
             value.setText("—")
+        self.reasons.set_report(None)
+        self.reasons_note.setText("no trades yet")
         for key, caption in (
             ("strategy", "strategy"),
             ("random", "random buy"),
@@ -437,6 +586,7 @@ class ReportTile(Card):
                 f"{report.win_rate * 100:,.0f}%" if report.trades else "—",
                 "text",
             ),
+            (_money(report.fees), "muted"),
         ]
         for (_, value), (text, role) in zip(self._metrics, rows):
             if value.text() != text:
@@ -467,6 +617,7 @@ __all__ = [
     "FACTOR",
     "PREVIEW_SL",
     "PREVIEW_TP",
+    "ReasonBars",
     "ReportTile",
     "VISIBLE",
     "compact",

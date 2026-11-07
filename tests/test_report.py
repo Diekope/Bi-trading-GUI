@@ -7,7 +7,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from lalala.candles import append_rows, candle_file  # noqa: E402
 from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse  # noqa: E402
@@ -109,7 +109,7 @@ def test_the_tile_says_when_there_is_no_rule(app: QApplication) -> None:
     app.processEvents()
 
     assert "no entry rule yet" in tile.note.text()
-    assert [value.text() for _, value in tile._metrics] == ["—"] * 5
+    assert [value.text() for _, value in tile._metrics] == ["—"] * 6
     tile.close()
 
 
@@ -127,12 +127,15 @@ def test_the_tile_reports_the_run_in_two_rows(app: QApplication) -> None:
     app.processEvents()
 
     captions = [caption.text() for caption, _ in tile._metrics]
-    assert captions == ["PnL", "Sharpe", "Max DD", "Trades", "Win rate"]
+    assert captions == [
+        "PnL", "Sharpe", "Max DD", "Trades", "Win rate", "Fees"
+    ]
     values = {caption.text(): value.text() for caption, value in tile._metrics}
     assert values["PnL"].endswith("%")
     assert values["Max DD"].endswith("%")
     assert values["Trades"].isdigit()
     assert values["Win rate"].endswith("%")
+    assert values["Fees"].startswith("$")
 
     # The three curves are drawn, and named in the legend with their totals.
     assert tile.chart.report is not None
@@ -159,7 +162,7 @@ def test_an_empty_rule_clears_the_numbers_and_the_curve(
     tile.configure(parse(""), None, "1m")
     app.processEvents()
     assert tile.chart.report is None
-    assert [value.text() for _, value in tile._metrics] == ["—"] * 5
+    assert [value.text() for _, value in tile._metrics] == ["—"] * 6
     assert tile.legend["strategy"].text() == "strategy"
     tile.close()
 
@@ -174,43 +177,112 @@ def test_the_curve_chart_paints_before_any_run(app: QApplication) -> None:
     chart.close()
 
 
-# -- the two subwindows ------------------------------------------------------
+# -- the three subwindows ----------------------------------------------------
 
 
-def test_the_tile_has_overview_and_compare(app: QApplication) -> None:
+def test_the_tile_has_overview_trades_and_compare(app: QApplication) -> None:
     tile = ReportTile()
-    tile.resize(320, 460)
+    tile.resize(420, 460)
     tile.show()
     app.processEvents()
 
-    assert [button.text() for button in tile.side_buttons.values()] == [
-        "OVERVIEW",
-        "COMPARE",
+    # RESULTS keeps its title, and the three views are the pills beside it,
+    # the way Rules / Formula / Code sit in the rules tile.
+    titles = [
+        label.text()
+        for label in tile.findChildren(QLabel)
+        if label.objectName() == "tileTitle"
     ]
-    for button in tile.side_buttons.values():
-        assert button.objectName() == "sideButton"
+    assert titles == ["RESULTS"]
+    assert [button.text() for button in tile.view_buttons.values()] == [
+        "Overview",
+        "Trades",
+        "Compare",
+    ]
+    for button in tile.view_buttons.values():
+        assert button.objectName() == "modeButton"
         assert button.isCheckable() is True
-    assert tile.side_buttons["overview"].isChecked() is True
-    assert tile.pages.count() == 2
+    assert tile.view_buttons["overview"].isChecked() is True
+    assert tile.pages.count() == 3
 
-    # OVERVIEW is what the rule did, and it is the one on show.
-    assert tile.side() == "overview"
-    assert tile.pages.currentWidget().isAncestorOf(tile.chart)
-    assert tile.pages.currentWidget().isAncestorOf(tile.note)
+    # Overview is the split, and it is the one on show.
+    assert tile.view() == "overview"
+    page = tile.pages.currentWidget()
+    assert page.isAncestorOf(tile.chart)
+    assert page.isAncestorOf(tile.reasons)
 
-    # COMPARE is set aside; switching shows it, and the switch goes back.
+    # Trades and Compare are set aside for now; switching shows each, and the
+    # switch goes back.
     picked: list[str] = []
-    tile.side_changed.connect(picked.append)
-    tile.side_buttons["compare"].click()
+    tile.view_changed.connect(picked.append)
+    tile.view_buttons["trades"].click()
     app.processEvents()
-    assert tile.side() == "compare"
+    assert tile.view() == "trades"
     assert tile.pages.currentIndex() == 1
-    assert tile.pages.currentWidget().isAncestorOf(tile.compare_note)
-    assert tile.compare_message.text() == "put two runs side by side here"
-    assert picked == ["compare"]
+    assert tile.pages.currentWidget().isAncestorOf(tile.trades_message)
 
-    tile.set_side("overview")
-    assert tile.side() == "overview"
+    tile.view_buttons["compare"].click()
+    app.processEvents()
+    assert tile.view() == "compare"
+    assert tile.pages.currentIndex() == 2
+    assert tile.compare_message.text() == "put two runs side by side here"
+    assert picked == ["trades", "compare"]
+
+    tile.set_view("overview")
+    assert tile.view() == "overview"
     assert tile.pages.currentIndex() == 0
-    assert picked == ["compare", "overview"]
+    assert picked == ["trades", "compare", "overview"]
+    tile.close()
+
+
+def test_the_overview_lists_how_the_trades_ended(app: QApplication) -> None:
+    _write_year(2021, 600)
+    entry = parse("close < sma(close, 5)")
+    exit_ = parse(
+        "pnl >= tp or pnl <= 0 - sl or bars >= 3", EXIT_FIELDS, EXIT_FUNCTIONS
+    )
+
+    tile = ReportTile()
+    tile.resize(560, 460)
+    tile.show()
+    tile.configure(entry, exit_, "1m")
+    app.processEvents()
+
+    report = tile.chart.report
+    assert report is not None
+
+    # The reasons are the ones the run logged, most appearing first, and their
+    # shares add up to the whole.
+    rows = tile.reasons.rows
+    assert rows, "the walk ended some trades"
+    assert [label for label, _, _ in rows] == [
+        label for label, _, _ in report.reason_shares
+    ]
+    shares = [share for _, share, _ in rows]
+    assert shares == sorted(shares, reverse=True)
+    assert sum(shares) == pytest.approx(1.0)
+    # Each reason has a colour of its own.
+    assert all(colour for _, _, colour in rows)
+    tile.close()
+
+
+def test_the_fees_and_reasons_follow_the_run(app: QApplication) -> None:
+    _write_year(2021, 600)
+    entry = parse("close < sma(close, 5)")
+    exit_ = parse("pnl <= 0 - sl or pnl >= tp", EXIT_FIELDS, EXIT_FUNCTIONS)
+
+    tile = ReportTile()
+    tile.resize(560, 460)
+    tile.show()
+    tile.configure(entry, exit_, "1m")
+    app.processEvents()
+
+    report = tile.chart.report
+    values = {caption.text(): value.text() for caption, value in tile._metrics}
+    assert values["Fees"] == f"${report.fees:,.0f}"
+    assert report.fees > 0
+    # Every reason the walk recorded is a known one.
+    assert set(report.reasons) <= {
+        "Take profit", "Stop loss", "Time", "Rule", "End of data"
+    }
     tile.close()

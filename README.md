@@ -511,22 +511,28 @@ back as one tile holding `20` and `2`, not a run of separate chips.
 
 ### Results tile
 
-![The results tile on Overview: the strategy, random-buy and buy & hold curves, as return since the start](docs/images/part-report.png)
+![The results tile on Overview: the figures and the three curves on the left, how the trades ended on the right](docs/images/part-report.png)
 
-The tile has **two subwindows**, switched by their names the way ENTRY / EXIT
-switch in the rules tile: **OVERVIEW** — the numbers and the curves — and
-**COMPARE**, set aside for putting two runs side by side. Only one is on show
-at a time; `OVERVIEW` is the default and `COMPARE` is an empty page for now.
+The tile keeps its `RESULTS` title, with the span under it, and **three
+subwindows** as pills on the right — `Overview`, `Trades`, `Compare` — the way
+`Rules` / `Formula` / `Code` sit in the rules tile. Only one is on show at a
+time; `Overview` is the default, and `Trades` and `Compare` are empty pages set
+aside for the trade list and for putting two runs side by side.
 
 ![The results tile on Compare: the empty page set aside for two runs](docs/images/part-report-compare.png)
+
+`Overview` is a **split**: on the left the six figures in one row, then the
+curve under them; on the right a rail listing **how the trades ended**, one bar
+per reason, most-appearing first.
 
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
 200 more behind them so the indicators have history), compacts them to the bar
 the STRATEGY tile names, and runs `lalala.formula_eval.backtest`.
 
-Five numbers in **two rows** — `PnL`, `Sharpe`, `Max DD`, then `Trades` and
-`Win rate` — and under them three curves, drawn as **return since the start**:
+Six figures in **one row** — `PnL`, `Sharpe`, `Max DD`, `Trades`, `Win rate`,
+and `Fees` — and under them three curves, drawn as **return since the start**,
+on a scale that fits all three so every line is in view:
 
 | Curve | What it is |
 | --- | --- |
@@ -538,6 +544,13 @@ The legend under the chart carries each one's running total. Return, not
 balance: over a long span buy and hold compounds many times over while a rule
 that is in and out of the market barely moves, and in dollars the first would
 flatten the other two into the axis.
+
+The **How trades end** rail says why each trade closed, by the clause of the
+exit rule that fired — a clause reading `tp` is `Take profit`, `sl` is
+`Stop loss`, `bars` is `Time`, anything else is the rule's own `Rule`, and a
+trade still open at the last bar is `End of data`. The bars are sorted by how
+often each reason appears, in the colour it takes (green, red, indigo, amber,
+grey).
 
 `tp` and `sl` are this tile's own defaults, since the run's parameters live in
 the other window and nothing is wired between them yet. It downloads nothing

@@ -17,7 +17,7 @@ evaluated a bar at a time against the open trade's numbers.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from lalala.formula import (
     ENTRY_FIELDS,
@@ -35,6 +35,12 @@ from lalala.formula import (
 
 __all__ = [
     "FEE",
+    "REASON_END",
+    "REASON_ORDER",
+    "REASON_RULE",
+    "REASON_STOP_LOSS",
+    "REASON_TAKE_PROFIT",
+    "REASON_TIME",
     "Report",
     "backtest",
     "bar_context",
@@ -548,6 +554,27 @@ class Report:
     hold: list
     trades: int
     wins: int
+    fees: float = 0.0
+    reasons: dict = field(default_factory=dict)
+
+    @property
+    def reason_shares(self) -> list:
+        """The exit reasons as (label, count, share) sorted most-appearing."""
+        total = sum(self.reasons.values())
+        if not total:
+            return []
+        ordered = sorted(
+            self.reasons.items(),
+            key=lambda item: (
+                -item[1],
+                REASON_ORDER.index(item[0])
+                if item[0] in REASON_ORDER
+                else len(REASON_ORDER),
+            ),
+        )
+        return [
+            (label, count, count / total) for label, count in ordered
+        ]
 
     @property
     def pnl(self) -> float:
@@ -590,11 +617,83 @@ class Report:
 
 FEE = 0.0006
 
+# Why a trade ended, in the words the results tile lists them under. The
+# clause of the exit rule that fired names it: one that reads `tp`, `sl` or
+# `bars` is take profit, stop loss or time; anything else is the rule's own
+# condition; a trade still open at the last bar is end of data.
+REASON_TAKE_PROFIT = "Take profit"
+REASON_STOP_LOSS = "Stop loss"
+REASON_TIME = "Time"
+REASON_END = "End of data"
+REASON_RULE = "Rule"
+
+# The order the tile draws them in when two reasons tie on count.
+REASON_ORDER = (
+    REASON_TAKE_PROFIT,
+    REASON_STOP_LOSS,
+    REASON_TIME,
+    REASON_RULE,
+    REASON_END,
+)
+
+
+def _or_clauses(node) -> list:
+    """The top-level `or` branches of a condition, left to right."""
+    if isinstance(node, Binary) and node.op == "or":
+        return _or_clauses(node.left) + _or_clauses(node.right)
+    return [node]
+
+
+def _names_in(node) -> set:
+    found: set = set()
+
+    def walk(current) -> None:
+        if isinstance(current, Name):
+            found.add(current.name)
+            return
+        if isinstance(current, Call):
+            for argument in current.args:
+                walk(argument)
+            return
+        if isinstance(current, Unary):
+            walk(current.operand)
+            return
+        if isinstance(current, Binary):
+            walk(current.left)
+            walk(current.right)
+
+    walk(node)
+    return found
+
+
+def _exit_reason(exit_, context: dict) -> str:
+    """Which clause of the exit rule closed the trade, in words."""
+    if exit_ is None or exit_.condition is None:
+        return REASON_END
+    scope = {name: [float(value)] for name, value in context.items()}
+    for clause in _or_clauses(exit_.condition):
+        values = _eval(clause, scope)
+        if values and _truth(values[0]):
+            names = _names_in(clause)
+            if "tp" in names:
+                return REASON_TAKE_PROFIT
+            if "sl" in names:
+                return REASON_STOP_LOSS
+            if "bars" in names:
+                return REASON_TIME
+            return REASON_RULE
+    return REASON_RULE
+
 
 def _walk(closes, signals, exit_, tp, sl, capital, fee):
-    """Mark-to-market equity for one set of entries, one position at a time."""
+    """Mark-to-market equity for one set of entries, one position at a time.
+
+    Also returns what each trade ended by, and the fees the walk paid.
+    """
     equity: list[float] = []
     results: list[float] = []
+    reasons: list[str] = []
+    fees = 0.0
     cash = capital
     quantity = 0.0
     entry_price = 0.0
@@ -617,16 +716,31 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee):
             if exit_ is None or exit_.condition is None or evaluate_scalar(
                 exit_, context
             ):
-                cash += quantity * price * (1.0 - fee)
+                notional = quantity * price
+                fees += notional * fee
+                cash += notional * (1.0 - fee)
                 results.append(price / entry_price - 1.0 if entry_price else 0.0)
+                reasons.append(
+                    REASON_END if exit_ is None else _exit_reason(exit_, context)
+                )
                 quantity = 0.0
         elif index in signals and cash > 0:
+            fees += cash * fee
             quantity = cash * (1.0 - fee) / price
             cash = 0.0
             entry_price = price
             entry_index = index
         equity.append(cash + quantity * price)
-    return equity, results
+
+    # A trade still open at the last bar ends there.
+    if quantity > 0:
+        price = closes[-1]
+        if price:
+            notional = quantity * price
+            fees += notional * fee
+            results.append(price / entry_price - 1.0 if entry_price else 0.0)
+            reasons.append(REASON_END)
+    return equity, results, reasons, fees
 
 
 def backtest(
@@ -655,15 +769,22 @@ def backtest(
         return Report(capital, [], [], [], 0, 0)
 
     signals = set(entry_signals(entry, bars, fields))
-    strategy, results = _walk(closes, signals, exit_, tp, sl, capital, fee)
+    strategy, results, reasons, fees = _walk(
+        closes, signals, exit_, tp, sl, capital, fee
+    )
 
     rng = random.Random(seed)
     picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
-    random_curve, _ = _walk(closes, picks, exit_, tp, sl, capital, fee)
+    random_curve, _, _, _ = _walk(closes, picks, exit_, tp, sl, capital, fee)
 
     hold = [
         capital * (value / first) if value else capital for value in closes
     ]
 
     wins = sum(1 for value in results if value > 0)
-    return Report(capital, strategy, random_curve, hold, len(results), wins)
+    counts: dict = {}
+    for reason in reasons:
+        counts[reason] = counts.get(reason, 0) + 1
+    return Report(
+        capital, strategy, random_curve, hold, len(results), wins, fees, counts
+    )

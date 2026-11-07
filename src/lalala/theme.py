@@ -361,7 +361,7 @@ QLineEdit#numberEdit:focus {{
 }}
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
 #valueRow, #codeValues, #listScroll, #listInner, #stripArea,
-#selectedScroll, #selectedBody, #codeRail {{
+#selectedScroll, #selectedBody, #codeRail, #resultsRail {{
     background-color: transparent;
 }}
 #pageScroll > QWidget > QWidget {{
