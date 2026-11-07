@@ -374,11 +374,11 @@ class RulesTile(Card):
         """The code on the left, its vocabulary and its values on the right."""
         page = QWidget(self)
         page.setObjectName("entryPage")
-        layout = QHBoxLayout(page)
+        layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # The code itself, in a card.
+        # The code itself, in a card, with its vocabulary and values under it.
         code_card = QFrame(page)
         code_card.setObjectName("formulaCard")
         code_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -421,9 +421,9 @@ class RulesTile(Card):
         self.code_note.setWordWrap(True)
         code_layout.addWidget(self.code_error)
         code_layout.addWidget(self.code_note)
-        layout.addWidget(code_card, 62)
+        layout.addWidget(code_card, 3)
 
-        # The vocabulary, and what it reads right now.
+        # The vocabulary, and what it reads right now, under the code.
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
@@ -446,7 +446,6 @@ class RulesTile(Card):
                 self._variable_row(vocab, f"{name}()", "function")
             )
         vocab_layout.addStretch(1)
-        side.addWidget(vocab, 3)
 
         values_card = QFrame(page)
         values_card.setObjectName("selectedCard")
@@ -464,12 +463,14 @@ class RulesTile(Card):
         self.code_values_layout.setSpacing(0)
         values_layout.addWidget(self.code_values)
         values_layout.addStretch(1)
-        side.addWidget(values_card, 2)
-        layout.addLayout(side, 38)
+        side.addWidget(vocab, 2)
+        side.addWidget(values_card, 1)
+        layout.addLayout(side, 2)
         return self._scroll_page(page)
 
     def _variable_row(self, parent: QWidget, name: str, kind: str) -> QWidget:
         row = QWidget(parent)
+        row.setObjectName("valueRow")
         line = QHBoxLayout(row)
         line.setContentsMargins(0, 2, 0, 2)
         line.setSpacing(6)
@@ -499,6 +500,7 @@ class RulesTile(Card):
             )
         if result is not None:
             row = QWidget(self.code_values)
+            row.setObjectName("valueRow")
             line = QHBoxLayout(row)
             line.setContentsMargins(0, 2, 0, 2)
             key = QLabel("result", row)

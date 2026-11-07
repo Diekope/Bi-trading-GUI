@@ -839,18 +839,25 @@ class FormulaBuilder(QWidget):
 
         # Three columns, as in the mock: the blocks to drag, the formula being
         # built, and whatever block is selected.
+        # Blocks down the left; the formula with the selected block under it.
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
-        cards = (
-            (self._blocks_card(), 26, 132),
-            (self._formula_card(), 48, 156),
-            (self._selected_card(), 26, 132),
-        )
-        for card, stretch, floor in cards:
-            # A floor, so a narrow tile does not crush a column to a sliver.
-            card.setMinimumWidth(floor)
-            root.addWidget(card, stretch)
+
+        blocks = self._blocks_card()
+        blocks.setMinimumWidth(132)
+        root.addWidget(blocks, 34)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(8)
+        formula = self._formula_card()
+        formula.setMinimumWidth(156)
+        selected = self._selected_card()
+        selected.setMinimumWidth(156)
+        right.addWidget(formula, 3)
+        right.addWidget(selected, 2)
+        root.addLayout(right, 66)
 
         self.add_strip()
 
@@ -1130,6 +1137,7 @@ class FormulaBuilder(QWidget):
             return
         for name, value in self.values.items():
             row = QWidget(self.values_box)
+            row.setObjectName("valueRow")
             line = QHBoxLayout(row)
             line.setContentsMargins(0, 3, 0, 3)
             line.setSpacing(6)
@@ -1144,6 +1152,7 @@ class FormulaBuilder(QWidget):
             self.values_layout.addWidget(row)
         if self.result is not None:
             row = QWidget(self.values_box)
+            row.setObjectName("valueRow")
             line = QHBoxLayout(row)
             line.setContentsMargins(0, 3, 0, 3)
             line.setSpacing(6)

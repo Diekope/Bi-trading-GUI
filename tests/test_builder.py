@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
+    QWidget,
     QApplication,
     QComboBox,
     QLabel,
@@ -688,11 +689,31 @@ def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
     app.processEvents()
 
     formula = builder.entry.formula
-    # The panel has a natural width it will not go under...
-    assert formula.minimumSizeHint().width() > builder.entry_tile.width()
-    # ... and it sits in a scroll area, so the tile keeps its width.
+    # It sits in a scroll area, so the tile keeps whatever width the window
+    # gives it and the panel moves under the cursor when it does not fit.
     assert formula.parentWidget().objectName() == "qt_scrollarea_viewport"
-    assert builder.entry_tile.width() < formula.minimumSizeHint().width()
+    # And it is modest enough that two tiles fit the window's own minimum.
+    assert formula.minimumSizeHint().width() < 340
+    assert builder.minimumWidth() >= 2 * formula.minimumSizeHint().width()
+
+
+def test_the_value_rows_are_not_a_different_colour(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    # The rows in the vocabulary list and the values list are plain containers
+    # on the card. Without a rule of their own they would paint the canvas
+    # colour over it, which is what made them read darker.
+    from lalala.theme import STYLESHEET
+
+    assert "#valueRow" in STYLESHEET
+    block = STYLESHEET.split("#valueRow")[1].split("}")[0]
+    assert "transparent" in block
+
+    builder.mode_buttons["code"].click()
+    builder.set_entry_formula("close > 0")
+    app.processEvents()
+    rows = builder.entry_tile.findChildren(QWidget, "valueRow")
+    assert rows, "the code page lists something"
 
 
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(

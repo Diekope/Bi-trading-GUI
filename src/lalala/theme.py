@@ -334,7 +334,8 @@ QLineEdit#numberEdit:focus {{
     border: 1px solid {BORDER};
     border-radius: 8px;
 }}
-#blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll {{
+#blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
+#valueRow, #codeValues {{
     background-color: transparent;
 }}
 #pageScroll > QWidget > QWidget {{
