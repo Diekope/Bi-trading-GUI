@@ -692,15 +692,24 @@ def test_the_blocks_list_has_no_scrollbar(
     )
 
 
-def test_the_formula_and_the_block_can_be_resized(
+def test_the_three_columns_with_the_selected_block_on_the_right(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
-    split = builder.formula_split
-    assert split.orientation() == Qt.Orientation.Vertical
-    assert split.count() == 2
-    assert split.childrenCollapsible() is False
-    assert split.widget(0).objectName() == "formulaCard"
-    assert split.widget(1).objectName() == "selectedCard"
+    builder.resize(760, 420)
+    app.processEvents()
+
+    blocks = builder.blocks_card
+    selected = builder.selected_card
+    assert blocks.objectName() == "formulaPalette"
+    assert selected.objectName() == "selectedCard"
+
+    # Blocks is the small left rail; the selected block is the right rail,
+    # pushed against the edge; the formula takes what is left.
+    assert blocks.maximumWidth() <= 210
+    assert selected.geometry().left() > builder.formula_card.geometry().left()
+    assert selected.geometry().left() > builder.formula_card.geometry().right()
+    assert builder.formula_card.width() > blocks.width()
+    assert builder.formula_card.width() > selected.width()
 
 
 def test_the_lines_scroll_inside_the_formula_card(

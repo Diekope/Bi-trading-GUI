@@ -739,9 +739,9 @@ def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
     # It sits in a scroll area, so the tile keeps whatever width the window
     # gives it and the panel moves under the cursor when it does not fit.
     assert formula.parentWidget().objectName() == "qt_scrollarea_viewport"
-    # And it is modest enough that two tiles fit the window's own minimum.
-    assert formula.minimumSizeHint().width() < 340
-    assert builder.minimumWidth() >= 2 * formula.minimumSizeHint().width()
+    # And it is modest enough that the tile fits the window's own minimum.
+    assert formula.minimumSizeHint().width() < 620
+    assert builder.minimumWidth() >= formula.minimumSizeHint().width()
 
 
 def test_the_value_rows_are_not_a_different_colour(

@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QVBoxLayout,
     QWidget,
     QWidgetItem,
@@ -377,8 +376,8 @@ class PaletteBlock(QFrame):
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(7, 2, 9, 2)
-        layout.setSpacing(4)
+        layout.setContentsMargins(5, 1, 7, 1)
+        layout.setSpacing(3)
         layout.addWidget(self.handle)
         layout.addWidget(self.label)
 
@@ -838,37 +837,30 @@ class FormulaBuilder(QWidget):
         self.result = None
         self._parsed = None
 
-        # Three columns, as in the mock: the blocks to drag, the formula being
-        # built, and whatever block is selected.
-        # Blocks down the left; the formula with the selected block under it.
+        # Blocks on the left, small and fixed; the formula takes the slack in
+        # the middle; the selected block is a rail on the right, pushed to the
+        # edge the way the mock draws it.
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
         blocks = self._blocks_card()
-        blocks.setMinimumWidth(132)
-        root.addWidget(blocks, 34)
+        # A fixed little rail, as in the mock: the formula gets the rest.
+        blocks.setFixedWidth(200)
+        root.addWidget(blocks, 0)
 
-        # The formula on top, the selected block under it, with a handle
-        # between them: when a long rule needs more room than the card got,
-        # drag the handle and the formula takes it from the block below.
-        right = QSplitter(Qt.Orientation.Vertical, self)
-        right.setObjectName("formulaSplit")
-        right.setChildrenCollapsible(False)
-        right.setHandleWidth(8)
         formula = self._formula_card()
         formula.setMinimumWidth(156)
-        formula.setMinimumHeight(150)
+        root.addWidget(formula, 1)
+
         selected = self._selected_card()
-        selected.setMinimumWidth(156)
-        selected.setMinimumHeight(110)
-        right.addWidget(formula)
-        right.addWidget(selected)
-        right.setStretchFactor(0, 3)
-        right.setStretchFactor(1, 2)
-        right.setSizes([320, 210])
-        self.formula_split = right
-        root.addWidget(right, 66)
+        selected.setMinimumWidth(190)
+        selected.setMaximumWidth(250)
+        root.addWidget(selected, 0)
+
+        self.blocks_card = blocks
+        self.formula_card = formula
+        self.selected_card = selected
 
         self.add_strip()
 
@@ -880,8 +872,8 @@ class FormulaBuilder(QWidget):
         box.setObjectName("formulaPalette")
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         outer = QVBoxLayout(box)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(8)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(6)
 
         title = QLabel("BLOCKS", box)
         title.setObjectName("panelTitle")
@@ -925,14 +917,14 @@ class FormulaBuilder(QWidget):
         frame.setObjectName("blockGroup")
         frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(9, 7, 9, 9)
-        layout.setSpacing(6)
+        layout.setContentsMargins(6, 5, 6, 6)
+        layout.setSpacing(4)
 
         caption = QLabel(title.upper(), frame)
         caption.setObjectName("paletteTitle")
         layout.addWidget(caption)
 
-        holder = FlowHolder(frame, spacing=4)
+        holder = FlowHolder(frame, spacing=3)
         blocks: list[PaletteBlock] = []
         for item in items:
             block = PaletteBlock(item, holder)
@@ -1014,6 +1006,7 @@ class FormulaBuilder(QWidget):
         self.strip_layout = QVBoxLayout(self.strip_inner)
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
+        self.strip_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.strip_area.setWidget(self.strip_inner)
         layout.addWidget(self.strip_area, 1)
 

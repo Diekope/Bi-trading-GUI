@@ -372,18 +372,19 @@ The `Formula` and `Code` panels have a natural size of their own and **scroll**
 inside the tile rather than making it grow, so a narrow window keeps the rules
 where they are and the panel moves under the cursor.
 
-The `Formula` tab is **Blocks** down the left — a search box over one dashed
-group per kind (`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different
-colours, so the list reads as one surface), with **no scrollbar**: the wheel
-walks the list and its width goes to the formula instead. Beside it the
-**Formula** sits on top with the **Selected block** under it, and the handle
-between them drags. The `LET`/`IF` lines live in a scroll area of their own —
-add a sixth line and the list walks under the wheel instead of pushing the
-buttons away — and the formula as text is one small read-only line that
-scrolls sideways. The **Selected block** scrolls too: its name, source and
-live values stay readable in a short tile. Clicking a chip selects it: the
-card shows its name, its source and its window, all editable, and under them
-the live values that name reads on the newest bar, with the rule's result.
+The `Formula` tab is three columns, as in the mock. **Blocks** is the small
+left rail (200 px, fixed) — a search box over one dashed group per kind
+(`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different colours, so the
+list reads as one surface), with **no scrollbar**: the wheel walks the list.
+The **Formula** takes the slack in the middle: the `LET`/`IF` lines live in a
+scroll area of their own — add a sixth line and the list walks under the wheel
+instead of pushing the buttons away — and the formula as text is one small
+read-only line that scrolls sideways. The **Selected block** is the right rail
+(a little under 250 px), pushed against the edge and scrolling in place: its
+name, source and live values stay readable in a short tile. Clicking a chip
+selects it: the card shows its name, its source and its window, all editable,
+and under them the live values that name reads on the newest bar, with the
+rule's result.
 
 The `Code` tab is the code, and under it `Variables`, the whole vocabulary
 with its types, beside `Values`, the same last-bar numbers. The two lists sit

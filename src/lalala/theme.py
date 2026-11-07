@@ -150,7 +150,7 @@ QLabel#dragHandle {{
 
 /* A palette block and a chip: one pill, coloured by group. */
 #paletteBlock, #formulaChip {{
-    border-radius: 13px;
+    border-radius: 11px;
 }}
 #paletteBlock:hover {{
     border-width: 1px;
@@ -158,6 +158,9 @@ QLabel#dragHandle {{
 QLabel#blockLabel, QLabel#chipLabel {{
     font-size: 10px;
     font-weight: bold;
+}}
+QLabel#blockLabel {{
+    font-size: 9px;
 }}
 
 /* Data: the bar's own fields, in the indigo the bands already use. */
