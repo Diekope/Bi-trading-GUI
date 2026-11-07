@@ -209,6 +209,9 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_edit.textChanged.connect(self._refresh_saved)
         self.left.chosen.connect(self.load_strategy)
         self.left.create_requested.connect(self.reset_draft)
+        self.left.archived.connect(self.archive_strategy)
+        self.left.restored.connect(self.restore_strategy)
+        self.left.deleted.connect(self.delete_strategy)
 
         # The naming tile is small and sits at the top of the left rail; the
         # empty tile takes the rest of it. The rules tile takes the width above
@@ -318,7 +321,24 @@ class StrategyBuilderWindow(QMainWindow):
 
     def _refresh_saved(self) -> None:
         """List the kept drafts, the one being written among them."""
-        self.left.set_strategies(strategies.load(), self.draft_strategy())
+        self.left.set_strategies(
+            strategies.load(include_archived=True), self.draft_strategy()
+        )
+
+    def archive_strategy(self, name: str) -> None:
+        """Put a saved strategy aside, kept but hidden."""
+        strategies.archive(name)
+        self._refresh_saved()
+
+    def restore_strategy(self, name: str) -> None:
+        """Bring an archived strategy back into the list."""
+        strategies.restore(name)
+        self._refresh_saved()
+
+    def delete_strategy(self, name: str) -> None:
+        """Remove a saved strategy for good."""
+        strategies.remove(name)
+        self._refresh_saved()
 
     def load_strategy(self, name: str) -> None:
         """Bring a saved strategy back into the editor."""

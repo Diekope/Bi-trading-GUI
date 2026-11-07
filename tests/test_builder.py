@@ -709,6 +709,49 @@ def test_create_a_strategy_starts_a_fresh_draft(
     assert builder.exit_formula() == ""
 
 
+def test_a_saved_strategy_can_be_archived_then_restored(
+    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    app.processEvents()
+    builder.save_button.click()
+    app.processEvents()
+    assert [row.name for row in builder.left.rows] == ["Dip"]
+
+    # Archiving takes the row out of the list but keeps it on disk.
+    builder.left.archived.emit("Dip")
+    app.processEvents()
+    assert builder.left.rows == []
+    assert builder.left.archive_toggle.isVisible() is True
+
+    builder.left.restored.emit("Dip")
+    app.processEvents()
+    assert [row.name for row in builder.left.rows] == ["Dip"]
+
+
+def test_a_saved_strategy_can_be_deleted(
+    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    from lalala import strategies
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    app.processEvents()
+    builder.save_button.click()
+    app.processEvents()
+
+    builder.left.deleted.emit("Dip")
+    app.processEvents()
+
+    # Gone from the store; the editor still holds it, now as a draft row.
+    assert strategies.load(include_archived=True) == []
+    assert [row.name for row in builder.left.rows] == ["Dip"]
+    assert builder.left.rows[0].badge.text() == "draft"
+
+
 def test_the_code_page_has_the_vocabulary_and_the_values(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:

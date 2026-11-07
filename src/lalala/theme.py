@@ -492,12 +492,38 @@ QLabel#strategyRowName {{
     font-size: 12px;
     font-weight: 600;
 }}
+QFrame#strategyRow[archived="true"] QLabel#strategyRowName {{
+    color: {TEXT_MUTED};
+    font-weight: 500;
+}}
 QLabel#strategyRowTime {{
-    color: {ACCENT};
+    color: {TEXT_FAINT};
     font-size: 9px;
-    padding: 1px 5px;
-    border: 1px solid {ACCENT_DIM};
-    border-radius: 4px;
+}}
+QLabel#strategyRowStats {{
+    color: {TEXT_FAINT};
+    font-size: 9px;
+}}
+QPushButton#strategyMenuButton {{
+    background-color: transparent;
+    border: none;
+    color: {TEXT_FAINT};
+    font-size: 13px;
+    padding: 0;
+}}
+QPushButton#strategyMenuButton:hover {{
+    color: {TEXT};
+}}
+QPushButton#archiveToggle {{
+    background-color: transparent;
+    border: none;
+    color: {TEXT_FAINT};
+    font-size: 10px;
+    padding: 2px 2px;
+    text-align: left;
+}}
+QPushButton#archiveToggle:hover {{
+    color: {TEXT};
 }}
 QLabel#strategyRowBadge[tone="up"] {{
     color: {UP};

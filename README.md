@@ -367,13 +367,19 @@ defaulting to `1m`. It is only as tall as the title and that row.
 ![The saved-strategies rail: each kept draft with what it returned, the current draft lit, over Create a strategy](docs/images/part-saved-rail.png)
 
 Under it sits the **saved-strategies rail** — one row per kept draft, most
-recent first, each showing the **bar it reads** and the **return** it made over
-the same tail of candles the results tile reads. The draft you are on is lit;
-if it is not saved yet it shows at the top badged `draft`. Clicking a row loads
-that strategy back into the editor, and **Create a strategy** starts a fresh
-draft. The file is `~/.config/lalala/strategies.json` (`LALALA_STRATEGIES`
-overrides it) — plain JSON, one object per strategy with its name, bar and both
-rules as text; a missing or broken file simply reads as empty.
+recent first. Each row carries the **name** over the **bar it reads**, and on
+the right the **return** over the **trades it took and how many of them won**,
+all read from the same tail of candles the results tile uses. The draft you are
+on is lit; if it is not saved yet it shows at the top badged `draft`. Clicking a
+row loads that strategy back into the editor.
+
+Each row's `⋯` menu **archives** it (kept on disk, out of the list) or
+**deletes** it for good; a `show archived (n)` toggle brings the archived ones
+back, where the same menu offers **Restore**. **Create a strategy** starts a
+fresh draft. The file is `~/.config/lalala/strategies.json` (`LALALA_STRATEGIES`
+overrides it) — plain JSON, one object per strategy with its name, bar, both
+rules as text and an `archived` flag; a missing or broken file simply reads as
+empty.
 
 Under it the right-hand column has **one rules tile**, and **ENTRY RULES** /
 **EXIT RULES** are the switch at its top: they are the same widget —

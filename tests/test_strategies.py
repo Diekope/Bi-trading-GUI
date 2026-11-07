@@ -94,3 +94,44 @@ def test_entries_without_a_name_are_dropped() -> None:
 
     assert [item.name for item in kept] == ["Dip"]
     assert kept[0].exit == ""  # a missing rule is empty, not a failure
+
+
+def test_archiving_hides_a_strategy_but_keeps_it() -> None:
+    strategies.save(SavedStrategy("Dip", "1h", "close < 10", ""))
+    strategies.save(SavedStrategy("Pop", "5m", "volume > 2", ""))
+
+    left = strategies.archive("Dip")
+
+    # Out of the way in the list, but still on disk.
+    assert [item.name for item in strategies.load()] == ["Pop"]
+    assert [item.name for item in strategies.load(include_archived=True)] == [
+        "Dip",
+        "Pop",
+    ]
+    assert [item.name for item in left if item.archived] == ["Dip"]
+
+
+def test_restoring_brings_it_back() -> None:
+    strategies.save(SavedStrategy("Dip", "1h", "close < 10", ""))
+    strategies.archive("Dip")
+    assert strategies.load() == []
+
+    strategies.restore("Dip")
+
+    assert [item.name for item in strategies.load()] == ["Dip"]
+    assert strategies.load()[0].archived is False
+
+
+def test_saving_again_revives_an_archived_strategy() -> None:
+    strategies.save(SavedStrategy("Dip", "1h", "close < 10", ""))
+    strategies.archive("Dip")
+
+    strategies.save(SavedStrategy("Dip", "5m", "close < 20", ""))
+
+    kept = strategies.load()
+    assert [item.name for item in kept] == ["Dip"]
+    assert kept[0].archived is False
+    assert kept[0].timeframe == "5m"
+    # No archived duplicate is left behind.
+    assert len(strategies.load(include_archived=True)) == 1
+

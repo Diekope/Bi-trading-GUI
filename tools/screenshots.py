@@ -102,6 +102,8 @@ def builder(app: QApplication) -> None:
         SavedStrategy("Edge vs model", "1m", "close < ema(close, 30)", "pnl <= 0 - sl"),
     ):
         strategies.save(item)
+    # One set aside, so the archive toggle shows.
+    strategies.archive("Edge vs model")
 
     window = StrategyBuilderWindow()
     window.resize(1280, 900)
