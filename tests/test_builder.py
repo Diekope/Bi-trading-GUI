@@ -120,21 +120,22 @@ def test_the_naming_tile_sits_on_the_rail_over_an_empty_tile(
     ) == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_two_rules_got_the_upper_part_and_the_report_the_rest(
+def test_the_rules_got_the_upper_part_and_the_report_the_rest(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     column = builder.right_column
 
-    # Rules in one line on top, the report under them.
+    # One rules tile on top, the report under it.
     assert column.count() == 2
     assert column.orientation() == Qt.Orientation.Vertical
     assert column.widget(0) is builder.rules
     assert column.widget(1) is builder.report
 
-    assert builder.rules.count() == 2
-    assert builder.rules.orientation() == Qt.Orientation.Horizontal
-    assert builder.rules.widget(0) is builder.entry_tile
-    assert builder.rules.widget(1) is builder.exit_tile
+    # The switcher holds both rules but shows one at a time.
+    assert builder.rules.stack.count() == 2
+    assert builder.rules.stack.widget(0) is builder.entry_tile
+    assert builder.rules.stack.widget(1) is builder.exit_tile
+    assert builder.rules.stack.currentWidget() is builder.entry_tile
 
     # The report is under the rules, not beside them.
     assert builder.report.geometry().top() > builder.rules.geometry().bottom()
@@ -145,21 +146,36 @@ def test_the_two_rules_got_the_upper_part_and_the_report_the_rest(
     ) == pytest.approx(CARD_GAP, abs=1)
 
 
-def test_the_entry_and_exit_tiles_are_titled(
-    builder: StrategyBuilderWindow
+def test_the_rule_titles_switch_between_the_two_tiles(
+    app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    entry_title = builder.entry_tile.findChildren(QLabel)[0]
-    exit_title = builder.exit_tile.findChildren(QLabel)[0]
-    assert entry_title.text() == "ENTRY RULES"
-    assert exit_title.text() == "EXIT RULES"
-    for title in (entry_title, exit_title):
-        assert title.objectName() == "tileTitle"
-        assert title.geometry().top() < 20  # at the top, not centred
+    assert [button.text() for button in builder.rules.side_buttons.values()] == [
+        "ENTRY RULES",
+        "EXIT RULES",
+    ]
+    for button in builder.rules.side_buttons.values():
+        assert button.objectName() == "sideButton"
+        assert button.isCheckable() is True
+    assert builder.rules.side_buttons["entry"].isChecked() is True
 
-    # The entry tile has its header row and the pages; the exit tile is the
-    # same.
-    assert builder.entry_tile.body.count() == 2
-    assert builder.exit_tile.body.count() == 2
+    # The inner tiles keep their titles, but do not draw them: the switch is
+    # the title now.
+    assert builder.entry_tile.title.text() == "ENTRY RULES"
+    assert builder.exit_tile.title.text() == "EXIT RULES"
+    assert builder.entry_tile.title.isHidden() is True
+    assert builder.exit_tile.title.isHidden() is True
+
+    # Choosing the exit title shows that tile, and the pills follow its mode.
+    builder.exit_tile.set_mode("code")
+    builder.rules.side_buttons["exit"].click()
+    app.processEvents()
+    assert builder.rules.stack.currentWidget() is builder.exit_tile
+    assert builder.rules.mode_buttons["code"].isChecked() is True
+
+    builder.rules.side_buttons["entry"].click()
+    app.processEvents()
+    assert builder.rules.stack.currentWidget() is builder.entry_tile
+    assert builder.rules.mode_buttons["rules"].isChecked() is True
 
 
 def test_the_naming_tile_is_small_on_the_rail(
@@ -235,15 +251,17 @@ def test_the_rail_and_the_rest_split_the_width(
     assert rest > rail
 
 
-def test_the_two_rules_are_the_same_width(
+def test_the_one_rule_takes_the_whole_width(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     for width in (1100, 1500):
         builder.resize(width, 900)
         app.processEvents()
-        entry, exit_ = builder.rules.sizes()
-        assert entry == pytest.approx(exit_, abs=2)
-        assert entry > 0
+        # The visible rule fills the switcher's width; the stack does too.
+        assert builder.rules.stack.width() == pytest.approx(
+            builder.rules.width() - 24, abs=2
+        )
+        assert builder.entry_tile.width() > 0
 
 
 def test_the_entry_tile_has_three_ways_to_write_a_rule(
@@ -501,14 +519,13 @@ def test_each_tile_offers_presets_before_the_formulas(
     ]
 
     # The presets have a page of their own, first of the three.
-    body = builder.entry_tile.body
-    header = body.itemAt(0).layout()
-    pages = body.itemAt(1).widget()
-    assert header.indexOf(builder.entry.title) != -1
-    assert isinstance(pages, type(builder.entry_pages))
     assert builder.entry_pages.count() == 3
     assert builder.entry_pages.widget(0).isAncestorOf(
         builder.entry.preset_buttons[0]
+    )
+    assert builder.exit.pages.count() == 3
+    assert builder.exit.pages.widget(0).isAncestorOf(
+        builder.exit.preset_buttons[0]
     )
 
 
@@ -799,11 +816,6 @@ def test_the_lateral_gaps_are_the_card_gap(
         builder.resize(width, 940)
         app.processEvents()
         assert (
-            builder.exit_tile.geometry().left()
-            - builder.entry_tile.geometry().right()
-            - 1
-        ) == pytest.approx(CARD_GAP, abs=1)
-        assert (
             builder.right_column.geometry().left()
             - builder.left_column.geometry().right()
             - 1
@@ -829,9 +841,10 @@ def test_the_split_scales_with_the_window(
         )
         assert below > 0
 
-        # The rules share their width evenly.
-        entry, exit_ = builder.rules.sizes()
-        assert entry == pytest.approx(exit_, abs=2)
+        # The one rule fills the width above the report.
+        assert builder.rules.width() == pytest.approx(
+            builder.right_column.width() - 2, abs=4
+        )
 
 
 def test_the_rules_fill_their_part(

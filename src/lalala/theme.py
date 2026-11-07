@@ -63,6 +63,16 @@ QStatusBar::item {{ border: none; }}
     border: 1px solid {BORDER};
     border-radius: {CARD_RADIUS}px;
 }}
+/* A rules tile inside the switcher: the switcher's card is the surface, so
+   the inner tile draws no border of its own. */
+#venuePanel[inset="true"] {{
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+}}
+#rulesStack {{
+    background-color: transparent;
+}}
 #venuePanel QLabel {{
     background-color: transparent;
     color: {TEXT_MUTED};
@@ -764,6 +774,25 @@ QPushButton#modeButton:hover {{
 QPushButton#modeButton:checked {{
     color: {ACCENT};
     border-color: {ACCENT_DIM};
+    background-color: {ACCENT_BG};
+}}
+
+/* The rule titles double as the switch: one lit, the other quiet. */
+QPushButton#sideButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 3px 8px;
+}}
+QPushButton#sideButton:hover {{
+    color: {TEXT};
+}}
+QPushButton#sideButton:checked {{
+    color: {ACCENT};
     background-color: {ACCENT_BG};
 }}
 

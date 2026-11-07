@@ -47,7 +47,7 @@ from lalala.panels import Card
 from lalala import strategies
 from lalala.strategies import SavedStrategy
 from lalala.strat_report import ReportTile
-from lalala.strat_rules import EXIT_PRESETS, RulesTile
+from lalala.strat_rules import EXIT_PRESETS, RulesSwitcher, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
@@ -122,32 +122,34 @@ class StrategyBuilderWindow(QMainWindow):
         self.left_column.setChildrenCollapsible(False)
         self.left_column.setHandleWidth(CARD_GAP)
 
-        # The rest: the two rules in one line, the report under them.
+        self.strategy_tile = Card(self.left_column)
+        self.left = Card(self.left_column)
+
+        # The rest: one rules tile switching between ENTRY and EXIT, with the
+        # report under it.
         self.right_column = QSplitter(Qt.Orientation.Vertical, self.splitter)
         self.right_column.setObjectName("builderRight")
         self.right_column.setChildrenCollapsible(False)
         self.right_column.setHandleWidth(CARD_GAP)
 
-        self.rules = QSplitter(Qt.Orientation.Horizontal, self.right_column)
-        self.rules.setObjectName("builderRules")
-        self.rules.setChildrenCollapsible(False)
-        self.rules.setHandleWidth(CARD_GAP)
-
-        self.strategy_tile = Card(self.left_column)
-        self.left = Card(self.left_column)
-        self.entry_tile = RulesTile("ENTRY RULES", self.rules)
+        self.entry_tile = RulesTile("ENTRY RULES", header=False)
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
         self.exit_tile = RulesTile(
             "EXIT RULES",
-            self.rules,
             palettes=EXIT_PALETTES,
             fields=EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
             presets=EXIT_PRESETS,
+            header=False,
         )
-        # Under the two rules: what they did over the candles on disk.
+        # The two rules are one tile now: their titles switch between them,
+        # and the Rules / Formula / Code pills belong to the side on top.
+        self.rules = RulesSwitcher(
+            self.entry_tile, self.exit_tile, self.right_column
+        )
+        # Under the rules: what they did over the candles on disk.
         self.report = ReportTile(self.right_column)
         self.right = self.right_column
 
@@ -204,14 +206,12 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_edit.textChanged.connect(self._describe_draft)
 
         # The naming tile is small and sits at the top of the left rail; the
-        # empty tile takes the rest of it. The two rules share the width above
+        # empty tile takes the rest of it. The rules tile takes the width above
         # the report.
         self.left_column.addWidget(self.strategy_tile)
         self.left_column.addWidget(self.left)
         self.right_column.addWidget(self.rules)
         self.right_column.addWidget(self.report)
-        self.rules.addWidget(self.entry_tile)
-        self.rules.addWidget(self.exit_tile)
         self.strategy_tile.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
@@ -219,8 +219,6 @@ class StrategyBuilderWindow(QMainWindow):
         self.left_column.setStretchFactor(1, 1)
         self.right_column.setStretchFactor(0, 1)  # the rules take the upper part
         self.right_column.setStretchFactor(1, 1)
-        self.rules.setStretchFactor(0, 1)
-        self.rules.setStretchFactor(1, 1)
         self._column_set = False
         self._fit_pending = False
         self.entry_tile.installEventFilter(self)
@@ -408,8 +406,8 @@ class StrategyBuilderWindow(QMainWindow):
         ):
             self.left_column.setSizes(wanted)
 
-        # The two rules on the upper part of the right column, the report
-        # under them, and the rules sharing that width evenly.
+        # The rules on the upper part of the right column, the report under
+        # them.
         available = max(0, self.right_column.height() - CARD_GAP)
         upper = int(available * RULES_SHARE)
         heights = self.right_column.sizes()
@@ -418,12 +416,6 @@ class StrategyBuilderWindow(QMainWindow):
             abs(heights[i] - wanted[i]) > 1 for i in range(2)
         ):
             self.right_column.setSizes(wanted)
-
-        width = self.rules.width()
-        half = width // 2
-        widths = [half, width - half]
-        if self.rules.sizes() != widths and width > 0:
-            self.rules.setSizes(widths)
 
     def _fit_column(self) -> None:
         """The rail keeps its share; the rules over the report in the rest."""

@@ -245,6 +245,7 @@ class RulesTile(Card):
         functions: dict | None = None,
         placeholder: str = "mid = sma(close, 20)\nclose < mid",
         presets: tuple | None = None,
+        header: bool = True,
     ) -> None:
         super().__init__(parent)
         self.palettes = PALETTES if palettes is None else palettes
@@ -253,13 +254,13 @@ class RulesTile(Card):
         self.placeholder = placeholder
         self.presets = ENTRY_PRESETS if presets is None else presets
 
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(6)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(6)
         self.title = QLabel(title, self)
         self.title.setObjectName("tileTitle")
-        header.addWidget(self.title)
-        header.addStretch(1)
+        header_row.addWidget(self.title)
+        header_row.addStretch(1)
 
         self.modes = QButtonGroup(self)
         self.modes.setExclusive(True)
@@ -273,9 +274,17 @@ class RulesTile(Card):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             self.modes.addButton(button, index)
             self.mode_buttons[key] = button
-            header.addWidget(button)
+            header_row.addWidget(button)
         self.modes.idClicked.connect(self._pick_mode)
-        self.body.addLayout(header)
+        if header:
+            self.body.addLayout(header_row)
+        else:
+            # The tile is inset in a switcher that owns the header: the title
+            # and the pills are not shown here, but the group still drives
+            # `mode()` and `set_mode()`.
+            self.title.hide()
+            for button in self.mode_buttons.values():
+                button.hide()
 
         # One page per mode: ready-made rules, the tiles, and the code. All
         # three reach the same formula.
@@ -643,6 +652,130 @@ class RulesTile(Card):
         self.code_error.setText(self.formula.error())
 
 
+class RulesSwitcher(Card):
+    """One tile holding both rules, switched by their titles.
+
+    ENTRY RULES and EXIT RULES are two `RulesTile`s, but only one is shown at
+    a time: their titles are the switch, and the Rules / Formula / Code pills
+    belong to whichever side is showing. That way either rule gets the whole
+    width instead of the two of them squeezing into it.
+    """
+
+    side_changed = Signal(str)
+    mode_changed = Signal(str)
+
+    SIDES = (("entry", "ENTRY RULES"), ("exit", "EXIT RULES"))
+
+    def __init__(
+        self,
+        entry: RulesTile,
+        exit_: RulesTile,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.entry = entry
+        self.exit = exit_
+        self.current_side = "entry"
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+
+        # The two titles are the switch: one checked, the other a quiet
+        # invitation to the other rule.
+        self.sides = QButtonGroup(self)
+        self.sides.setExclusive(True)
+        self.side_buttons: dict[str, QPushButton] = {}
+        for index, (key, label) in enumerate(self.SIDES):
+            button = QPushButton(label, self)
+            button.setObjectName("sideButton")
+            button.setProperty("side", key)
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.sides.addButton(button, index)
+            self.side_buttons[key] = button
+            header.addWidget(button)
+        self.sides.idClicked.connect(self._pick_side)
+
+        header.addStretch(1)
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        self.mode_buttons: dict[str, QPushButton] = {}
+        for index, (key, label) in enumerate(RULES_MODES):
+            button = QPushButton(label, self)
+            button.setObjectName("modeButton")
+            button.setProperty("mode", key)
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.mode_group.addButton(button, index)
+            self.mode_buttons[key] = button
+            header.addWidget(button)
+        self.mode_group.idClicked.connect(self._pick_mode)
+        self.body.addLayout(header)
+
+        # The two rules share the card; only one is on top. They are inset:
+        # the switcher's own card is the surface, so they do not draw a second
+        # border inside it.
+        self.stack = QStackedWidget(self)
+        self.stack.setObjectName("rulesStack")
+        for tile in (entry, exit_):
+            tile.setProperty("inset", True)
+            tile.body.setContentsMargins(0, 0, 0, 0)
+            tile.style().unpolish(tile)
+            tile.style().polish(tile)
+            self.stack.addWidget(tile)
+        self.stack.setCurrentWidget(entry)
+        self.body.addWidget(self.stack, 1)
+
+        entry.mode_changed.connect(self._side_mode_changed)
+        exit_.mode_changed.connect(self._side_mode_changed)
+
+    def tile(self) -> RulesTile:
+        """The rule currently on top."""
+        return self.entry if self.current_side == "entry" else self.exit
+
+    def side(self) -> str:
+        return self.current_side
+
+    def set_side(self, key: str) -> None:
+        for index, (name, _) in enumerate(self.SIDES):
+            if name == key:
+                self.sides.button(index).setChecked(True)
+                self._pick_side(index)
+                return
+
+    def _pick_side(self, index: int) -> None:
+        if not 0 <= index < len(self.SIDES):
+            return
+        key = self.SIDES[index][0]
+        self.current_side = key
+        self.stack.setCurrentWidget(self.tile())
+        # Each side keeps its own mode; the pills follow it.
+        self._check_mode(self.tile().mode())
+        self.side_changed.emit(key)
+
+    def _pick_mode(self, index: int) -> None:
+        if not 0 <= index < len(RULES_MODES):
+            return
+        self.tile().set_mode(RULES_MODES[index][0])
+
+    def _check_mode(self, mode: str) -> None:
+        for index, (key, _) in enumerate(RULES_MODES):
+            if key == mode:
+                button = self.mode_group.button(index)
+                if button is not None and not button.isChecked():
+                    button.setChecked(True)
+                return
+
+    def _side_mode_changed(self, mode: str) -> None:
+        if self.sender() is self.tile():
+            self._check_mode(mode)
+        self.mode_changed.emit(mode)
+
+
 __all__ = [
     "ENTRY_PRESETS",
     "EXIT_PRESETS",
@@ -651,5 +784,6 @@ __all__ = [
     "PageStack",
     "Preset",
     "PresetCard",
+    "RulesSwitcher",
     "RulesTile",
 ]

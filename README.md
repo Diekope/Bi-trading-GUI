@@ -283,7 +283,7 @@ tests/             430 tests: parsing/search/aliases, slug math, candle + book
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the two rules tiles, their rules
+                   compact STRATEGY tile, the one rules tile and its switch, their rules
                    gallery and their code refusal, the footer that resets and
                    saves a draft, the saved strategies file, the drag-and-drop
                    formula builder, the formula language, its evaluator, the
@@ -339,9 +339,9 @@ nothing else. The split is **locked**: dragging a handle does nothing, so the
 share changes only when the window is resized.
 
 The rail holds the small **STRATEGY** tile on top and an empty tile under it.
-The rest holds the two rules tiles **side by side** in one line, with the
-**results** under them, the rules taking the upper part. The window will not
-shrink past what the two rules need.
+The rest holds one rules tile with the **results** under it, the rule taking
+the upper part. The window does not have to fit two rules side by side any
+more.
 
 A **footer** spans the bottom of the window, as in the mock: the draft's name
 on the left, and `Reset` and `Save` on the right. `Reset` clears the draft —
@@ -355,12 +355,14 @@ The **STRATEGY** tile at the top of the rail is
 the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own width,
 defaulting to `1m`. It is only as tall as the title and that row.
 
-In the right-hand column the two rules share one line: **ENTRY RULES** and
-**EXIT RULES**, with the **results** under them. They are the same widget — `strat_rules.RulesTile` — each
-with its own formula, its own title row of `Rules` / `Formula` / `Code`
-pills, and nothing shared between them.
+Under it the right-hand column has **one rules tile**, and **ENTRY RULES** /
+**EXIT RULES** are the switch at its top: they are the same widget —
+`strat_rules.RulesTile` — and `strat_rules.RulesSwitcher` keeps both, showing
+one at a time. The `Rules` / `Formula` / `Code` pills beside them belong to
+the side on show and follow it when you switch. That way either rule gets the
+full width of the tile instead of the two squeezing into it.
 
-Each tile has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
+Each side has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
 `Rules`, where ready-made rules are shown as a **gallery**: cards four to a row
 at most, left-aligned, each with a line about the rule. Picking one loads it and
 jumps straight to `Formula`, ready to edit. `Formula` is the drag-and-drop
@@ -429,17 +431,16 @@ three rows of draggable **blocks**, then a box to type a number into:
 
 Each block is a pill with a drag handle, coloured by what it is — data in
 indigo, indicators in amber, `AND`/`OR`/`NOT` in green, maths neutral — and
-each row wraps when the tile is narrow. The rows are **not** scrollable: the
-card is only as tall as the rows it holds.
+each row wraps when the tile is narrow. The lines live in a scroll area, so
+the card keeps its height however many of them there are.
 
-The two rules tiles share the column below `STRATEGY` evenly, and each follows
-its own content: narrow the window and the palette wraps onto more rows, so
-both tiles grow and the window needs more height for them.
+The rules tile takes the column below `STRATEGY`, and either side gets all of
+its width.
 
 Under the card are the lines, one strip of chips each, read left to right. The
 last line is captioned `IF` and is the condition; the ones above are `LET` and
-are named series. A line wraps rather than clipping, and the entry tile grows
-to hold however many rows the lines take:
+are named series. A line wraps rather than clipping, and the strip area
+scrolls when the lines no longer fit:
 
 ```
 LET  [band] [=] [Boll low 20 2]
