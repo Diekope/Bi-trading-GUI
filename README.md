@@ -376,13 +376,14 @@ The `Formula` tab is three columns, as in the mock. **Blocks** is the small
 left rail (200 px, fixed) — a search box over one dashed group per kind
 (`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different colours, so the
 list reads as one surface), with **no scrollbar**: the wheel walks the list.
-The **Formula** takes the slack in the middle: the lines live in a scroll area
-of their own — add a sixth line and the list walks under the wheel instead of
-pushing the buttons away — and the formula as text is one small read-only line
-that scrolls sideways. The lines are grouped into subsections: named series
-sit under **`LET`**, which only appears once there is at least one variable,
-and the condition sits under **`BUY WHEN`** on the entry side and
-**`EXIT WHEN`** on the exit side. The **Selected block** is the right rail
+The **Formula** takes the slack in the middle: the lines sit directly on the
+card — no scrollbox of their own, so all of them show at once and the page
+around the builder moves if a long rule needs more room — and the formula as
+text is one small read-only line that scrolls sideways. The lines are grouped
+into subsections: named series sit under **`LET`**, which only appears once
+there is at least one variable, and the condition sits under **`BUY WHEN`** on
+the entry side and **`EXIT WHEN`** on the exit side. The **Selected block** is
+the right rail
 (a little under 250 px), pushed against the edge and scrolling in place: its
 name, source and live values stay readable in a short tile. Clicking a chip
 selects it: the card shows its name, its source and its window, all editable,
@@ -445,7 +446,7 @@ Under the card are the lines, one strip of chips each, read left to right. They
 are split into two subsections: the variables under `LET`, and the last line —
 the condition — under `BUY WHEN` (`EXIT WHEN` on the exit side). The `LET`
 heading is hidden when there are no variables. A line wraps rather than
-clipping, and the strip area scrolls when the lines no longer fit:
+clipping, and the card grows to fit them:
 
 ```
 LET  [band] [=] [Boll low 20 2]

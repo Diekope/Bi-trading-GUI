@@ -1001,21 +1001,16 @@ class FormulaBuilder(QWidget):
         self.condition_heading = QLabel(self.condition_label, box)
         self.condition_heading.setObjectName("formulaCondition")
 
-        # The lines live in a scroll area of their own: a rule with several
-        # lines can be walked wheel by wheel instead of pushing the buttons,
-        # the text and the status out of the card.
-        self.strip_area = QScrollArea(box)
-        self.strip_area.setObjectName("stripScroll")
-        self.strip_area.setWidgetResizable(True)
-        self.strip_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.strip_inner = QWidget()
-        self.strip_inner.setObjectName("stripInner")
-        self.strip_layout = QVBoxLayout(self.strip_inner)
+        # The lines sit directly on the card: no scrollbox of their own. The
+        # page around the builder scrolls if a long rule needs more room.
+        self.strip_area = QWidget(box)
+        self.strip_area.setObjectName("stripArea")
+        self.strip_inner = self.strip_area
+        self.strip_layout = QVBoxLayout(self.strip_area)
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
         self.strip_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.strip_area.setWidget(self.strip_inner)
-        layout.addWidget(self.strip_area, 1)
+        layout.addWidget(self.strip_area)
 
         self.add_line_button = QPushButton("+  add a line", box)
         self.add_line_button.setObjectName("addLine")

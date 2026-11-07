@@ -762,7 +762,7 @@ def test_the_three_columns_with_the_selected_block_on_the_right(
     assert builder.formula_card.width() > selected.width()
 
 
-def test_the_lines_scroll_inside_the_formula_card(
+def test_the_lines_do_not_scroll_inside_the_formula_card(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     builder.resize(560, 360)
@@ -773,15 +773,13 @@ def test_the_lines_scroll_inside_the_formula_card(
     for _ in range(5):
         app.processEvents()
 
-    # Every line is in the strip area, which scrolls when they do not fit.
+    # Every line is on the card itself, with no scrollbox of its own: the
+    # page around the builder is what moves if they do not fit.
     assert len(builder.strips) == 5
-    assert builder.strip_area.objectName() == "stripScroll"
+    assert builder.strip_area.objectName() == "stripArea"
+    assert builder.findChild(QScrollArea, "stripScroll") is None
     assert builder.strip_inner.isAncestorOf(builder.strips[-1])
-    assert (
-        builder.strip_area.widgetResizable() is True
-    )
-    # The lines are below the fold, so the scroll area has somewhere to go.
-    assert builder.strip_area.verticalScrollBar().maximum() > 0
+    assert all(strip.isVisible() for strip in builder.strips)
 
 
 def test_the_preview_is_one_small_line(

@@ -357,7 +357,7 @@ QLineEdit#numberEdit:focus {{
     border-radius: 8px;
 }}
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
-#valueRow, #codeValues, #listScroll, #listInner, #stripScroll, #stripInner,
+#valueRow, #codeValues, #listScroll, #listInner, #stripArea,
 #selectedScroll, #selectedBody {{
     background-color: transparent;
 }}
