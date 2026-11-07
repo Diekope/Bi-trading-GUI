@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -43,6 +44,8 @@ from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 from lalala.formula_builder import EXIT_PALETTES
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
+from lalala import strategies
+from lalala.strategies import SavedStrategy
 from lalala.strat_report import ReportTile
 from lalala.strat_rules import EXIT_PRESETS, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
@@ -183,6 +186,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.exit.changed.connect(self._exit_changed)
         self.exit.mode_changed.connect(self.exit_mode_changed)
         self.timeframe.currentTextChanged.connect(self._sync_report)
+        self.timeframe.currentTextChanged.connect(self._describe_draft)
+        self.name_edit.textChanged.connect(self._describe_draft)
 
         for tile in (self.strategy_tile, self.entry_tile, self.exit_tile):
             self.center.addWidget(tile)
@@ -205,7 +210,69 @@ class StrategyBuilderWindow(QMainWindow):
         self._proportions_set = False
 
         layout.addWidget(self.splitter, 1)
+        layout.addLayout(self._footer())
         self.setCentralWidget(canvas)
+
+    # -- the footer ---------------------------------------------------------
+
+    def _footer(self) -> QHBoxLayout:
+        """The draft on the left, Reset and Save on the right."""
+        row = QHBoxLayout()
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(10)
+
+        self.draft = QLabel("untitled · unsaved", self)
+        self.draft.setObjectName("draftLabel")
+        row.addWidget(self.draft)
+        row.addStretch(1)
+
+        self.reset_button = QPushButton("Reset", self)
+        self.reset_button.setObjectName("ghostButton")
+        self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_button.setToolTip("clear the draft: name, bar and both rules")
+        self.reset_button.clicked.connect(self.reset_draft)
+
+        self.save_button = QPushButton("Save", self)
+        self.save_button.setObjectName("saveButton")
+        self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_button.setToolTip("keep this strategy under its name")
+        self.save_button.clicked.connect(self.save_draft)
+
+        row.addWidget(self.reset_button)
+        row.addWidget(self.save_button)
+        return row
+
+    def _describe_draft(self) -> None:
+        name = self.name_edit.text().strip()
+        self.draft.setText(f"{name or 'untitled'} · unsaved")
+
+    def reset_draft(self) -> None:
+        """Clear the draft back to nothing."""
+        self.name_edit.setText("")
+        self.timeframe.setCurrentIndex(0)
+        self.entry.reset_draft()
+        self.exit.reset_draft()
+        self._describe_draft()
+        self._sync_report()
+
+    def save_draft(self) -> None:
+        """Keep the draft under its name, and say so."""
+        name = self.name_edit.text().strip()
+        if not name:
+            self.draft.setText("give it a name first")
+            return
+        if self.entry.error() or self.exit.error():
+            self.draft.setText("fix the rules before saving")
+            return
+        saved = strategies.save(
+            SavedStrategy(
+                name=name,
+                timeframe=self.timeframe.currentText(),
+                entry=self.entry_formula(),
+                exit=self.exit_formula(),
+            )
+        )
+        self.draft.setText(f"saved “{name}” · {len(saved)} kept")
 
     # -- the formula -------------------------------------------------------
 

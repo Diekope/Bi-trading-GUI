@@ -259,6 +259,7 @@ src/lalala/
   formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
   strat_report.py the right rail: the rule run over the candles on disk
+  strategies.py    saved strategies: one JSON file, read and replaced by name
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -276,16 +277,18 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             369 tests: parsing/search/aliases, slug math, candle + book
+tests/             415 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the two rules tiles, their presets and
-                   their code refusal, the drag-and-drop formula builder, the
-                   formula language, its evaluator and the results tile, the chart and backtest settings, the
-                   silent log, and the candle store and downloader
+                   compact STRATEGY tile, the two rules tiles, their rules
+                   gallery and their code refusal, the footer that resets and
+                   saves a draft, the saved strategies file, the drag-and-drop
+                   formula builder, the formula language, its evaluator, the
+                   results tile, the chart and backtest settings, the silent
+                   log, and the candle store and downloader
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
@@ -336,6 +339,13 @@ by the same 8 px gap and nothing else. The split is **locked**: dragging a
 handle does nothing, so the share changes only when the window is resized. The
 tiles lower their minimum width to 120 px so the 21% rail is not clamped by the
 card default.
+
+A **footer** spans the bottom of the window, as in the mock: the draft's name
+on the left, and `Reset` and `Save` on the right. `Reset` clears the draft —
+name, bar and both rules. `Save` writes it to `~/.config/lalala/strategies.json`
+under its name, replacing an earlier one of the same name rather than piling
+up; it needs a name and rules that check out, and the footer says which is
+missing.
 
 The middle column stacks three tiles. The compact **STRATEGY** tile on top is
 titled `STRATEGY` and holds one row: a text field (`name` as its placeholder)

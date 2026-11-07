@@ -425,6 +425,11 @@ class RulesTile(Card):
         """The formula the tiles add up to."""
         return self.formula.formula_text()
 
+    def reset_draft(self) -> None:
+        """Back to one empty line, and the rules page."""
+        self.formula.reset()
+        self.set_mode("rules")
+
     def set_text(self, text: str) -> None:
         self.formula.set_formula(text)
         self._sync_code()

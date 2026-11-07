@@ -535,6 +535,69 @@ def test_the_report_follows_the_rules(
     assert "no entry rule yet" in builder.report.note.text()
 
 
+def test_the_footer_resets_the_draft(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    builder.set_exit_formula("pnl >= tp")
+    builder._describe_draft()
+    app.processEvents()
+    assert builder.draft.text() == "Dip · unsaved"
+
+    builder.reset_button.click()
+    app.processEvents()
+
+    assert builder.name_edit.text() == ""
+    assert builder.entry_formula() == ""
+    assert builder.exit_formula() == ""
+    assert builder.entry_mode() == "rules"
+    assert builder.draft.text() == "untitled · unsaved"
+
+
+def test_the_footer_saves_the_draft(
+    app: QApplication,
+    builder: StrategyBuilderWindow,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from lalala import strategies
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+
+    builder.name_edit.setText("Bollinger reversion")
+    builder.timeframe.setCurrentText("1h")
+    builder.set_entry_formula("close < bollinger_lower(close, 20, 2)")
+    builder.set_exit_formula("pnl >= tp or pnl <= 0 - sl")
+    app.processEvents()
+
+    builder.save_button.click()
+    app.processEvents()
+
+    kept = strategies.load()
+    assert len(kept) == 1
+    assert kept[0].name == "Bollinger reversion"
+    assert kept[0].timeframe == "1h"
+    assert kept[0].entry == "close < bollinger_lower(close, 20, 2)"
+    assert kept[0].exit == "pnl >= tp or pnl <= 0 - sl"
+    assert "saved" in builder.draft.text()
+
+
+def test_saving_needs_a_name_and_a_sound_rule(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.save_button.click()
+    app.processEvents()
+    assert "name" in builder.draft.text()
+
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < clsoe")  # a name that means nothing
+    app.processEvents()
+    builder.save_button.click()
+    app.processEvents()
+    assert "fix the rules" in builder.draft.text()
+
+
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:

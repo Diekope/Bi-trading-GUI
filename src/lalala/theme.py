@@ -321,6 +321,35 @@ QLineEdit#numberEdit {{
 QLineEdit#numberEdit:focus {{
     border-color: {ACCENT};
 }}
+QLabel#draftLabel {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+}}
+QPushButton#ghostButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    padding: 6px 14px;
+}}
+QPushButton#ghostButton:hover {{
+    color: {TEXT};
+    border-color: {ACCENT_DIM};
+}}
+QPushButton#saveButton {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 6px;
+    color: {ACCENT};
+    font-size: 11px;
+    padding: 6px 14px;
+}}
+QPushButton#saveButton:hover {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
+
 QPushButton#numberAdd, QPushButton#formulaReset {{
     background-color: {PANEL};
     border: 1px solid {BORDER};

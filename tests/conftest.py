@@ -14,3 +14,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["LALALA_SETTINGS"] = os.path.join(
     tempfile.mkdtemp(prefix="lalala-tests-"), "settings.json"
 )
+# And no test writes drafts into a developer's own config.
+os.environ["LALALA_STRATEGIES"] = os.path.join(
+    tempfile.mkdtemp(prefix="lalala-tests-"), "strategies.json"
+)
