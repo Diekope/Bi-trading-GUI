@@ -423,50 +423,62 @@ class RulesTile(Card):
         code_layout.addWidget(self.code_note)
         layout.addWidget(code_card, 3)
 
-        # The vocabulary, and what it reads right now, under the code.
+        # The vocabulary, and what it reads right now, under the code. Each
+        # one scrolls in place: the lists are longer than any tile, and the
+        # code above should not be pushed off while you read them.
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
 
-        vocab = QFrame(page)
-        vocab.setObjectName("selectedCard")
-        vocab.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        vocab_layout = QVBoxLayout(vocab)
-        vocab_layout.setContentsMargins(10, 8, 10, 8)
-        vocab_layout.setSpacing(4)
-        vocab_title = QLabel("VARIABLES", vocab)
-        vocab_title.setObjectName("panelTitle")
-        vocab_layout.addWidget(vocab_title)
+        vocab, vocab_scroll = self._list_card(page, "VARIABLES")
+        vocab_inner = QWidget()
+        vocab_inner.setObjectName("listInner")
+        vocab_layout = QVBoxLayout(vocab_inner)
+        vocab_layout.setContentsMargins(0, 0, 0, 0)
+        vocab_layout.setSpacing(0)
         for name in self.fields:
             vocab_layout.addWidget(
-                self._variable_row(vocab, name, "float")
+                self._variable_row(vocab_inner, name, "float")
             )
         for name in sorted(self.functions):
             vocab_layout.addWidget(
-                self._variable_row(vocab, f"{name}()", "function")
+                self._variable_row(vocab_inner, f"{name}()", "function")
             )
         vocab_layout.addStretch(1)
+        vocab_scroll.setWidget(vocab_inner)
 
-        values_card = QFrame(page)
-        values_card.setObjectName("selectedCard")
-        values_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        values_layout = QVBoxLayout(values_card)
-        values_layout.setContentsMargins(10, 8, 10, 8)
-        values_layout.setSpacing(4)
-        values_title = QLabel("VALUES", values_card)
-        values_title.setObjectName("panelTitle")
-        values_layout.addWidget(values_title)
-        self.code_values = QWidget(values_card)
+        values_card, values_scroll = self._list_card(page, "VALUES")
+        self.code_values = QWidget()
         self.code_values.setObjectName("valuesBox")
         self.code_values_layout = QVBoxLayout(self.code_values)
         self.code_values_layout.setContentsMargins(0, 0, 0, 0)
         self.code_values_layout.setSpacing(0)
-        values_layout.addWidget(self.code_values)
-        values_layout.addStretch(1)
+        values_scroll.setWidget(self.code_values)
         side.addWidget(vocab, 2)
         side.addWidget(values_card, 1)
         layout.addLayout(side, 2)
-        return self._scroll_page(page)
+        # The page itself does not scroll: the two lists scroll in place, so
+        # the code above stays put while you read the vocabulary.
+        return page
+
+    def _list_card(self, parent: QWidget, title: str) -> tuple:
+        """A card with a caption and a scroll area for a list of rows."""
+        card = QFrame(parent)
+        card.setObjectName("selectedCard")
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setSpacing(4)
+        heading = QLabel(title, card)
+        heading.setObjectName("panelTitle")
+        card_layout.addWidget(heading)
+
+        scroll = QScrollArea(card)
+        scroll.setObjectName("listScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        card_layout.addWidget(scroll, 1)
+        return card, scroll
 
     def _variable_row(self, parent: QWidget, name: str, kind: str) -> QWidget:
         row = QWidget(parent)

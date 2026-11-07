@@ -69,7 +69,7 @@ QStatusBar::item {{ border: none; }}
 }}
 QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter,
 QSplitter#stratColumn, QSplitter#builderSplitter,
-QSplitter#builderMiddleSplit {{
+QSplitter#builderMiddleSplit, QSplitter#formulaSplit {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
@@ -77,7 +77,8 @@ QSplitter#tileSplitter::handle:vertical,
 QSplitter#stratSplitter::handle:horizontal,
 QSplitter#stratColumn::handle:vertical,
 QSplitter#builderSplitter::handle:horizontal,
-QSplitter#builderMiddleSplit::handle:vertical {{
+QSplitter#builderMiddleSplit::handle:vertical,
+QSplitter#formulaSplit::handle:vertical {{
     background-color: transparent;
 }}
 
@@ -335,7 +336,7 @@ QLineEdit#numberEdit:focus {{
     border-radius: 8px;
 }}
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
-#valueRow, #codeValues {{
+#valueRow, #codeValues, #listScroll, #listInner {{
     background-color: transparent;
 }}
 #pageScroll > QWidget > QWidget {{

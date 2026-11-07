@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QFrame,
     QLabel,
     QLineEdit,
+    QScrollArea,
 )
 
 from lalala.formula_builder import (  # noqa: E402
@@ -676,3 +677,66 @@ def test_a_blank_line_shows_the_dashed_hint(
 
     builder.remove_chip(strip.chips()[0])
     assert strip.zone.empty is True
+
+
+def test_the_blocks_list_has_no_scrollbar(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    scroll = builder.findChild(QScrollArea, "blocksScroll")
+    assert scroll is not None
+    # The room the bar took goes to the formula beside it; the wheel still
+    # walks the list.
+    assert (
+        scroll.verticalScrollBarPolicy()
+        == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    )
+
+
+def test_the_formula_and_the_block_can_be_resized(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    split = builder.formula_split
+    assert split.orientation() == Qt.Orientation.Vertical
+    assert split.count() == 2
+    assert split.childrenCollapsible() is False
+    assert split.widget(0).objectName() == "formulaCard"
+    assert split.widget(1).objectName() == "selectedCard"
+
+
+def test_more_lines_give_the_formula_more_height(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    builder.resize(560, 360)
+    app.processEvents()
+    card = builder.formula_split.widget(0)
+    before = card.minimumHeight()
+
+    for _ in range(4):
+        builder.add_strip()
+    for _ in range(5):
+        app.processEvents()
+
+    # The card takes the height the strips need instead of squeezing them.
+    assert len(builder.strips) == 5
+    assert card.minimumHeight() > before
+    assert card.height() >= card.minimumSizeHint().height() - 2
+    assert all(
+        strip.height() >= strip.minimumHeight()
+        for strip in builder.strips
+    )
+
+
+def test_the_preview_is_tall_enough_for_its_text(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    builder.resize(560, 360)
+    builder.set_formula(
+        "close > sma(close, 20) and close < bollinger_upper(close, 20, 2) "
+        "and volume > sma(volume, 20) and rsi(close, 14) > 55"
+    )
+    for _ in range(5):
+        app.processEvents()
+
+    label = builder.preview_label
+    # A wrapped label is exactly as tall as the text at the width it got.
+    assert label.height() >= label.heightForWidth(label.width()) - 1

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
 )
 
 from lalala.panels import Card  # noqa: E402
@@ -662,6 +663,24 @@ def test_the_code_page_has_the_vocabulary_and_the_values(
     }
     assert "close" in values and "z" in values
     assert "result" in values
+
+
+def test_the_code_lists_scroll_in_place(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.mode_buttons["code"].click()
+    app.processEvents()
+
+    page = builder.entry.pages.currentWidget()
+    lists = [
+        scroll
+        for scroll in page.findChildren(QScrollArea)
+        if scroll.objectName() == "listScroll"
+    ]
+    # One scroll area for VARIABLES, one for VALUES, both inside the page.
+    assert len(lists) == 2
+    # The page itself no longer scrolls: the lists do, so the code stays put.
+    assert page.findChild(QScrollArea, "pageScroll") is None
 
 
 def test_the_live_values_reach_both_panels(

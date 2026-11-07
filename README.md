@@ -277,7 +277,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             424 tests: parsing/search/aliases, slug math, candle + book
+tests/             429 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -370,18 +370,22 @@ The `Formula` and `Code` panels have a natural size of their own and **scroll**
 inside the tile rather than making it grow, so a narrow window keeps the rules
 where they are and the panel moves under the cursor.
 
-The `Formula` tab is three columns, as in the mock: **Blocks** on the left —
-a search box over one dashed group per kind (`Data`, `Indicators`, `Maths`,
-`Logic` — boxes, not different colours, so the list reads as one surface) — the **Formula** in the middle (variables, the condition line, the
-number box, the text, the status), and the **Selected block** on the right.
-Clicking a chip selects it: the card shows its name, its source and its
-window, all editable, and under them the live values that name reads on the
-newest bar, with the rule's result.
+The `Formula` tab is **Blocks** down the left — a search box over one dashed
+group per kind (`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different
+colours, so the list reads as one surface), with **no scrollbar**: the wheel
+walks the list and its width goes to the formula instead. Beside it the
+**Formula** sits on top with the **Selected block** under it, and the handle
+between them drags: a rule with more lines takes the height it needs, so the
+lines and the text under them are never squeezed out of sight. Clicking a chip
+selects it: the card shows its name, its source and its window, all editable,
+and under them the live values that name reads on the newest bar, with the
+rule's result.
 
 The `Code` tab is the code, and under it `Variables`, the whole vocabulary
-with its types, then `Values`, the same last-bar numbers.
-The code block and the formula bar sit in **wells** — darker than the card they
-are on, the way the mock draws them.
+with its types, then `Values`, the same last-bar numbers. Those two lists
+**scroll in place**; the page around them does not, so the code stays put
+while you read them. The code block and the formula bar sit in **wells** —
+darker than the card they are on, the way the mock draws them.
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,
 `liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they
