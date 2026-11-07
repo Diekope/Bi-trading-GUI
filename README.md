@@ -513,11 +513,12 @@ back as one tile holding `20` and `2`, not a run of separate chips.
 
 ![The results tile on Overview: the figures and the three curves on the left, how the trades ended on the right](docs/images/part-report.png)
 
-The tile keeps its `RESULTS` title, with the span under it, and **three
-subwindows** as pills on the right — `Overview`, `Trades`, `Compare` — the way
+The tile keeps its `RESULTS` title, with the span under it, and **two
+subwindows** as pills on the right — `Overview` and `Compare` — the way
 `Rules` / `Formula` / `Code` sit in the rules tile. Only one is on show at a
-time; `Overview` is the default, and `Trades` and `Compare` are empty pages set
-aside for the trade list and for putting two runs side by side.
+time; `Overview` is the default, and `Compare` is an empty page set aside for
+putting two runs side by side (the trade list will live in the backtest
+window).
 
 ![The results tile on Compare: the empty page set aside for two runs](docs/images/part-report-compare.png)
 

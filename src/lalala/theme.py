@@ -96,7 +96,7 @@ QSplitter#formulaSplit::handle:vertical {{
 }}
 
 /* Plain containers inside a card must not paint the canvas colour. */
-#resolutionPicker, #paramsGrid, #entryPages, #entryPage,
+#resolutionPicker, #paramsGrid, #entryPages, #entryPage, #resultsPage,
 #formulaBuilder, #formulaCanvas, #stripArea, #stripHolder,
 #paletteInner, #paletteBlocks, #dropZone {{
     background-color: transparent;

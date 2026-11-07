@@ -305,19 +305,18 @@ class ReasonBars(QWidget):
 
 
 class ReportTile(Card):
-    """The run's numbers and its curves, over three subwindows.
+    """The run's numbers and its curves, over two subwindows.
 
     `Overview` is the split — the figures and the three curves on the left, how
-    the trades ended on the right; `Trades` is set aside for the trade list,
-    and `Compare` for putting two runs side by side. Their names are the
-    switch, the way `Rules` / `Formula` / `Code` switch in the rules tile.
+    the trades ended on the right; `Compare` is set aside for putting two runs
+    side by side. Their names are the switch, the way `Rules` / `Formula` /
+    `Code` switch in the rules tile.
     """
 
     view_changed = Signal(str)
 
     VIEWS = (
         ("overview", "Overview"),
-        ("trades", "Trades"),
         ("compare", "Compare"),
     )
 
@@ -363,7 +362,6 @@ class ReportTile(Card):
         self.pages = QStackedWidget(self)
         self.pages.setObjectName("resultsStack")
         self.pages.addWidget(self._overview_page())
-        self.pages.addWidget(self._trades_page())
         self.pages.addWidget(self._compare_page())
         self.pages.setCurrentIndex(0)
         self.body.addWidget(self.pages, 1)
@@ -452,22 +450,6 @@ class ReportTile(Card):
         rail_layout.addWidget(self.reasons_note)
         rail_layout.addStretch(1)
         layout.addWidget(rail, 0)
-        return page
-
-    def _trades_page(self) -> QWidget:
-        """Set aside for the trade list."""
-        page = QWidget(self)
-        page.setObjectName("resultsPage")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addStretch(1)
-        self.trades_message = QLabel("the trade list will sit here", page)
-        self.trades_message.setObjectName("emptyNote")
-        self.trades_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.trades_message.setWordWrap(True)
-        layout.addWidget(self.trades_message, 1)
-        layout.addStretch(1)
         return page
 
     def _compare_page(self) -> QWidget:

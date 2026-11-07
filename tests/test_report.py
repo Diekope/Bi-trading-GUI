@@ -177,17 +177,17 @@ def test_the_curve_chart_paints_before_any_run(app: QApplication) -> None:
     chart.close()
 
 
-# -- the three subwindows ----------------------------------------------------
+# -- the two subwindows ------------------------------------------------------
 
 
-def test_the_tile_has_overview_trades_and_compare(app: QApplication) -> None:
+def test_the_tile_has_overview_and_compare(app: QApplication) -> None:
     tile = ReportTile()
     tile.resize(420, 460)
     tile.show()
     app.processEvents()
 
-    # RESULTS keeps its title, and the three views are the pills beside it,
-    # the way Rules / Formula / Code sit in the rules tile.
+    # RESULTS keeps its title, and the two views are the pills beside it, the
+    # way Rules / Formula / Code sit in the rules tile.
     titles = [
         label.text()
         for label in tile.findChildren(QLabel)
@@ -196,14 +196,13 @@ def test_the_tile_has_overview_trades_and_compare(app: QApplication) -> None:
     assert titles == ["RESULTS"]
     assert [button.text() for button in tile.view_buttons.values()] == [
         "Overview",
-        "Trades",
         "Compare",
     ]
     for button in tile.view_buttons.values():
         assert button.objectName() == "modeButton"
         assert button.isCheckable() is True
     assert tile.view_buttons["overview"].isChecked() is True
-    assert tile.pages.count() == 3
+    assert tile.pages.count() == 2
 
     # Overview is the split, and it is the one on show.
     assert tile.view() == "overview"
@@ -211,27 +210,21 @@ def test_the_tile_has_overview_trades_and_compare(app: QApplication) -> None:
     assert page.isAncestorOf(tile.chart)
     assert page.isAncestorOf(tile.reasons)
 
-    # Trades and Compare are set aside for now; switching shows each, and the
-    # switch goes back.
+    # Compare is set aside for now; switching shows it, and the switch goes
+    # back.
     picked: list[str] = []
     tile.view_changed.connect(picked.append)
-    tile.view_buttons["trades"].click()
-    app.processEvents()
-    assert tile.view() == "trades"
-    assert tile.pages.currentIndex() == 1
-    assert tile.pages.currentWidget().isAncestorOf(tile.trades_message)
-
     tile.view_buttons["compare"].click()
     app.processEvents()
     assert tile.view() == "compare"
-    assert tile.pages.currentIndex() == 2
+    assert tile.pages.currentIndex() == 1
     assert tile.compare_message.text() == "put two runs side by side here"
-    assert picked == ["trades", "compare"]
+    assert picked == ["compare"]
 
     tile.set_view("overview")
     assert tile.view() == "overview"
     assert tile.pages.currentIndex() == 0
-    assert picked == ["trades", "compare", "overview"]
+    assert picked == ["compare", "overview"]
     tile.close()
 
 
