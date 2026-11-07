@@ -228,6 +228,9 @@ class StrategyBuilderWindow(QMainWindow):
         self.timeframe.setCurrentText(strategy.timeframe)
         self.entry.set_text(strategy.entry)
         self.exit.set_text(strategy.exit)
+        # Show what was loaded: the tiles, not the presets it came from.
+        self.entry.set_mode("formulas")
+        self.exit.set_mode("formulas")
         # Back to the prompt: it is a way in, not a selection to sit on.
         self.strategy_picker.setCurrentIndex(0)
 

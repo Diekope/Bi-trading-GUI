@@ -32,17 +32,17 @@ def tile(app: QApplication) -> RulesTile:
     widget.close()
 
 
-def test_it_is_titled_with_two_modes(app: QApplication) -> None:
+def test_it_is_titled_with_three_modes(app: QApplication) -> None:
     tile = RulesTile("EXIT RULES")
     tile.show()
     app.processEvents()
 
     assert tile.title.text() == "EXIT RULES"
     assert tile.title.objectName() == "tileTitle"
-    assert [key for key, _ in RULES_MODES] == ["formulas", "code"]
-    assert list(tile.mode_buttons) == ["formulas", "code"]
-    assert tile.mode() == "formulas"
-    assert tile.pages.count() == 2
+    assert [key for key, _ in RULES_MODES] == ["presets", "formulas", "code"]
+    assert list(tile.mode_buttons) == ["presets", "formulas", "code"]
+    assert tile.mode() == "presets"  # a rule usually starts from a preset
+    assert tile.pages.count() == 3
     tile.close()
 
 
@@ -150,7 +150,7 @@ def test_two_tiles_do_not_share_a_formula(
 
     entry.set_mode("code")
     app.processEvents()
-    assert exit_.mode() == "formulas"  # the other tile is untouched
+    assert exit_.mode() == "presets"  # the other tile is untouched
     assert exit_.code() == "close > sma(close, 50)"
     entry.close()
     exit_.close()

@@ -343,12 +343,13 @@ width, defaulting to `1m`. It is only as tall as the title and that row.
 
 Under it, two tiles share the rest of the column **evenly**: **ENTRY RULES**
 and **EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
-with its own formula, its own title row of `Formulas` / `Code` pills, and
-nothing shared between them.
+with its own formula, its own title row of `Presets` / `Formulas` / `Code`
+pills, and nothing shared between them.
 
-Each tile opens with a **presets** row, above the two ways of writing a rule:
-whole rules to start from, shown as cards with a line about each. Picking one
-fills the tile, and the formula is editable from there like any other.
+Each tile has **three tabs** — `Presets`, `Formulas`, `Code` — and starts on
+`Presets`, where ready-made rules are shown as cards with a line about each.
+Picking one fills the tile and the rule is editable from there like any other.
+`Formulas` is the drag-and-drop builder and `Code` the same formula as text.
 
 | Tile | Presets |
 | --- | --- |

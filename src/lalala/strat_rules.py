@@ -39,8 +39,13 @@ from lalala.formula_builder import (
 )
 from lalala.panels import Card
 
-# The two ways a rule can be written, in the order they appear.
-RULES_MODES = (("formulas", "Formulas"), ("code", "Code"))
+# The three ways a rule can be reached, in the order they appear: start from a
+# ready-made rule, drag one up, or write it as code.
+RULES_MODES = (
+    ("presets", "Presets"),
+    ("formulas", "Formulas"),
+    ("code", "Code"),
+)
 
 
 @dataclass(frozen=True)
@@ -69,34 +74,34 @@ ENTRY_PRESETS: tuple = (
     Preset(
         "Bollinger reversion",
         "close < bollinger_lower(close, 20, 2)",
-        "Buys below the lower band.",
+        "Buys when the close drops below the lower band.",
         "Entry 1",
     ),
     Preset(
         "SMA above",
         "close > sma(close, 20)",
-        "Close holds above its average.",
+        "Buys while the close holds above its 20-bar average.",
     ),
     Preset(
         "Breakout",
         "close >= highest(high, 20)",
-        "A new 20-bar high.",
+        "Buys a new 20-bar high.",
     ),
     Preset(
         "RSI dip",
         "rsi(close, 14) < 30",
-        "An oversold close.",
+        "Buys an oversold close.",
     ),
     Preset(
         "Volume spike",
         "volume > 2 * sma(volume, 50)",
-        "Volume runs twice its average.",
+        "Buys when volume runs twice its average.",
     ),
     Preset(
         "Dip + volume",
         "band = bollinger_lower(close, 20, 2)\n"
         "close < band and volume > sma(volume, 20)",
-        "A dip, with volume.",
+        "A dip, but only when volume agrees.",
     ),
 )
 
@@ -104,28 +109,28 @@ EXIT_PRESETS: tuple = (
     Preset(
         "Take profit",
         "pnl >= tp",
-        "Up by the target.",
+        "Closes once the trade is up by the target.",
     ),
     Preset(
         "Stop loss",
         "pnl <= 0 - sl",
-        "Down by the stop.",
+        "Closes once the trade is down by the stop.",
     ),
     Preset(
         "TP or SL",
         "pnl >= tp or pnl <= 0 - sl",
-        "Either the target or the stop.",
+        "Closes on either the target or the stop.",
         "Exit 1",
     ),
     Preset(
         "Time stop",
         "bars >= 90",
-        "Open too long.",
+        "Closes a trade that has been open too long.",
     ),
     Preset(
         "Target, stop or time",
         "pnl >= tp or pnl <= 0 - sl or bars >= 90",
-        "Whichever comes first.",
+        "All three ways out, whichever comes first.",
     ),
 )
 
@@ -304,12 +309,11 @@ class RulesTile(Card):
         self.modes.idClicked.connect(self._pick_mode)
         self.body.addLayout(header)
 
-        # Ready-made rules, above the two ways of writing one.
-        self.body.addLayout(self._preset_row())
-
-        # One page per mode; both edit the one formula.
+        # One page per mode: ready-made rules, the tiles, and the code. All
+        # three reach the same formula.
         self.pages = PageStack(self)
         self.pages.setObjectName("entryPages")
+        self.pages.addWidget(self._presets_page())
         self.pages.addWidget(self._formula_page())
         self.pages.addWidget(self._code_page())
         self.body.addWidget(self.pages, 1)
@@ -322,16 +326,23 @@ class RulesTile(Card):
 
     # -- the pages ---------------------------------------------------------
 
-    def _preset_row(self) -> QHBoxLayout:
-        """The ready-made rules: pick one and the tile is filled with it."""
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        caption = QLabel("PRESETS", self)
-        caption.setObjectName("paletteTitle")
-        caption.setFixedWidth(60)
-        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
+    def _presets_page(self) -> QWidget:
+        """The ready-made rules, on a page of their own."""
+        page = QWidget(self)
+        page.setObjectName("entryPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
-        holder = FlowHolder(self, spacing=5)
+        hint = QLabel(
+            "pick a rule to load it into the editor — it is editable from there",
+            page,
+        )
+        hint.setObjectName("hintLabel")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        holder = FlowHolder(page, spacing=6)
         self.preset_holder = holder
         self.preset_buttons: list[PresetCard] = []
         for preset in self.presets:
@@ -341,8 +352,9 @@ class RulesTile(Card):
             )
             holder.flow.addWidget(card)
             self.preset_buttons.append(card)
-        row.addWidget(holder, 1)
-        return row
+        layout.addWidget(holder)
+        layout.addStretch(1)
+        return page
 
     def _use_preset(self, text: str) -> None:
         self.set_text(text)

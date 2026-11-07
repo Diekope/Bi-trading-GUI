@@ -116,10 +116,10 @@ def test_the_entry_and_exit_tiles_are_titled(
         assert title.objectName() == "tileTitle"
         assert title.geometry().top() < 20  # at the top, not centred
 
-    # The entry tile has its header row, the presets row and the pages; the
-    # exit tile is the same.
-    assert builder.entry_tile.body.count() == 3
-    assert builder.exit_tile.body.count() == 3
+    # The entry tile has its header row and the pages; the exit tile is the
+    # same.
+    assert builder.entry_tile.body.count() == 2
+    assert builder.exit_tile.body.count() == 2
 
 
 def test_the_strategy_tile_is_titled_and_compact(
@@ -198,11 +198,11 @@ def test_the_columns_are_split_21_47_32(
     assert left < right
 
 
-def test_the_entry_tile_has_two_ways_to_write_a_rule(
+def test_the_entry_tile_has_three_ways_to_write_a_rule(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     labels = [label for key, label in ENTRY_MODES]
-    assert labels == ["Formulas", "Code"]
+    assert labels == ["Presets", "Formulas", "Code"]
 
     buttons = builder.mode_buttons
     assert list(buttons) == [key for key, _ in ENTRY_MODES]
@@ -211,10 +211,10 @@ def test_the_entry_tile_has_two_ways_to_write_a_rule(
         assert button.isCheckable() is True
         assert builder.entry_tile.isAncestorOf(button)
 
-    # One at a time, and the tiles are the default.
+    # One at a time, and the presets are the default.
     assert builder.entry_modes.exclusive() is True
-    assert builder.entry_mode() == "formulas"
-    assert buttons["formulas"].isChecked() is True
+    assert builder.entry_mode() == "presets"
+    assert buttons["presets"].isChecked() is True
 
     picked: list[str] = []
     builder.entry_mode_changed.connect(picked.append)
@@ -236,7 +236,7 @@ def test_the_formulas_page_builds_and_checks_a_formula(
     builder.mode_buttons["formulas"].click()
     app.processEvents()
 
-    assert builder.entry_pages.currentIndex() == 0
+    assert builder.entry_pages.currentIndex() == 1
     assert builder.entry_tile.isAncestorOf(builder.formula)
     # Empty is not an error; there is simply no formula yet.
     assert builder.entry_formula() == ""
@@ -326,7 +326,7 @@ def test_the_code_page_shows_the_tiles_as_editable_code(
 
     builder.mode_buttons["code"].click()
     app.processEvents()
-    assert builder.entry_pages.currentIndex() == 1
+    assert builder.entry_pages.currentIndex() == 2
     assert builder.entry_tile.isAncestorOf(builder.code_edit)
     # The code is what the tiles stand for, and it checks out.
     assert builder.code_edit.toPlainText() == "mid = sma(close, 20)\nclose < mid"
@@ -452,17 +452,16 @@ def test_each_tile_offers_presets_before_the_formulas(
         preset.label for preset in EXIT_PRESETS
     ]
 
-    # The presets sit above the builder, above the tabs' pages.
+    # The presets have a page of their own, first of the three.
     body = builder.entry_tile.body
     header = body.itemAt(0).layout()
-    presets = body.itemAt(1).layout()
-    pages = body.itemAt(2).widget()
+    pages = body.itemAt(1).widget()
     assert header.indexOf(builder.entry.title) != -1
-    assert presets.indexOf(builder.entry.preset_holder) != -1
-    assert builder.entry.preset_holder.isAncestorOf(
+    assert isinstance(pages, type(builder.entry_pages))
+    assert builder.entry_pages.count() == 3
+    assert builder.entry_pages.widget(0).isAncestorOf(
         builder.entry.preset_buttons[0]
     )
-    assert isinstance(pages, type(builder.entry_pages))
 
 
 def test_clicking_a_preset_fills_the_tile(
@@ -513,6 +512,9 @@ def test_the_strategy_submenu_loads_a_whole_strategy(
     # Every library strategy checks out in its own tile.
     assert builder.entry_formula_error() == ""
     assert builder.exit_formula_error() == ""
+    # It shows what was loaded, on the tiles, not the presets page.
+    assert builder.entry_mode() == "formulas"
+    assert builder.exit_mode() == "formulas"
     # The picker goes back to its prompt: it is a way in, not a selection.
     assert picker.currentIndex() == 0
 
@@ -534,16 +536,16 @@ def test_every_strategy_in_the_library_is_valid(
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    # Same widget, same two tabs, its own formula.
+    # Same widget, same three tabs, its own formula.
     assert builder.exit_tile is not builder.entry_tile
-    assert list(builder.exit_tile.mode_buttons) == ["formulas", "code"]
-    assert builder.exit_mode() == "formulas"
+    assert list(builder.exit_tile.mode_buttons) == ["presets", "formulas", "code"]
+    assert builder.exit_mode() == "presets"
 
     builder.exit.set_mode("code")
     app.processEvents()
     assert builder.exit_mode() == "code"
-    assert builder.exit_tile.pages.currentIndex() == 1
-    assert builder.entry_mode() == "formulas"  # entry untouched
+    assert builder.exit_tile.pages.currentIndex() == 2
+    assert builder.entry_mode() == "presets"  # entry untouched
 
     # The two formulas are independent.
     builder.set_entry_formula("close < sma(close, 20)")
