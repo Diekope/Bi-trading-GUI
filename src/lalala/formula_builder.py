@@ -803,8 +803,8 @@ class FormulaBuilder(QWidget):
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(box)
-        outer.setContentsMargins(10, 7, 10, 7)
-        outer.setSpacing(6)
+        outer.setContentsMargins(10, 6, 10, 6)
+        outer.setSpacing(5)
 
         self.blocks: dict[str, list[PaletteBlock]] = {}
         for title, items in self.palette:
@@ -876,13 +876,14 @@ class FormulaBuilder(QWidget):
         box.setObjectName("formulaCanvas")
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(3)
 
+        # The lines hug their content: any slack goes to the bottom of the
+        # tile, not into a gap between the lines and the buttons.
         self.strip_layout = QVBoxLayout()
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
-        self.strip_layout.addStretch(1)
-        layout.addLayout(self.strip_layout, 1)
+        layout.addLayout(self.strip_layout, 0)
 
         self.add_line_button = QPushButton("+  add a line", box)
         self.add_line_button.setObjectName("addLine")
@@ -913,6 +914,7 @@ class FormulaBuilder(QWidget):
         self.error_label.setObjectName("formulaError")
         self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
+        layout.addStretch(1)
         return box
 
     # -- lines -------------------------------------------------------------

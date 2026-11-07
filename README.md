@@ -274,7 +274,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             368 tests: parsing/search/aliases, slug math, candle + book
+tests/             370 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -347,13 +347,19 @@ with its own formula, its own title row of `Formulas` / `Code` pills, and
 nothing shared between them.
 
 Each tile opens with a **presets** row, above the two ways of writing a rule:
-whole rules to start from, as pills you click. Picking one fills the tile, and
-the formula is editable from there like any other.
+whole rules to start from, shown as cards with a line about each. Picking one
+fills the tile, and the formula is editable from there like any other.
 
 | Tile | Presets |
 | --- | --- |
-| `ENTRY RULES` | Bollinger, SMA above, Breakout, RSI dip, Volume, Dip + volume |
-| `EXIT RULES` | Take profit, Stop loss, TP or SL, Time stop, Any of them |
+| `ENTRY RULES` | Bollinger reversion, SMA above, Breakout, RSI dip, Volume spike, Dip + volume |
+| `EXIT RULES` | Take profit, Stop loss, TP or SL, Time stop, Target, stop or time |
+
+The **STRATEGY** tile also carries a submenu, `load an existing strategy…`, for
+whole strategies rather than one rule: picking one fills the name, the
+timeframe and *both* rules at once. The five in the library — Bollinger
+reversion, SMA trend, Breakout, RSI dip and Volume pop — are ordinary formulas,
+so they are checked by the same parser as anything typed by hand.
 
 The two read **different vocabularies**:
 

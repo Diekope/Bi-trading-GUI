@@ -97,19 +97,46 @@ QLabel#paletteTitle {{
     font-weight: bold;
 }}
 
-/* A ready-made rule: a pill you click, not something you drag. */
-QPushButton#presetBlock {{
-    background-color: {PANEL};
+/* A ready-made rule as a card: a title, a line about it, and a badge. */
+#presetCard {{
+    background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 11px;
+    border-radius: 8px;
+}}
+#presetCard:hover {{
+    border-color: {ACCENT_DIM};
+}}
+QLabel#presetTitle {{
+    color: {TEXT};
+    font-size: 10px;
+    font-weight: bold;
+}}
+QLabel#presetNote {{
+    color: {TEXT_MUTED};
+    font-size: 9px;
+}}
+QLabel#presetBadge {{
+    background-color: #12251a;
+    border: 1px solid #1f4530;
+    border-radius: 8px;
+    color: {UP};
+    font-size: 9px;
+    font-weight: bold;
+    padding: 1px 7px;
+}}
+
+/* The strategy submenu: a dropdown that fills every field at once. */
+QComboBox#strategyPicker {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
     color: {TEXT_MUTED};
     font-size: 10px;
-    padding: 3px 11px;
+    padding: 3px 8px;
 }}
-QPushButton#presetBlock:hover {{
-    color: {ACCENT};
+QComboBox#strategyPicker:hover {{
     border-color: {ACCENT_DIM};
-    background-color: {ACCENT_BG};
+    color: {TEXT};
 }}
 #paletteRule {{
     background-color: {BORDER};

@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -44,33 +45,123 @@ RULES_MODES = (("formulas", "Formulas"), ("code", "Code"))
 
 @dataclass(frozen=True)
 class Preset:
-    """A ready-made rule: a name, and the formula it stands for."""
+    """A ready-made rule: a name, a line about it, and the formula."""
 
     label: str
     text: str
+    note: str = ""
+    badge: str = ""
+
+
+@dataclass(frozen=True)
+class Strategy:
+    """A whole strategy: its name, the bar it reads, and both rules."""
+
+    name: str
+    timeframe: str
+    entry: str
+    exit: str
 
 
 # Whole rules to start from, one set per tile. They are ordinary formulas —
 # picking one just fills the tile, and it can be edited from there.
 ENTRY_PRESETS: tuple = (
-    Preset("Bollinger", "close < bollinger_lower(close, 20, 2)"),
-    Preset("SMA above", "close > sma(close, 20)"),
-    Preset("Breakout", "close >= highest(high, 20)"),
-    Preset("RSI dip", "rsi(close, 14) < 30"),
-    Preset("Volume", "volume > 2 * sma(volume, 50)"),
+    Preset(
+        "Bollinger reversion",
+        "close < bollinger_lower(close, 20, 2)",
+        "Buys below the lower band.",
+        "Entry 1",
+    ),
+    Preset(
+        "SMA above",
+        "close > sma(close, 20)",
+        "Close holds above its average.",
+    ),
+    Preset(
+        "Breakout",
+        "close >= highest(high, 20)",
+        "A new 20-bar high.",
+    ),
+    Preset(
+        "RSI dip",
+        "rsi(close, 14) < 30",
+        "An oversold close.",
+    ),
+    Preset(
+        "Volume spike",
+        "volume > 2 * sma(volume, 50)",
+        "Volume runs twice its average.",
+    ),
     Preset(
         "Dip + volume",
         "band = bollinger_lower(close, 20, 2)\n"
         "close < band and volume > sma(volume, 20)",
+        "A dip, with volume.",
     ),
 )
 
 EXIT_PRESETS: tuple = (
-    Preset("Take profit", "pnl >= tp"),
-    Preset("Stop loss", "pnl <= 0 - sl"),
-    Preset("TP or SL", "pnl >= tp or pnl <= 0 - sl"),
-    Preset("Time stop", "bars >= 90"),
-    Preset("Any of them", "pnl >= tp or pnl <= 0 - sl or bars >= 90"),
+    Preset(
+        "Take profit",
+        "pnl >= tp",
+        "Up by the target.",
+    ),
+    Preset(
+        "Stop loss",
+        "pnl <= 0 - sl",
+        "Down by the stop.",
+    ),
+    Preset(
+        "TP or SL",
+        "pnl >= tp or pnl <= 0 - sl",
+        "Either the target or the stop.",
+        "Exit 1",
+    ),
+    Preset(
+        "Time stop",
+        "bars >= 90",
+        "Open too long.",
+    ),
+    Preset(
+        "Target, stop or time",
+        "pnl >= tp or pnl <= 0 - sl or bars >= 90",
+        "Whichever comes first.",
+    ),
+)
+
+# Whole strategies to load in one go: a name, a bar, and both rules. The
+# formulas are ordinary ones, checked by the same parser.
+STRATEGY_LIBRARY: tuple = (
+    Strategy(
+        "Bollinger reversion",
+        "1h",
+        "close < bollinger_lower(close, 20, 2)",
+        "pnl >= tp or pnl <= 0 - sl",
+    ),
+    Strategy(
+        "SMA trend",
+        "1h",
+        "close > sma(close, 50)",
+        "pnl <= 0 - sl",
+    ),
+    Strategy(
+        "Breakout",
+        "15m",
+        "close >= highest(high, 20)",
+        "pnl >= tp",
+    ),
+    Strategy(
+        "RSI dip",
+        "5m",
+        "rsi(close, 14) < 30",
+        "pnl >= tp or pnl <= 0 - sl or bars >= 90",
+    ),
+    Strategy(
+        "Volume pop",
+        "5m",
+        "volume > 2 * sma(volume, 50)",
+        "pnl >= tp or pnl <= 0 - sl",
+    ),
 )
 
 
@@ -97,6 +188,73 @@ class PageStack(QStackedWidget):
     def sizeHint(self):  # noqa: N802
         current = self._current()
         return current.sizeHint() if current is not None else super().sizeHint()
+
+
+class PresetCard(QFrame):
+    """A ready-made rule as a card: a title, a line about it, and a badge.
+
+    Clicking it fills the tile. `text()` and `click()` mirror a button, so a
+    card and a pill are used the same way.
+    """
+
+    clicked = Signal()
+
+    def __init__(self, preset: Preset, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.preset = preset
+        self.setObjectName("presetCard")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(preset.text)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        self.setMinimumWidth(140)
+        self.setMaximumWidth(240)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(7, 3, 7, 3)
+        layout.setSpacing(1)
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(6)
+        self.label = QLabel(preset.label, self)
+        self.label.setObjectName("presetTitle")
+        self.label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        top.addWidget(self.label)
+        top.addStretch(1)
+        if preset.badge:
+            self.badge = QLabel(preset.badge, self)
+            self.badge.setObjectName("presetBadge")
+            self.badge.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
+            top.addWidget(self.badge)
+        layout.addLayout(top)
+
+        if preset.note:
+            self.note = QLabel(preset.note, self)
+            self.note.setObjectName("presetNote")
+            self.note.setWordWrap(True)
+            self.note.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
+            layout.addWidget(self.note)
+
+    def text(self) -> str:
+        return self.preset.label
+
+    def click(self) -> None:
+        self.clicked.emit()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(
+            event.position().toPoint()
+        ):
+            self.clicked.emit()
 
 
 class RulesTile(Card):
@@ -173,19 +331,16 @@ class RulesTile(Card):
         caption.setFixedWidth(60)
         row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
 
-        holder = FlowHolder(self, spacing=4)
+        holder = FlowHolder(self, spacing=5)
         self.preset_holder = holder
-        self.preset_buttons: list[QPushButton] = []
+        self.preset_buttons: list[PresetCard] = []
         for preset in self.presets:
-            button = QPushButton(preset.label, holder)
-            button.setObjectName("presetBlock")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setToolTip(preset.text)
-            button.clicked.connect(
+            card = PresetCard(preset, holder)
+            card.clicked.connect(
                 lambda _checked=False, text=preset.text: self._use_preset(text)
             )
-            holder.flow.addWidget(button)
-            self.preset_buttons.append(button)
+            holder.flow.addWidget(card)
+            self.preset_buttons.append(card)
         row.addWidget(holder, 1)
         return row
 

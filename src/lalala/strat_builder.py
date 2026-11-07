@@ -43,7 +43,7 @@ from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 from lalala.formula_builder import EXIT_PALETTES
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
-from lalala.strat_rules import EXIT_PRESETS, RulesTile
+from lalala.strat_rules import EXIT_PRESETS, STRATEGY_LIBRARY, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
@@ -156,6 +156,20 @@ class StrategyBuilderWindow(QMainWindow):
         row.addWidget(self.timeframe)
         self.strategy_tile.body.addLayout(row)
 
+        # A submenu of whole strategies: picking one fills every field at once.
+        self.strategy_picker = QComboBox(self.strategy_tile)
+        self.strategy_picker.setObjectName("strategyPicker")
+        self.strategy_picker.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.strategy_picker.setToolTip(
+            "load an existing strategy into every field below"
+        )
+        self.strategy_picker.addItem("load an existing strategy…")
+        for strategy in STRATEGY_LIBRARY:
+            self.strategy_picker.addItem(strategy.name)
+        self.strategy_picker.setCurrentIndex(0)
+        self.strategy_picker.activated.connect(self._load_strategy)
+        self.strategy_tile.body.addWidget(self.strategy_picker)
+
         # The strategy tile is only as tall as its title and row; the two
         # below it share whatever is left.
         self.strategy_tile.setSizePolicy(
@@ -204,6 +218,18 @@ class StrategyBuilderWindow(QMainWindow):
         self.setCentralWidget(canvas)
 
     # -- the formula -------------------------------------------------------
+
+    def _load_strategy(self, index: int) -> None:
+        """Fill every field from an existing strategy."""
+        if index <= 0:
+            return
+        strategy = STRATEGY_LIBRARY[index - 1]
+        self.name_edit.setText(strategy.name)
+        self.timeframe.setCurrentText(strategy.timeframe)
+        self.entry.set_text(strategy.entry)
+        self.exit.set_text(strategy.exit)
+        # Back to the prompt: it is a way in, not a selection to sit on.
+        self.strategy_picker.setCurrentIndex(0)
 
     def _formula_changed(self) -> None:
         """The entry builder changed; pass the word on and re-fit the tiles."""
