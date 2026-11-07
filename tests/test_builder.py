@@ -380,6 +380,67 @@ def test_only_one_entry_page_shows_at_a_time(
         assert visible == [builder.entry_pages.currentIndex()]
 
 
+def test_the_exit_tile_reads_the_trade_and_takes_no_indicators(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    from lalala.formula_builder import EXIT_PALETTES, PALETTES
+
+    # Different palettes: the trade's own words, and no indicators.
+    entry_groups = [title for title, _ in PALETTES]
+    exit_groups = [title for title, _ in EXIT_PALETTES]
+    assert "Indicators" in entry_groups
+    assert "Indicators" not in exit_groups
+    assert exit_groups == ["Trade", "Logic & Maths"]
+    assert list(builder.exit.formula.blocks) == exit_groups
+
+    labels = [block.item.label for block in builder.exit.formula.blocks["Trade"]]
+    assert labels == ["price", "entry", "PNL", "TP", "SL", "bars"]
+
+    # An exit rule about the trade parses.
+    builder.set_exit_formula("pnl >= tp or pnl <= 0 - sl")
+    app.processEvents()
+    assert builder.exit_formula_error() == ""
+    parsed = builder.exit_formula_parsed()
+    assert parsed is not None
+    assert parsed.fields == ("price", "entry", "tp", "sl", "pnl", "bars")
+
+
+def test_an_indicator_is_refused_in_the_exit_tile(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    # `close` is not a word the exit rule knows.
+    builder.set_exit_formula("close < 10")
+    app.processEvents()
+    assert "unknown name 'close'" in builder.exit_formula_error()
+    assert builder.exit.parsed() is None
+
+    # An indicator call is refused, and says why.
+    builder.set_exit_formula("price < sma(price, 20)")
+    app.processEvents()
+    assert "not here, this rule takes no indicators" in (
+        builder.exit_formula_error()
+    )
+
+    # Plain maths is still allowed.
+    builder.set_exit_formula("pnl >= tp or bars > max(10, 5)")
+    app.processEvents()
+    assert builder.exit_formula_error() == ""
+    assert builder.exit.parsed() is not None
+
+
+def test_the_entry_tile_still_reads_the_bar(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    # The two vocabularies do not leak into each other.
+    builder.set_entry_formula("close < bollinger_lower(close, 20, 2)")
+    app.processEvents()
+    assert builder.entry_formula_error() == ""
+
+    builder.set_entry_formula("pnl >= tp")
+    app.processEvents()
+    assert "unknown name 'pnl'" in builder.entry_formula_error()
+
+
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
@@ -396,10 +457,10 @@ def test_the_exit_tile_has_the_same_tabs_as_the_entry(
 
     # The two formulas are independent.
     builder.set_entry_formula("close < sma(close, 20)")
-    builder.set_exit_formula("close > sma(close, 50)")
+    builder.set_exit_formula("pnl <= 0 - sl")
     app.processEvents()
     assert builder.entry_formula() == "close < sma(close, 20)"
-    assert builder.exit_formula() == "close > sma(close, 50)"
+    assert builder.exit_formula() == "pnl <= 0 - sl"
 
 
 def test_the_columns_cannot_be_dragged(

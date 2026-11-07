@@ -234,3 +234,35 @@ def test_every_function_in_the_catalogue_actually_checks() -> None:
         args = ", ".join(["close"] * low)
         formula = parse(f"close < {name}({args})")
         assert formula.condition is not None
+
+
+# -- the exit vocabulary ----------------------------------------------------
+
+
+def test_the_exit_vocabulary_is_the_trade_and_no_indicators() -> None:
+    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+
+    assert EXIT_FIELDS == ("price", "entry", "tp", "sl", "pnl", "bars")
+    assert "sma" not in EXIT_FUNCTIONS
+    assert set(EXIT_FUNCTIONS) == {"abs", "sqrt", "min", "max"}
+
+    formula = parse("pnl >= tp or pnl <= 0 - sl", EXIT_FIELDS, EXIT_FUNCTIONS)
+    assert formula.fields == EXIT_FIELDS
+    assert formula.condition is not None
+
+
+def test_the_exit_vocabulary_refuses_bar_names_and_indicators() -> None:
+    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+
+    with pytest.raises(FormulaError) as caught:
+        parse("close < 10", EXIT_FIELDS, EXIT_FUNCTIONS)
+    assert "unknown name 'close'" in caught.value.message
+
+    with pytest.raises(FormulaError) as caught:
+        parse("price < sma(price, 20)", EXIT_FIELDS, EXIT_FUNCTIONS)
+    assert "takes no indicators" in caught.value.message
+
+    # Plain maths is fine.
+    assert parse(
+        "pnl > abs(0 - 1) and bars > max(10, 5)", EXIT_FIELDS, EXIT_FUNCTIONS
+    ).condition is not None

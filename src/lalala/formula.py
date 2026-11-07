@@ -30,6 +30,8 @@ import re
 from dataclasses import dataclass, field
 
 __all__ = [
+    "EXIT_FIELDS",
+    "EXIT_FUNCTIONS",
     "FIELDS",
     "FUNCTIONS",
     "HINT",
@@ -50,6 +52,10 @@ __all__ = [
 # The fields every bar carries.
 FIELDS = ("open", "high", "low", "close", "volume")
 
+# What an exit rule can see: the open trade, not the bar. `pnl`, `tp` and `sl`
+# are percentages; `price` is the close while the trade is open.
+EXIT_FIELDS = ("price", "entry", "tp", "sl", "pnl", "bars")
+
 # name -> (min arguments, max arguments). A `series` argument is any
 # expression; a period is a number of bars.
 FUNCTIONS: dict[str, tuple[int, int]] = {
@@ -67,6 +73,15 @@ FUNCTIONS: dict[str, tuple[int, int]] = {
     "bollinger_lower": (3, 3),   # bollinger_lower(series, period, deviations)
     "bollinger_middle": (3, 3),
     "bollinger_upper": (3, 3),
+}
+
+# The functions an exit rule may call: maths, not indicators. Indicators say
+# where price has been; an exit says what to do with a trade that is open.
+EXIT_FUNCTIONS: dict[str, tuple[int, int]] = {
+    "abs": (1, 1),
+    "sqrt": (1, 1),
+    "min": (2, 2),
+    "max": (2, 2),
 }
 
 # A one-line crib the editor can show under the text.
@@ -147,6 +162,10 @@ class Formula:
     source: str = ""
     assignments: tuple = ()
     condition: object | None = None
+    # The vocabulary this formula was checked against. Not part of the tree's
+    # shape, so two formulas compare equal on what they say, not on what they
+    # were allowed to say it with.
+    fields: tuple = field(default=FIELDS, compare=False, repr=False)
 
     @property
     def empty(self) -> bool:
@@ -394,13 +413,13 @@ class _Parser:
 # -- the checks -------------------------------------------------------------
 
 
-def _check(node: object, scope: set[str]) -> None:
+def _check(node: object, scope: set[str], functions: dict) -> None:
     if isinstance(node, Number):
         return
     if isinstance(node, Name):
         if node.name in scope:
             return
-        if node.name in FUNCTIONS:
+        if node.name in FUNCTIONS or node.name in functions:
             raise FormulaError(
                 f"{node.name!r} is a function — call it, e.g. "
                 f"{node.name}(close, 20)",
@@ -409,14 +428,17 @@ def _check(node: object, scope: set[str]) -> None:
             )
         raise FormulaError(f"unknown name {node.name!r}", node.line, node.column)
     if isinstance(node, Call):
-        if node.func not in FUNCTIONS:
-            hint = ""
-            if node.func in FIELDS:
+        if node.func not in functions:
+            if node.func in FUNCTIONS:
+                hint = " — not here, this rule takes no indicators"
+            elif node.func in FIELDS:
                 hint = f" — {node.func!r} is a field, not a function"
+            else:
+                hint = ""
             raise FormulaError(
                 f"unknown function {node.func!r}{hint}", node.line, node.column
             )
-        low, high = FUNCTIONS[node.func]
+        low, high = functions[node.func]
         count = len(node.args)
         if not low <= count <= high:
             wanted = f"{low}" if low == high else f"{low} to {high}"
@@ -426,31 +448,31 @@ def _check(node: object, scope: set[str]) -> None:
                 node.column,
             )
         for arg in node.args:
-            _check(arg, scope)
+            _check(arg, scope, functions)
         return
     if isinstance(node, Unary):
-        _check(node.operand, scope)
+        _check(node.operand, scope, functions)
         return
     if isinstance(node, Binary):
-        _check(node.left, scope)
-        _check(node.right, scope)
+        _check(node.left, scope, functions)
+        _check(node.right, scope, functions)
         return
     if isinstance(node, Assignment):
-        _check(node.value, scope)
+        _check(node.value, scope, functions)
         return
     raise FormulaError("internal: unknown node")  # pragma: no cover
 
 
-def _validate(formula: Formula) -> None:
-    scope: set[str] = set(FIELDS)
+def _validate(formula: Formula, functions: dict) -> None:
+    scope: set[str] = set(formula.fields)
     for assignment in formula.assignments:
-        if assignment.name in FIELDS:
+        if assignment.name in formula.fields:
             raise FormulaError(
                 f"{assignment.name!r} is a field and cannot be reassigned",
                 assignment.line,
                 assignment.column,
             )
-        if assignment.name in FUNCTIONS:
+        if assignment.name in functions:
             raise FormulaError(
                 f"{assignment.name!r} is a function and cannot be a name",
                 assignment.line,
@@ -462,19 +484,30 @@ def _validate(formula: Formula) -> None:
                 assignment.line,
                 assignment.column,
             )
-        _check(assignment.value, scope)
+        _check(assignment.value, scope, functions)
         scope.add(assignment.name)
     if formula.condition is not None:
-        _check(formula.condition, scope)
+        _check(formula.condition, scope, functions)
 
 
-def parse(text: str) -> Formula:
-    """Parse and check `text`. Raises `FormulaError` if it does not hold up."""
+def parse(
+    text: str,
+    fields: tuple = FIELDS,
+    functions: dict | None = None,
+) -> Formula:
+    """Parse and check `text`. Raises `FormulaError` if it does not hold up.
+
+    `fields` is the vocabulary of names the rule may use, and `functions` the
+    calls it may make — an exit rule is given the trade's own words and no
+    indicators.
+    """
+    if functions is None:
+        functions = FUNCTIONS
     tokens = scan(text)
     parser = _Parser(tokens, text)
     statements = parser.program()
     if not statements:
-        return Formula()
+        return Formula(fields=tuple(fields))
 
     heads, last = statements[:-1], statements[-1]
     assignments: list[Assignment] = []
@@ -494,9 +527,12 @@ def parse(text: str) -> Formula:
         )
 
     formula = Formula(
-        source=text, assignments=tuple(assignments), condition=last_node
+        source=text,
+        assignments=tuple(assignments),
+        condition=last_node,
+        fields=tuple(fields),
     )
-    _validate(formula)
+    _validate(formula, functions)
     return formula
 
 

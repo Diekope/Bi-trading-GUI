@@ -39,6 +39,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+from lalala.formula_builder import EXIT_PALETTES
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
 from lalala.strat_rules import RulesTile
@@ -116,7 +118,16 @@ class StrategyBuilderWindow(QMainWindow):
 
         self.strategy_tile = Card(self.center)
         self.entry_tile = RulesTile("ENTRY RULES", self.center)
-        self.exit_tile = RulesTile("EXIT RULES", self.center)
+        # The exit tile is the same widget, but it reads the trade, not the
+        # bar: TP, SL, PNL, price — and no indicators.
+        self.exit_tile = RulesTile(
+            "EXIT RULES",
+            self.center,
+            palettes=EXIT_PALETTES,
+            fields=EXIT_FIELDS,
+            functions=EXIT_FUNCTIONS,
+            placeholder="pnl >= tp or pnl <= 0 - sl",
+        )
         self.right = Card(self.splitter)
 
         # One tile, one row: the strategy's name and the timeframe it acts on.
@@ -225,6 +236,9 @@ class StrategyBuilderWindow(QMainWindow):
 
     def exit_formula_error(self) -> str:
         return self.exit.error()
+
+    def exit_formula_parsed(self):
+        return self.exit.parsed()
 
     def column_sizes(self) -> list[int]:
         """Pixel widths that satisfy `COLUMN_SHARES`, in the current width."""

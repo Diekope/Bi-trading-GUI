@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.cards import mono_font
-from lalala.formula import FormulaError
-from lalala.formula_builder import FormulaBuilder
+from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, FUNCTIONS, FormulaError
+from lalala.formula_builder import EXIT_PALETTES, PALETTES, FormulaBuilder
 from lalala.panels import Card
 
 # The two ways a rule can be written, in the order they appear.
@@ -66,8 +66,20 @@ class RulesTile(Card):
     changed = Signal()
     mode_changed = Signal(str)
 
-    def __init__(self, title: str = "ENTRY RULES", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        title: str = "ENTRY RULES",
+        parent: QWidget | None = None,
+        palettes: tuple | None = None,
+        fields: tuple = FIELDS,
+        functions: dict | None = None,
+        placeholder: str = "mid = sma(close, 20)\nclose < mid",
+    ) -> None:
         super().__init__(parent)
+        self.palettes = PALETTES if palettes is None else palettes
+        self.fields = tuple(fields)
+        self.functions = FUNCTIONS if functions is None else functions
+        self.placeholder = placeholder
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -115,7 +127,10 @@ class RulesTile(Card):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self.formula = FormulaBuilder(page)
+        self.formula = FormulaBuilder(
+            page, palettes=self.palettes, fields=self.fields,
+            functions=self.functions,
+        )
         self.formula.changed.connect(self._formula_changed)
         layout.addWidget(self.formula, 1)
         return page
@@ -132,7 +147,7 @@ class RulesTile(Card):
         self.code_edit.setFont(mono_font(9))
         self.code_edit.setTabChangesFocus(True)
         self.code_edit.setMinimumHeight(96)
-        self.code_edit.setPlaceholderText("mid = sma(close, 20)\nclose < mid")
+        self.code_edit.setPlaceholderText(self.placeholder)
         self.code_edit.setToolTip(
             "one condition, optionally after `name = …` lines"
         )

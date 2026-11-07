@@ -274,7 +274,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             360 tests: parsing/search/aliases, slug math, candle + book
+tests/             365 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -345,6 +345,18 @@ Under it, two tiles share the rest of the column: **ENTRY RULES** and
 its own formula, its own title row of `Formulas` / `Code` pills, and nothing
 shared between them. The entry tile is sized to its content; the exit tile
 takes the rest of the column.
+
+The two read **different vocabularies**:
+
+| Tile | May use |
+| --- | --- |
+| `ENTRY RULES` | the bar — `open high low close volume` — and the indicators |
+| `EXIT RULES` | the open trade — `price entry tp sl pnl bars` — and plain maths only |
+
+`pnl`, `tp` and `sl` are percentages; `price` is the close while the trade is
+open; `bars` is how long it has been open. An indicator in an exit rule is
+refused with `not here, this rule takes no indicators`, and a bar name like
+`close` is an unknown name there.
 
 Nothing is saved yet, and nothing is wired to the walk.
 
@@ -430,12 +442,13 @@ close < bollinger_lower(close, 20, 2) and volume > 2 * sma(volume, 50)
 ```
 
 The names are the bar's own fields — `open`, `high`, `low`, `close`, `volume` —
-plus anything a line above defined. Operators, loosest first: `or`, `and`,
-`not`, the comparisons (`< <= > >= == !=`), then `+ -`, `* / %`, a
-right-associative `^`, and a unary minus. `#` starts a comment and `;` separates
-lines. The functions are `sma`, `ema`, `rsi`, `highest`, `lowest`, `change`,
-`shift`, `bollinger_lower`, `bollinger_middle`, `bollinger_upper`, `abs`, `min`,
-`max`, `sqrt`.
+plus anything a line above defined; an exit rule is given the trade's words
+instead (see above). Operators, loosest first: `or`, `and`, `not`, the
+comparisons (`< <= > >= == !=`), then `+ -`, `* / %`, a right-associative `^`,
+and a unary minus. `#` starts a comment and `;` separates lines. The functions
+are `sma`, `ema`, `rsi`, `highest`, `lowest`, `change`, `shift`,
+`bollinger_lower`, `bollinger_middle`, `bollinger_upper`, `abs`, `min`, `max`,
+`sqrt` — the last four alone for an exit rule.
 
 The checker reports syntax errors, unknown names, unknown functions, the wrong
 number of arguments, reassigning a field, redefining a name, and a line that is

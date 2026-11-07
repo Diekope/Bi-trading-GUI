@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.formula import (
+    EXIT_FIELDS,
     FIELDS,
     FUNCTIONS,
     FormulaError,
@@ -55,6 +56,8 @@ from lalala.theme import BORDER, TEXT_FAINT
 MIME = "application/x-lalala-chip"
 HANDLE = "⠿"
 LOGIC_WORDS = ("and", "or", "not")
+# Names that read as "the bar" or "the trade": both are data, coloured alike.
+DATA_NAMES = frozenset(FIELDS) | frozenset(EXIT_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,29 @@ class Item:
     tokens: tuple = ()
     note: str = ""
     call: tuple | None = None  # (func, series, params, label)
+
+
+LOGIC_ITEMS: tuple = (
+    Item("AND", ("and",)),
+    Item("OR", ("or",)),
+    Item("NOT", ("not",)),
+    Item("=", ("=",), "assigns the line above to a name"),
+    Item("(", ("(",)),
+    Item(")", (")",)),
+    Item(",", (",",)),
+    Item("+", ("+",)),
+    Item("−", ("-",)),
+    Item("×", ("*",)),
+    Item("÷", ("/",)),
+    Item("%", ("%",)),
+    Item("^", ("^",)),
+    Item("<", ("<",)),
+    Item("<=", ("<=",)),
+    Item(">", (">",)),
+    Item(">=", (">=",)),
+    Item("==", ("==",)),
+    Item("!=", ("!=",)),
+)
 
 
 PALETTES: tuple = (
@@ -98,30 +124,23 @@ PALETTES: tuple = (
             Item("Boll up", note="bollinger_upper(close, period, dev)", call=("bollinger_upper", "close", ("20", "2"), "Boll up")),
         ),
     ),
+    ("Logic & Maths", LOGIC_ITEMS),
+)
+
+# An exit rule sees the open trade, not the bar, and takes no indicators.
+EXIT_PALETTES: tuple = (
     (
-        "Logic & Maths",
+        "Trade",
         (
-            Item("AND", ("and",)),
-            Item("OR", ("or",)),
-            Item("NOT", ("not",)),
-            Item("=", ("=",), "assigns the line above to a name"),
-            Item("(", ("(",)),
-            Item(")", (")",)),
-            Item(",", (",",)),
-            Item("+", ("+",)),
-            Item("−", ("-",)),
-            Item("×", ("*",)),
-            Item("÷", ("/",)),
-            Item("%", ("%",)),
-            Item("^", ("^",)),
-            Item("<", ("<",)),
-            Item("<=", ("<=",)),
-            Item(">", (">",)),
-            Item(">=", (">=",)),
-            Item("==", ("==",)),
-            Item("!=", ("!=",)),
+            Item("price", ("price",), "the close while the trade is open"),
+            Item("entry", ("entry",), "the price the trade was opened at"),
+            Item("PNL", ("pnl",), "the open trade's profit or loss, in %"),
+            Item("TP", ("tp",), "the take-profit threshold, in %"),
+            Item("SL", ("sl",), "the stop-loss threshold, in %"),
+            Item("bars", ("bars",), "bars the trade has been open"),
         ),
     ),
+    ("Logic & Maths", LOGIC_ITEMS),
 )
 
 
@@ -129,7 +148,7 @@ def group_for_token(token) -> str:
     """Which colour a chip wears: data, indicator, logic or maths."""
     if token in (None, ""):
         return ""
-    if token in FIELDS:
+    if token in DATA_NAMES:
         return "data"
     if token in FUNCTIONS:
         return "indicator"
@@ -751,9 +770,18 @@ class FormulaBuilder(QWidget):
 
     changed = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        palettes: tuple | None = None,
+        fields: tuple = FIELDS,
+        functions: dict | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("formulaBuilder")
+        self.palette = PALETTES if palettes is None else palettes
+        self.fields = tuple(fields)
+        self.functions = FUNCTIONS if functions is None else functions
         self.strips: list[ChipStrip] = []
         self.active: ChipStrip | None = None
         self.armed: Chip | None = None
@@ -779,7 +807,7 @@ class FormulaBuilder(QWidget):
         outer.setSpacing(6)
 
         self.blocks: dict[str, list[PaletteBlock]] = {}
-        for title, items in PALETTES:
+        for title, items in self.palette:
             outer.addLayout(self._palette_row(box, title, items))
 
         rule = QFrame(box)
@@ -1045,7 +1073,7 @@ class FormulaBuilder(QWidget):
 
     def _display_for(self, func: str) -> str:
         """A friendly name for a function, matching the palette block."""
-        for _, items in PALETTES:
+        for _, items in self.palette:
             for entry in items:
                 if entry.call and entry.call[0] == func:
                     return entry.call[3]
@@ -1062,7 +1090,7 @@ class FormulaBuilder(QWidget):
         while index < len(tokens):
             token = tokens[index]
             if (
-                token in FUNCTIONS
+                token in self.functions
                 and index + 3 < len(tokens)
                 and tokens[index + 1] == "("
             ):
@@ -1149,7 +1177,7 @@ class FormulaBuilder(QWidget):
             self.error_label.setText("")
             return
         try:
-            self._parsed = parse(text)
+            self._parsed = parse(text, self.fields, self.functions)
         except FormulaError as exc:
             self._parsed = None
             self._set_state("error")
@@ -1171,6 +1199,8 @@ class FormulaBuilder(QWidget):
 
 
 __all__ = [
+    "EXIT_PALETTES",
+    "LOGIC_ITEMS",
     "MIME",
     "PALETTES",
     "Chip",
