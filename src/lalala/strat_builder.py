@@ -43,7 +43,7 @@ from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 from lalala.formula_builder import EXIT_PALETTES
 from lalala.logs import install_qt_handler, setup
 from lalala.panels import Card
-from lalala.strat_rules import RulesTile
+from lalala.strat_rules import EXIT_PRESETS, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
@@ -127,6 +127,7 @@ class StrategyBuilderWindow(QMainWindow):
             fields=EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
+            presets=EXIT_PRESETS,
         )
         self.right = Card(self.splitter)
 
@@ -286,8 +287,9 @@ class StrategyBuilderWindow(QMainWindow):
         self._fit_pending = False
         top = self.strategy_tile.sizeHint().height()
         available = max(0, self.center.height() - top - 2 * CARD_GAP)
-        entry = min(available, self.entry_tile.minimumSizeHint().height())
-        exit_ = max(0, available - entry)
+        # The two rules tiles share the column evenly.
+        entry = available // 2
+        exit_ = available - entry
         sizes = self.center.sizes()
         wanted = [top, entry, exit_]
         if len(sizes) == 3 and all(
@@ -297,12 +299,10 @@ class StrategyBuilderWindow(QMainWindow):
         self.center.setSizes(wanted)
 
     def _fit_column(self) -> None:
-        """The rules tiles take the least height their content needs.
+        """The two rules tiles share the middle column evenly.
 
-        The strategy tile keeps only what it needs too. The entry tile is
-        sized to its content and the exit tile takes the rest of the column —
-        but both follow their content, which rewraps as the window changes
-        width.
+        The strategy tile keeps only the height its content needs; everything
+        below it is split half and half between entry and exit.
         """
         self._maybe_fit()
 

@@ -274,13 +274,14 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             365 tests: parsing/search/aliases, slug math, candle + book
+tests/             368 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
-                   compact STRATEGY tile, the two rules tiles and their code
+                   compact STRATEGY tile, the two rules tiles, their presets and
+                   their code
                    refusal, the drag-and-drop formula builder, the formula
                    language itself, the chart and backtest settings, the
                    silent log, and the candle store and downloader
@@ -340,11 +341,19 @@ titled `STRATEGY` and holds one row: a text field (`name` as its placeholder)
 taking the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own
 width, defaulting to `1m`. It is only as tall as the title and that row.
 
-Under it, two tiles share the rest of the column: **ENTRY RULES** and
-**EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each with
-its own formula, its own title row of `Formulas` / `Code` pills, and nothing
-shared between them. The entry tile is sized to its content; the exit tile
-takes the rest of the column.
+Under it, two tiles share the rest of the column **evenly**: **ENTRY RULES**
+and **EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
+with its own formula, its own title row of `Formulas` / `Code` pills, and
+nothing shared between them.
+
+Each tile opens with a **presets** row, above the two ways of writing a rule:
+whole rules to start from, as pills you click. Picking one fills the tile, and
+the formula is editable from there like any other.
+
+| Tile | Presets |
+| --- | --- |
+| `ENTRY RULES` | Bollinger, SMA above, Breakout, RSI dip, Volume, Dip + volume |
+| `EXIT RULES` | Take profit, Stop loss, TP or SL, Time stop, Any of them |
 
 The two read **different vocabularies**:
 

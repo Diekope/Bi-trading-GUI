@@ -116,10 +116,10 @@ def test_the_entry_and_exit_tiles_are_titled(
         assert title.objectName() == "tileTitle"
         assert title.geometry().top() < 20  # at the top, not centred
 
-    # The entry tile has its header row and the pages; the exit tile only its
-    # title and a stretch.
-    assert builder.entry_tile.body.count() == 2
-    assert builder.exit_tile.body.count() == 2
+    # The entry tile has its header row, the presets row and the pages; the
+    # exit tile is the same.
+    assert builder.entry_tile.body.count() == 3
+    assert builder.exit_tile.body.count() == 3
 
 
 def test_the_strategy_tile_is_titled_and_compact(
@@ -134,12 +134,8 @@ def test_the_strategy_tile_is_titled_and_compact(
     # Only the height its title and row need, not a share of the column.
     top, entry, exit_ = builder.center.sizes()
     assert top == pytest.approx(tile.sizeHint().height(), abs=2)
-    # The entry tile takes the least height its content needs; the exit tile
-    # takes whatever is left.
-    assert entry == pytest.approx(
-        min(entry + exit_, builder.entry_tile.minimumSizeHint().height()), abs=4
-    )
-    assert exit_ > 0
+    # The two rules tiles split the rest of the column evenly.
+    assert entry == pytest.approx(exit_, abs=2)
 
 
 def test_the_name_and_the_timeframe_share_the_strategy_tile(
@@ -441,6 +437,57 @@ def test_the_entry_tile_still_reads_the_bar(
     assert "unknown name 'pnl'" in builder.entry_formula_error()
 
 
+def test_each_tile_offers_presets_before_the_formulas(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    from lalala.strat_rules import ENTRY_PRESETS, EXIT_PRESETS
+
+    labels = [button.text() for button in builder.entry.preset_buttons]
+    assert labels == [preset.label for preset in ENTRY_PRESETS]
+    assert labels == [
+        "Bollinger", "SMA above", "Breakout", "RSI dip", "Volume", "Dip + volume",
+    ]
+    assert [b.text() for b in builder.exit.preset_buttons] == [
+        preset.label for preset in EXIT_PRESETS
+    ]
+
+    # The presets sit above the builder, above the tabs' pages.
+    body = builder.entry_tile.body
+    header = body.itemAt(0).layout()
+    presets = body.itemAt(1).layout()
+    pages = body.itemAt(2).widget()
+    assert header.indexOf(builder.entry.title) != -1
+    assert presets.indexOf(builder.entry.preset_holder) != -1
+    assert builder.entry.preset_holder.isAncestorOf(
+        builder.entry.preset_buttons[0]
+    )
+    assert isinstance(pages, type(builder.entry_pages))
+
+
+def test_clicking_a_preset_fills_the_tile(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.entry.preset_buttons[0].click()  # Bollinger
+    app.processEvents()
+    assert builder.entry_formula() == "close < bollinger_lower(close, 20, 2)"
+    assert builder.entry_formula_error() == ""
+    assert builder.entry_formula_parsed() is not None
+
+    # The multi-line preset comes through whole.
+    builder.entry.preset_buttons[5].click()  # Dip + volume
+    app.processEvents()
+    assert builder.entry_formula().startswith("band = bollinger_lower")
+    assert builder.entry_formula_error() == ""
+
+    # The exit tile has its own presets, in the trade's words.
+    builder.exit.preset_buttons[2].click()  # TP or SL
+    app.processEvents()
+    assert builder.exit_formula() == "pnl >= tp or pnl <= 0 - sl"
+    assert builder.exit_formula_error() == ""
+    # The entry formula is untouched.
+    assert builder.entry_formula().startswith("band = bollinger_lower")
+
+
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
@@ -511,15 +558,14 @@ def test_the_split_scales_with_the_window(
         assert shares[1] == pytest.approx(COLUMN_SHARES[1], abs=0.01)
         assert shares[2] == pytest.approx(COLUMN_SHARES[2], abs=0.01)
 
-        # The strategy tile stays compact; the middle column keeps its shape:
-        # the entry tile is never taller than its content needs, and the exit
-        # tile keeps the rest.
+        # The strategy tile stays compact; the two rules tiles share the rest
+        # of the column evenly.
         top, entry, exit_ = builder.center.sizes()
         assert top == pytest.approx(
             builder.strategy_tile.sizeHint().height(), abs=4
         )
-        assert entry <= builder.entry_tile.minimumSizeHint().height() + 8
-        assert exit_ >= 0
+        assert entry == pytest.approx(exit_, abs=3)
+        assert entry > 0
 
 
 def test_the_left_rail_does_not_get_clamped_to_the_card_floor() -> None:

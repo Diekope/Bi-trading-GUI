@@ -13,6 +13,8 @@ leaving the two views out of step.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -28,11 +30,48 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, FUNCTIONS, FormulaError
-from lalala.formula_builder import EXIT_PALETTES, PALETTES, FormulaBuilder
+from lalala.formula_builder import (
+    EXIT_PALETTES,
+    PALETTES,
+    FlowHolder,
+    FormulaBuilder,
+)
 from lalala.panels import Card
 
 # The two ways a rule can be written, in the order they appear.
 RULES_MODES = (("formulas", "Formulas"), ("code", "Code"))
+
+
+@dataclass(frozen=True)
+class Preset:
+    """A ready-made rule: a name, and the formula it stands for."""
+
+    label: str
+    text: str
+
+
+# Whole rules to start from, one set per tile. They are ordinary formulas —
+# picking one just fills the tile, and it can be edited from there.
+ENTRY_PRESETS: tuple = (
+    Preset("Bollinger", "close < bollinger_lower(close, 20, 2)"),
+    Preset("SMA above", "close > sma(close, 20)"),
+    Preset("Breakout", "close >= highest(high, 20)"),
+    Preset("RSI dip", "rsi(close, 14) < 30"),
+    Preset("Volume", "volume > 2 * sma(volume, 50)"),
+    Preset(
+        "Dip + volume",
+        "band = bollinger_lower(close, 20, 2)\n"
+        "close < band and volume > sma(volume, 20)",
+    ),
+)
+
+EXIT_PRESETS: tuple = (
+    Preset("Take profit", "pnl >= tp"),
+    Preset("Stop loss", "pnl <= 0 - sl"),
+    Preset("TP or SL", "pnl >= tp or pnl <= 0 - sl"),
+    Preset("Time stop", "bars >= 90"),
+    Preset("Any of them", "pnl >= tp or pnl <= 0 - sl or bars >= 90"),
+)
 
 
 class PageStack(QStackedWidget):
@@ -74,12 +113,14 @@ class RulesTile(Card):
         fields: tuple = FIELDS,
         functions: dict | None = None,
         placeholder: str = "mid = sma(close, 20)\nclose < mid",
+        presets: tuple | None = None,
     ) -> None:
         super().__init__(parent)
         self.palettes = PALETTES if palettes is None else palettes
         self.fields = tuple(fields)
         self.functions = FUNCTIONS if functions is None else functions
         self.placeholder = placeholder
+        self.presets = ENTRY_PRESETS if presets is None else presets
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +146,9 @@ class RulesTile(Card):
         self.modes.idClicked.connect(self._pick_mode)
         self.body.addLayout(header)
 
+        # Ready-made rules, above the two ways of writing one.
+        self.body.addLayout(self._preset_row())
+
         # One page per mode; both edit the one formula.
         self.pages = PageStack(self)
         self.pages.setObjectName("entryPages")
@@ -119,6 +163,34 @@ class RulesTile(Card):
         self._accepted = ""
 
     # -- the pages ---------------------------------------------------------
+
+    def _preset_row(self) -> QHBoxLayout:
+        """The ready-made rules: pick one and the tile is filled with it."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        caption = QLabel("PRESETS", self)
+        caption.setObjectName("paletteTitle")
+        caption.setFixedWidth(60)
+        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
+
+        holder = FlowHolder(self, spacing=4)
+        self.preset_holder = holder
+        self.preset_buttons: list[QPushButton] = []
+        for preset in self.presets:
+            button = QPushButton(preset.label, holder)
+            button.setObjectName("presetBlock")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(preset.text)
+            button.clicked.connect(
+                lambda _checked=False, text=preset.text: self._use_preset(text)
+            )
+            holder.flow.addWidget(button)
+            self.preset_buttons.append(button)
+        row.addWidget(holder, 1)
+        return row
+
+    def _use_preset(self, text: str) -> None:
+        self.set_text(text)
 
     def _formula_page(self) -> QWidget:
         page = QWidget(self)
@@ -264,4 +336,11 @@ class RulesTile(Card):
         self.code_error.setText(self.formula.error())
 
 
-__all__ = ["RULES_MODES", "PageStack", "RulesTile"]
+__all__ = [
+    "ENTRY_PRESETS",
+    "EXIT_PRESETS",
+    "RULES_MODES",
+    "PageStack",
+    "Preset",
+    "RulesTile",
+]

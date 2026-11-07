@@ -156,6 +156,38 @@ def test_two_tiles_do_not_share_a_formula(
     exit_.close()
 
 
+def test_presets_fill_the_tile(app: QApplication) -> None:
+    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+    from lalala.formula_builder import EXIT_PALETTES
+    from lalala.strat_rules import EXIT_PRESETS, Preset
+
+    tile = RulesTile(
+        "EXIT RULES",
+        presets=EXIT_PRESETS,
+        palettes=EXIT_PALETTES,
+        fields=EXIT_FIELDS,
+        functions=EXIT_FUNCTIONS,
+    )
+    tile.show()
+    app.processEvents()
+
+    assert [b.text() for b in tile.preset_buttons] == [
+        p.label for p in EXIT_PRESETS
+    ]
+    assert all(isinstance(p, Preset) for p in tile.presets)
+
+    tile.preset_buttons[0].click()  # Take profit
+    app.processEvents()
+    assert tile.text() == "pnl >= tp"
+    assert tile.error() == ""
+
+    # A preset is an ordinary formula once it lands: editable like any other.
+    tile.set_code("pnl >= tp * 0.5")
+    app.processEvents()
+    assert tile.text() == "pnl >= tp * 0.5"
+    tile.close()
+
+
 def test_the_changed_signal_fires_on_a_tile_edit(
     app: QApplication, tile: RulesTile
 ) -> None:

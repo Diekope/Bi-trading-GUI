@@ -96,6 +96,21 @@ QLabel#paletteTitle {{
     font-size: 9px;
     font-weight: bold;
 }}
+
+/* A ready-made rule: a pill you click, not something you drag. */
+QPushButton#presetBlock {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 11px;
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 3px 11px;
+}}
+QPushButton#presetBlock:hover {{
+    color: {ACCENT};
+    border-color: {ACCENT_DIM};
+    background-color: {ACCENT_BG};
+}}
 #paletteRule {{
     background-color: {BORDER};
     border: none;
