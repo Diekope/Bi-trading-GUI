@@ -246,6 +246,7 @@ class RulesTile(Card):
         placeholder: str = "mid = sma(close, 20)\nclose < mid",
         presets: tuple | None = None,
         header: bool = True,
+        condition_label: str = "BUY WHEN",
     ) -> None:
         super().__init__(parent)
         self.palettes = PALETTES if palettes is None else palettes
@@ -253,6 +254,7 @@ class RulesTile(Card):
         self.functions = FUNCTIONS if functions is None else functions
         self.placeholder = placeholder
         self.presets = ENTRY_PRESETS if presets is None else presets
+        self.condition_label = condition_label
 
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
@@ -374,7 +376,7 @@ class RulesTile(Card):
 
         self.formula = FormulaBuilder(
             page, palettes=self.palettes, fields=self.fields,
-            functions=self.functions,
+            functions=self.functions, condition_label=self.condition_label,
         )
         self.formula.changed.connect(self._formula_changed)
         return self._scroll_page(self.formula)

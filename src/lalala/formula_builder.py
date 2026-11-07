@@ -823,12 +823,14 @@ class FormulaBuilder(QWidget):
         palettes: tuple | None = None,
         fields: tuple = ENTRY_FIELDS,
         functions: dict | None = None,
+        condition_label: str = "BUY WHEN",
     ) -> None:
         super().__init__(parent)
         self.setObjectName("formulaBuilder")
         self.palette = PALETTES if palettes is None else palettes
         self.fields = tuple(fields)
         self.functions = FUNCTIONS if functions is None else functions
+        self.condition_label = condition_label
         self.strips: list[ChipStrip] = []
         self.active: ChipStrip | None = None
         self.armed: Chip | None = None
@@ -990,9 +992,14 @@ class FormulaBuilder(QWidget):
         title.setObjectName("panelTitle")
         layout.addWidget(title)
 
-        variables = QLabel("Variables", box)
-        variables.setObjectName("groupLabel")
-        layout.addWidget(variables)
+        # The lines sit under two headings inside the scroll area: the named
+        # series under LET, the condition under BUY WHEN (EXIT WHEN on the
+        # exit side). With no variables, the LET heading is hidden.
+        self.variables_heading = QLabel("LET", box)
+        self.variables_heading.setObjectName("formulaSection")
+        self.variables_heading.hide()
+        self.condition_heading = QLabel(self.condition_label, box)
+        self.condition_heading.setObjectName("formulaCondition")
 
         # The lines live in a scroll area of their own: a rule with several
         # lines can be walked wheel by wheel instead of pushing the buttons,
@@ -1232,7 +1239,6 @@ class FormulaBuilder(QWidget):
             strip.set_tokens(tokens)
         index = len(self.strips) if at is None else at
         self.strips.insert(index, strip)
-        self.strip_layout.insertWidget(index, strip)
         self.active = strip
         self._refresh()
         return strip
@@ -1487,13 +1493,32 @@ class FormulaBuilder(QWidget):
         self._refresh()
         self.changed.emit()
 
+    def _arrange_strips(self) -> None:
+        """Put the headings and the lines in order: LET, then the condition."""
+        while self.strip_layout.count():
+            item = self.strip_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(self.strip_inner)
+
+        # No variables defined: no LET subsection, only the condition.
+        self.variables_heading.setVisible(len(self.strips) > 1)
+        self.strip_layout.addWidget(self.variables_heading)
+        for strip in self.strips[:-1]:
+            self.strip_layout.addWidget(strip)
+        self.strip_layout.addWidget(self.condition_heading)
+        if self.strips:
+            self.strip_layout.addWidget(self.strips[-1])
+
     def _refresh(self) -> None:
         self._refresh_warning()
-        # Series lines read "LET", the last line reads "IF".
-        for index, strip in enumerate(self.strips):
-            last = index == len(self.strips) - 1
-            strip.set_caption("IF" if last else "LET")
+        # The strips carry no caption of their own: the headings above them
+        # say LET and BUY WHEN / EXIT WHEN.
+        for strip in self.strips:
+            strip.caption.setText("")
+            strip.caption.hide()
             strip.remove_button.setVisible(len(self.strips) > 1)
+        self._arrange_strips()
 
         text = self.formula_text()
         self.preview_label.setText(text if text else "— drop a block onto a line")

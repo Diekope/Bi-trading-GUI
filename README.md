@@ -376,10 +376,13 @@ The `Formula` tab is three columns, as in the mock. **Blocks** is the small
 left rail (200 px, fixed) — a search box over one dashed group per kind
 (`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different colours, so the
 list reads as one surface), with **no scrollbar**: the wheel walks the list.
-The **Formula** takes the slack in the middle: the `LET`/`IF` lines live in a
-scroll area of their own — add a sixth line and the list walks under the wheel
-instead of pushing the buttons away — and the formula as text is one small
-read-only line that scrolls sideways. The **Selected block** is the right rail
+The **Formula** takes the slack in the middle: the lines live in a scroll area
+of their own — add a sixth line and the list walks under the wheel instead of
+pushing the buttons away — and the formula as text is one small read-only line
+that scrolls sideways. The lines are grouped into subsections: named series
+sit under **`LET`**, which only appears once there is at least one variable,
+and the condition sits under **`BUY WHEN`** on the entry side and
+**`EXIT WHEN`** on the exit side. The **Selected block** is the right rail
 (a little under 250 px), pushed against the edge and scrolling in place: its
 name, source and live values stay readable in a short tile. Clicking a chip
 selects it: the card shows its name, its source and its window, all editable,
@@ -438,14 +441,15 @@ the card keeps its height however many of them there are.
 The rules tile takes the column below `STRATEGY`, and either side gets all of
 its width.
 
-Under the card are the lines, one strip of chips each, read left to right. The
-last line is captioned `IF` and is the condition; the ones above are `LET` and
-are named series. A line wraps rather than clipping, and the strip area
-scrolls when the lines no longer fit:
+Under the card are the lines, one strip of chips each, read left to right. They
+are split into two subsections: the variables under `LET`, and the last line —
+the condition — under `BUY WHEN` (`EXIT WHEN` on the exit side). The `LET`
+heading is hidden when there are no variables. A line wraps rather than
+clipping, and the strip area scrolls when the lines no longer fit:
 
 ```
 LET  [band] [=] [Boll low 20 2]
-IF   [close] [<] [band]
+BUY WHEN   [close] [<] [band]
 ```
 
 An **indicator drops as a single tile** and nothing else comes with it: the

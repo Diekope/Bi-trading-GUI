@@ -356,6 +356,56 @@ def test_a_series_line_then_a_condition(
     assert parsed is not None and parsed.series_names == ("mid",)
 
 
+def test_the_lines_sit_under_let_and_buy_when(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    # Nothing to name yet: only the condition subsection is shown.
+    assert builder.variables_heading.text() == "LET"
+    assert builder.variables_heading.objectName() == "formulaSection"
+    assert builder.variables_heading.isHidden() is True
+    assert builder.condition_heading.text() == "BUY WHEN"
+    assert builder.condition_heading.objectName() == "formulaCondition"
+    assert builder.condition_heading.isVisible() is True
+
+    first = builder.strips[0]
+    _drop(builder, first, ("mid", "="))
+    _drop_call(builder, first, "Indicators", "SMA")
+    second = builder.add_strip()
+    _drop(builder, second, ("close", "<", "mid"))
+    app.processEvents()
+
+    # With a variable defined, the LET subsection appears above it, and the
+    # condition keeps its own heading under the variables.
+    assert builder.variables_heading.isVisible() is True
+    order = [
+        widget.objectName()
+        for widget in (
+            builder.strip_layout.itemAt(i).widget()
+            for i in range(builder.strip_layout.count())
+        )
+    ]
+    assert order == [
+        "formulaSection",
+        "chipStrip",
+        "formulaCondition",
+        "chipStrip",
+    ]
+    # The strips do not repeat the headings.
+    assert first.caption.isHidden() is True
+    assert second.caption.isHidden() is True
+
+
+def test_the_condition_heading_can_read_exit_when(app: QApplication) -> None:
+    tile = FormulaBuilder(condition_label="EXIT WHEN")
+    tile.resize(560, 320)
+    tile.show()
+    app.processEvents()
+    try:
+        assert tile.condition_heading.text() == "EXIT WHEN"
+    finally:
+        tile.close()
+
+
 def test_a_condition_before_the_last_line_is_reported(
     app: QApplication, builder: FormulaBuilder
 ) -> None:

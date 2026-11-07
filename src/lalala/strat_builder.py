@@ -143,6 +143,7 @@ class StrategyBuilderWindow(QMainWindow):
             placeholder="pnl >= tp or pnl <= 0 - sl",
             presets=EXIT_PRESETS,
             header=False,
+            condition_label="EXIT WHEN",
         )
         # The two rules are one tile now: their titles switch between them,
         # and the Rules / Formula / Code pills belong to the side on top.

@@ -265,6 +265,13 @@ QLabel#stripCaption {{
     font-size: 9px;
     font-weight: bold;
 }}
+QLabel#formulaSection, QLabel#formulaCondition {{
+    color: {ACCENT};
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    padding: 2px 0 1px 2px;
+}}
 QPushButton#addLine {{
     background-color: transparent;
     border: 1px dashed {BORDER};
