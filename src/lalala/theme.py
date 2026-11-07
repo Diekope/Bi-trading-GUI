@@ -269,13 +269,14 @@ QPushButton#addLine:disabled {{
 }}
 
 /* The formula text and the checker's word on it. The text sits in a well,
-   as the mock draws it. */
-QLabel#formulaPreview {{
+   as the mock draws it, in one line that scrolls sideways. */
+QLabel#formulaPreview, QLineEdit#formulaPreview {{
     background-color: {WELL};
+    border: 1px solid transparent;
     border-radius: 6px;
     color: {TEXT};
     font-size: 10px;
-    padding: 6px 8px;
+    padding: 3px 8px;
 }}
 
 /* The code view: the same formula as text, editable. */
@@ -336,7 +337,8 @@ QLineEdit#numberEdit:focus {{
     border-radius: 8px;
 }}
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox, #pageScroll,
-#valueRow, #codeValues, #listScroll, #listInner {{
+#valueRow, #codeValues, #listScroll, #listInner, #stripScroll, #stripInner,
+#selectedScroll, #selectedBody {{
     background-color: transparent;
 }}
 #pageScroll > QWidget > QWidget {{

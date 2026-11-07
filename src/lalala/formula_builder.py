@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal, QTimer
+from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -672,35 +672,6 @@ class FlowHolder(QWidget):
         return QSize(width, max(1, self.flow.heightForWidth(width)))
 
 
-class WrapLabel(QLabel):
-    """A word-wrapped label that keeps the height its text needs.
-
-    A wrapped label can say how tall it wants to be for a given width, but
-    that number is lost through the nested layouts; pin it here whenever the
-    width or the text changes, so a long formula is never cut off.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWordWrap(True)
-
-    def sync_height(self) -> None:
-        width = self.width()
-        if width <= 0:
-            return
-        wanted = self.heightForWidth(width)
-        if wanted > 0 and self.minimumHeight() != wanted:
-            self.setFixedHeight(wanted)
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self.sync_height()
-
-    def setText(self, text: str) -> None:  # noqa: N802
-        super().setText(text)
-        self.sync_height()
-
-
 class ChipStrip(QFrame):
     """A line: a caption, a run of chips, and a way to take the line away."""
 
@@ -1031,12 +1002,20 @@ class FormulaBuilder(QWidget):
         variables.setObjectName("groupLabel")
         layout.addWidget(variables)
 
-        # The lines hug their content: any slack goes to the bottom of the
-        # card, not into a gap between the lines and the buttons.
-        self.strip_layout = QVBoxLayout()
+        # The lines live in a scroll area of their own: a rule with several
+        # lines can be walked wheel by wheel instead of pushing the buttons,
+        # the text and the status out of the card.
+        self.strip_area = QScrollArea(box)
+        self.strip_area.setObjectName("stripScroll")
+        self.strip_area.setWidgetResizable(True)
+        self.strip_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.strip_inner = QWidget()
+        self.strip_inner.setObjectName("stripInner")
+        self.strip_layout = QVBoxLayout(self.strip_inner)
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
-        layout.addLayout(self.strip_layout, 0)
+        self.strip_area.setWidget(self.strip_inner)
+        layout.addWidget(self.strip_area, 1)
 
         self.add_line_button = QPushButton("+  add a line", box)
         self.add_line_button.setObjectName("addLine")
@@ -1051,12 +1030,14 @@ class FormulaBuilder(QWidget):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
-        self.preview_label = WrapLabel(box)
+        # The formula as text, in a single line: as little height as the row
+        # can take, and it scrolls sideways when the rule is long.
+        self.preview_label = QLineEdit(box)
         self.preview_label.setObjectName("formulaPreview")
         self.preview_label.setFont(mono_font(9))
-        self.preview_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.preview_label.setReadOnly(True)
+        self.preview_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.preview_label.setFrame(False)
         self.status = QLabel(box)
         self.status.setObjectName("formulaStatus")
         self.status.setProperty("state", "idle")
@@ -1074,7 +1055,6 @@ class FormulaBuilder(QWidget):
         self.warning_label.setObjectName("formulaWarning")
         self.warning_label.setWordWrap(True)
         layout.addWidget(self.warning_label)
-        layout.addStretch(1)
         return box
 
     # -- the selected block ------------------------------------------------
@@ -1092,24 +1072,40 @@ class FormulaBuilder(QWidget):
         title.setObjectName("panelTitle")
         layout.addWidget(title)
 
-        self.selected_holder = QWidget(box)
+        # What the block is and what it reads right now, in a scroll area: in
+        # a short tile the card can be smaller than its contents, and the
+        # values stay readable wheel by wheel.
+        scroll = QScrollArea(box)
+        scroll.setObjectName("selectedScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("selectedBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(6)
+
+        self.selected_holder = QWidget(body)
         self.selected_holder.setObjectName("selectedHolder")
         self.selected_layout = QVBoxLayout(self.selected_holder)
         self.selected_layout.setContentsMargins(0, 0, 0, 0)
         self.selected_layout.setSpacing(6)
-        layout.addWidget(self.selected_holder)
+        body_layout.addWidget(self.selected_holder)
 
-        self.values_title = QLabel("LIVE VALUES", box)
+        self.values_title = QLabel("LIVE VALUES", body)
         self.values_title.setObjectName("panelTitle")
-        layout.addWidget(self.values_title)
+        body_layout.addWidget(self.values_title)
 
-        self.values_box = QWidget(box)
+        self.values_box = QWidget(body)
         self.values_box.setObjectName("valuesBox")
         self.values_layout = QVBoxLayout(self.values_box)
         self.values_layout.setContentsMargins(0, 0, 0, 0)
         self.values_layout.setSpacing(0)
-        layout.addWidget(self.values_box)
-        layout.addStretch(1)
+        body_layout.addWidget(self.values_box)
+        body_layout.addStretch(1)
+
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
 
         self._refresh_selected()
         return box
@@ -1262,40 +1258,6 @@ class FormulaBuilder(QWidget):
 
     def remove_active_strip(self) -> None:
         self.remove_strip(self.active or self.strips[-1])
-
-    def _fit_formula(self) -> None:
-        """Let the formula card take the height the lines it holds need.
-
-        A rule with several lines is taller than the share the card was
-        first given; without this the strips are squeezed and half the
-        formula sits out of sight. The card keeps that height, the selected
-        block moves down, and the page scrolls when the tile is shorter
-        still. Dragging the handle can still give the formula more room.
-        """
-        if not hasattr(self, "formula_split"):
-            return
-        card = self.formula_split.widget(0)
-        # The hint is cached until the layout runs again; adding a line does
-        # not run it, so ask it to before measuring.
-        card.layout().activate()
-        card.updateGeometry()
-        need = max(
-            card.minimumSizeHint().height(),
-            card.layout().minimumSize().height(),
-        )
-        if card.minimumHeight() != max(150, need):
-            card.setMinimumHeight(max(150, need))
-        sizes = self.formula_split.sizes()
-        if len(sizes) == 2 and sizes[0] < need:
-            other = max(
-                self.formula_split.widget(1).minimumHeight(),
-                sizes[0] + sizes[1] - need,
-            )
-            self.formula_split.setSizes([need, other])
-        # Tell the page around us that the card now needs more height, so it
-        # grows (and scrolls) rather than squeezing the lines.
-        self.updateGeometry()
-        self.layout().activate()
 
     def set_active(self, strip: ChipStrip) -> None:
         self.active = strip
@@ -1542,12 +1504,9 @@ class FormulaBuilder(QWidget):
 
         text = self.formula_text()
         self.preview_label.setText(text if text else "— drop a block onto a line")
-        self.preview_label.sync_height()
+        # Show the start of the rule, not its tail.
+        self.preview_label.setCursorPosition(0)
         self.add_line_button.setEnabled(len(self.strips) < 6)
-        self._fit_formula()
-        # A line added this instant is not in the layout's numbers yet; ask
-        # again once the layout has run.
-        QTimer.singleShot(0, self._fit_formula)
 
         if any(strip.has_empty_slots() for strip in self.strips):
             self._parsed = None

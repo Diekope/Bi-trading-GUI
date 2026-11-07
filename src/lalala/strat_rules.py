@@ -430,7 +430,9 @@ class RulesTile(Card):
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
 
-        vocab, vocab_scroll = self._list_card(page, "VARIABLES")
+        vocab, vocab_scroll = self._list_card(
+            page, "VARIABLES", bar=False
+        )
         vocab_inner = QWidget()
         vocab_inner.setObjectName("listInner")
         vocab_layout = QVBoxLayout(vocab_inner)
@@ -461,8 +463,14 @@ class RulesTile(Card):
         # the code above stays put while you read the vocabulary.
         return page
 
-    def _list_card(self, parent: QWidget, title: str) -> tuple:
-        """A card with a caption and a scroll area for a list of rows."""
+    def _list_card(
+        self, parent: QWidget, title: str, bar: bool = True
+    ) -> tuple:
+        """A card with a caption and a scroll area for a list of rows.
+
+        `bar=False` hides the scrollbar: the wheel still walks the list and
+        the width it would have taken goes to the row text.
+        """
         card = QFrame(parent)
         card.setObjectName("selectedCard")
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -477,6 +485,10 @@ class RulesTile(Card):
         scroll.setObjectName("listScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        if not bar:
+            scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
         card_layout.addWidget(scroll, 1)
         return card, scroll
 

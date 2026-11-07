@@ -679,6 +679,11 @@ def test_the_code_lists_scroll_in_place(
     ]
     # One scroll area for VARIABLES, one for VALUES, both inside the page.
     assert len(lists) == 2
+    # The vocabulary hides its bar; the width goes to the names.
+    assert (
+        lists[0].verticalScrollBarPolicy()
+        == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    )
     # They sit side by side, not one over the other.
     vocab = lists[0].parentWidget().geometry()
     values = lists[1].parentWidget().geometry()

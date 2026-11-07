@@ -703,30 +703,29 @@ def test_the_formula_and_the_block_can_be_resized(
     assert split.widget(1).objectName() == "selectedCard"
 
 
-def test_more_lines_give_the_formula_more_height(
+def test_the_lines_scroll_inside_the_formula_card(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     builder.resize(560, 360)
     app.processEvents()
-    card = builder.formula_split.widget(0)
-    before = card.minimumHeight()
 
     for _ in range(4):
         builder.add_strip()
     for _ in range(5):
         app.processEvents()
 
-    # The card takes the height the strips need instead of squeezing them.
+    # Every line is in the strip area, which scrolls when they do not fit.
     assert len(builder.strips) == 5
-    assert card.minimumHeight() > before
-    assert card.height() >= card.minimumSizeHint().height() - 2
-    assert all(
-        strip.height() >= strip.minimumHeight()
-        for strip in builder.strips
+    assert builder.strip_area.objectName() == "stripScroll"
+    assert builder.strip_inner.isAncestorOf(builder.strips[-1])
+    assert (
+        builder.strip_area.widgetResizable() is True
     )
+    # The lines are below the fold, so the scroll area has somewhere to go.
+    assert builder.strip_area.verticalScrollBar().maximum() > 0
 
 
-def test_the_preview_is_tall_enough_for_its_text(
+def test_the_preview_is_one_small_line(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     builder.resize(560, 360)
@@ -737,6 +736,24 @@ def test_the_preview_is_tall_enough_for_its_text(
     for _ in range(5):
         app.processEvents()
 
-    label = builder.preview_label
-    # A wrapped label is exactly as tall as the text at the width it got.
-    assert label.height() >= label.heightForWidth(label.width()) - 1
+    preview = builder.preview_label
+    # One line of text, read-only, scrolling sideways when the rule is long.
+    assert preview.isReadOnly() is True
+    assert preview.height() <= 36
+    assert preview.text().startswith("close > sma(close, 20)")
+    assert preview.cursorPosition() == 0
+    assert preview.objectName() == "formulaPreview"
+
+
+def test_the_selected_block_scrolls_in_its_card(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    scroll = builder.findChild(
+        QScrollArea, "selectedScroll"
+    )
+    assert scroll is not None
+    assert scroll.widget().objectName() == "selectedBody"
+    # The block and the live values are inside the scrolling body, not the
+    # card's own layout, so a short tile still shows them.
+    assert scroll.widget().isAncestorOf(builder.selected_holder)
+    assert scroll.widget().isAncestorOf(builder.values_box)
