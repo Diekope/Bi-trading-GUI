@@ -1,27 +1,24 @@
 """The saved-strategies rail: every kept draft, with what it returned.
 
-Each saved strategy is one row — its name with the bar it reads under it, and
-the return it made over the same tail of candles the report reads, with how
-many trades and how many of them won under it. The row for the draft you are
-on is lit. Each row has a menu to **archive** it (kept, but out of the way) or
-**delete** it for good. Under the rows, **Create a strategy** starts a fresh
+Each saved strategy is one row — its name on the left, the return it made over
+the same tail of candles the report reads on the right — with the row for the
+draft you are on lit. Under the rows, **Create a strategy** starts a fresh
 draft.
 
-The rows come from `lalala.strategies` (one JSON file) and the figures from
+The rows come from `lalala.strategies` (one JSON file) and the returns from
 `lalala.formula_eval.backtest`, over the tail of the newest year on disk. The
-figures are cached per rule text, so re-listing does not re-run the walk.
+returns are cached per rule text, so re-listing does not re-run the walk.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -41,21 +38,18 @@ from lalala.formula_eval import backtest
 from lalala.panels import Card
 from lalala.strat_report import PREVIEW_SL, PREVIEW_TP, load_bars
 from lalala.strategies import SavedStrategy
-from lalala.theme import DOWN, TEXT_FAINT, UP
+from lalala.theme import DOWN, UP
 
-# How a row's badge reads when it has not been run, or has been set aside.
+# How a row's badge reads when the draft has not been saved yet.
 DRAFT_BADGE = "draft"
-ARCHIVED_BADGE = "archived"
 
 
 @lru_cache(maxsize=256)
-def strategy_stats(
-    entry: str, exit_: str, timeframe: str
-) -> tuple[float, int, float] | None:
-    """A strategy's (return, trades, win rate) over the tail of candles.
+def strategy_pnl(entry: str, exit_: str, timeframe: str) -> float | None:
+    """The return a strategy made over the tail of candles, or None.
 
     None when there is nothing to read, or a rule will not parse — the row
-    then says so rather than drawing made-up figures.
+    then says so rather than drawing a made-up number.
     """
     bars, _ = load_bars(timeframe)
     if not bars or not entry.strip():
@@ -70,32 +64,20 @@ def strategy_stats(
     report = backtest(
         bars, entry_formula, exit_formula, tp=PREVIEW_TP, sl=PREVIEW_SL
     )
-    return report.pnl, report.trades, report.win_rate
-
-
-def strategy_pnl(entry: str, exit_: str, timeframe: str) -> float | None:
-    """Just the return, for callers that want the one number."""
-    stats = strategy_stats(entry, exit_, timeframe)
-    return stats[0] if stats else None
+    return report.pnl
 
 
 class StrategyRow(QFrame):
-    """One strategy: name and bar on the left, return and record on the right."""
+    """One saved strategy: its name on the left, its return on the right."""
 
     clicked = Signal(str)
-    archived = Signal(str)
-    restored = Signal(str)
-    deleted = Signal(str)
 
     def __init__(
         self,
         name: str,
-        timeframe: str,
         badge: str,
         colour: str,
-        stats: str = "",
         is_draft: bool = False,
-        is_archived: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -104,73 +86,22 @@ class StrategyRow(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setProperty("selected", False)
         self.setProperty("draft", bool(is_draft))
-        self.setProperty("archived", bool(is_archived))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("load this strategy into the editor")
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 7, 8, 7)
+        row.setContentsMargins(12, 9, 12, 9)
         row.setSpacing(8)
 
-        # Name over the bar it reads.
-        left = QVBoxLayout()
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(1)
         self.label = QLabel(name, self)
         self.label.setObjectName("strategyRowName")
-        left.addWidget(self.label)
-        self.time_label = QLabel(timeframe, self)
-        self.time_label.setObjectName("strategyRowTime")
-        self.time_label.setFont(mono_font(8))
-        left.addWidget(self.time_label)
-        row.addLayout(left, 1)
+        row.addWidget(self.label, 1)
 
-        # The return over the trades that produced it.
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(1)
         self.badge = QLabel(badge, self)
         self.badge.setObjectName("strategyRowBadge")
         self.badge.setFont(mono_font(9))
         self.badge.setProperty("tone", colour)
-        self.badge.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right.addWidget(self.badge)
-        self.stats = QLabel(stats, self)
-        self.stats.setObjectName("strategyRowStats")
-        self.stats.setFont(mono_font(8))
-        self.stats.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.stats.setVisible(bool(stats))
-        right.addWidget(self.stats)
-        row.addLayout(right, 0)
-
-        # Archive / delete (or restore), on a small menu at the far right.
-        self.menu_button = QPushButton("⋯", self)
-        self.menu_button.setObjectName("strategyMenuButton")
-        self.menu_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.menu_button.setFixedWidth(20)
-        self.menu_button.clicked.connect(self._show_menu)
-        row.addWidget(self.menu_button, 0, Qt.AlignmentFlag.AlignTop)
-
-        self.menu = QMenu(self)
-        if is_archived and not is_draft:
-            self.restore_action = self.menu.addAction("Restore")
-            self.restore_action.triggered.connect(lambda: self.restored.emit(name))
-            self.archive_action = None
-        else:
-            self.restore_action = None
-            self.archive_action = self.menu.addAction("Archive")
-            self.archive_action.triggered.connect(
-                lambda: self.archived.emit(name)
-            )
-        self.delete_action = self.menu.addAction("Delete")
-        self.delete_action.triggered.connect(lambda: self.deleted.emit(name))
-
-    def _show_menu(self) -> None:
-        self.menu.exec(
-            self.menu_button.mapToGlobal(
-                QPoint(0, self.menu_button.height())
-            )
-        )
+        row.addWidget(self.badge, 0)
 
     def set_selected(self, selected: bool) -> None:
         if self.property("selected") == selected:
@@ -185,17 +116,11 @@ class StrategyRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
-def _badge(stats: tuple[float, int, float] | None) -> tuple[str, str, str]:
-    """A run's badge text, colour role, and its trades/win-rate line."""
-    if stats is None:
-        return "—", "muted", ""
-    pnl, trades, win_rate = stats
-    colour = "up" if pnl >= 0 else "down"
-    return (
-        f"{pnl * 100:+,.2f}%",
-        colour,
-        f"{trades} tr · {win_rate * 100:,.0f}%",
-    )
+def _badge(pnl: float | None) -> tuple[str, str]:
+    """A return's text and its colour role."""
+    if pnl is None:
+        return "—", "muted"
+    return f"{pnl * 100:+,.2f}%", ("up" if pnl >= 0 else "down")
 
 
 class StrategyListTile(Card):
@@ -203,16 +128,15 @@ class StrategyListTile(Card):
 
     chosen = Signal(str)
     create_requested = Signal()
-    archived = Signal(str)
-    restored = Signal(str)
-    deleted = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.rows: list[StrategyRow] = []
-        self.show_archived = False
         self._saved: list[SavedStrategy] = []
         self._draft: SavedStrategy | None = None
+        # The name of the saved strategy the draft matches, if any: what a
+        # delete would act on.
+        self.selected_name: str | None = None
 
         scroll = QScrollArea(self)
         scroll.setObjectName("listScroll")
@@ -235,13 +159,6 @@ class StrategyListTile(Card):
         self.empty.setWordWrap(True)
         self.body.addWidget(self.empty)
 
-        self.archive_toggle = QPushButton("show archived", self)
-        self.archive_toggle.setObjectName("archiveToggle")
-        self.archive_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.archive_toggle.clicked.connect(self.toggle_archived)
-        self.archive_toggle.setVisible(False)
-        self.body.addWidget(self.archive_toggle)
-
         self.create_button = QPushButton("Create a strategy", self)
         self.create_button.setObjectName("createStrategy")
         self.create_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -256,21 +173,14 @@ class StrategyListTile(Card):
         saved: list[SavedStrategy],
         draft: SavedStrategy | None = None,
     ) -> None:
-        """Remember the drafts and rebuild the list.
+        """Rebuild the list: the saved drafts, then the one being written.
 
-        `saved` is every kept strategy (archived ones included); `draft` is
-        the current editor state, shown at the top badged `draft` when it is
-        not already saved.
+        `draft` is the current editor state. When it is not already saved it
+        appears at the top as a `draft` row, lit like the row you are on.
         """
         self._saved = list(saved)
         self._draft = draft
-        self._rebuild()
 
-    def toggle_archived(self) -> None:
-        self.show_archived = not self.show_archived
-        self._rebuild()
-
-    def _rebuild(self) -> None:
         while self.rows_layout.count() > 1:
             item = self.rows_layout.takeAt(0)
             widget = item.widget()
@@ -279,92 +189,64 @@ class StrategyListTile(Card):
                 widget.deleteLater()
         self.rows = []
 
-        live = [item for item in self._saved if not item.archived]
-        archived = [item for item in self._saved if item.archived]
         draft = self._draft
-
         named = draft is not None and bool(draft.name)
-
-        def _same_saved(candidate: SavedStrategy) -> bool:
-            # The archived flag is not part of what makes a draft "saved".
-            for item in self._saved:
-                if item.name != candidate.name:
-                    continue
-                if (
-                    item.timeframe,
-                    item.entry,
-                    item.exit,
-                ) == (
-                    candidate.timeframe,
-                    candidate.entry,
-                    candidate.exit,
-                ):
-                    return True
-            return False
-
-        is_draft_row = named and not _same_saved(draft)
-        current = draft.name if named else ""
+        is_draft_row = named and not self._is_saved(draft)
+        self.selected_name = (
+            draft.name
+            if named and any(item.name == draft.name for item in self._saved)
+            else None
+        )
 
         entries: list[tuple[SavedStrategy, bool]] = []
         if is_draft_row and draft is not None:
             entries.append((draft, True))
-        for item in reversed(live):  # most recent first
+        for item in reversed(self._saved):  # most recent first
             entries.append((item, False))
-        if self.show_archived:
-            for item in reversed(archived):
-                entries.append((item, False))
 
         self.empty.setVisible(not entries)
-        self.empty.setText(
-            "nothing here — show archived"
-            if not entries and archived
-            else "no saved strategies yet"
-        )
-        self.archive_toggle.setVisible(bool(archived))
-        self.archive_toggle.setText(
-            "hide archived" if self.show_archived else f"show archived ({len(archived)})"
-        )
-
         insert_at = 0
         for strategy, draft_flag in entries:
             if draft_flag:
-                badge, colour, stats = DRAFT_BADGE, "muted", ""
+                badge, colour = DRAFT_BADGE, "muted"
             else:
-                stats = strategy_stats(
-                    strategy.entry, strategy.exit, strategy.timeframe
+                badge, colour = _badge(
+                    strategy_pnl(
+                        strategy.entry, strategy.exit, strategy.timeframe
+                    )
                 )
-                badge, colour, line = _badge(stats)
-                stats = line
-            row = StrategyRow(
-                strategy.name,
-                strategy.timeframe,
-                badge,
-                colour,
-                stats,
-                is_draft=draft_flag,
-                is_archived=strategy.archived,
-                parent=self,
-            )
+            row = StrategyRow(strategy.name, badge, colour, draft_flag, self)
             row.clicked.connect(self.chosen)
-            row.archived.connect(self.archived)
-            row.restored.connect(self.restored)
-            row.deleted.connect(self.deleted)
             # The draft row is the one lit; a saved row of the same name is
             # not lit too.
             if draft_flag:
                 row.set_selected(is_draft_row)
             else:
-                row.set_selected(not is_draft_row and strategy.name == current)
+                row.set_selected(
+                    not is_draft_row
+                    and strategy.name == (draft.name if named else "")
+                )
             self.rows_layout.insertWidget(insert_at, row)
             self.rows.append(row)
             insert_at += 1
 
+    def _is_saved(self, candidate: SavedStrategy) -> bool:
+        """Is this draft exactly one of the saved strategies?"""
+        for item in self._saved:
+            if item.name != candidate.name:
+                continue
+            if (item.timeframe, item.entry, item.exit) == (
+                candidate.timeframe,
+                candidate.entry,
+                candidate.exit,
+            ):
+                return True
+        return False
+
 
 __all__ = [
-    "ARCHIVED_BADGE",
     "DRAFT_BADGE",
     "StrategyListTile",
     "StrategyRow",
     "strategy_pnl",
-    "strategy_stats",
 ]

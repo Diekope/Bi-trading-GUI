@@ -28,6 +28,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -83,6 +84,66 @@ class LockedSplitter(QSplitter):
 
     def createHandle(self) -> QSplitterHandle:  # noqa: N802
         return LockedHandle(self.orientation(), self)
+
+
+class ConfirmDialog(QDialog):
+    """A small dark prompt: delete the strategy, reset the draft, or back out.
+
+    `choice` is `"delete"`, `"reset"` or `"cancel"` once it has been closed.
+    """
+
+    def __init__(self, name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.choice = "cancel"
+        self.setObjectName("confirmDialog")
+        self.setWindowTitle("Delete strategy")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        title = QLabel("Delete this strategy?", self)
+        title.setObjectName("confirmTitle")
+        layout.addWidget(title)
+
+        body = QLabel(
+            f"“{name}” will be removed for good, and cannot be brought back. "
+            "Reset clears the draft instead, and Cancel leaves it alone.",
+            self,
+        )
+        body.setObjectName("confirmBody")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(8)
+        buttons.addStretch(1)
+
+        cancel = QPushButton("Cancel", self)
+        cancel.setObjectName("ghostButton")
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+
+        reset = QPushButton("Reset", self)
+        reset.setObjectName("ghostButton")
+        reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset.clicked.connect(lambda: self._choose("reset"))
+
+        delete = QPushButton("Delete", self)
+        delete.setObjectName("deleteConfirm")
+        delete.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete.clicked.connect(lambda: self._choose("delete"))
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(reset)
+        buttons.addWidget(delete)
+        layout.addLayout(buttons)
+
+    def _choose(self, choice: str) -> None:
+        self.choice = choice
+        self.accept()
 
 
 class StrategyBuilderWindow(QMainWindow):
@@ -209,9 +270,6 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_edit.textChanged.connect(self._refresh_saved)
         self.left.chosen.connect(self.load_strategy)
         self.left.create_requested.connect(self.reset_draft)
-        self.left.archived.connect(self.archive_strategy)
-        self.left.restored.connect(self.restore_strategy)
-        self.left.deleted.connect(self.delete_strategy)
 
         # The naming tile is small and sits at the top of the left rail; the
         # empty tile takes the rest of it. The rules tile takes the width above
@@ -264,12 +322,22 @@ class StrategyBuilderWindow(QMainWindow):
         self.reset_button.setToolTip("clear the draft: name, bar and both rules")
         self.reset_button.clicked.connect(self.reset_draft)
 
+        self.delete_button = QPushButton("Delete strategy", self)
+        self.delete_button.setObjectName("deleteStrategy")
+        self.delete_button.setProperty("armed", False)
+        self.delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.delete_button.setToolTip(
+            "delete the selected strategy — asks first"
+        )
+        self.delete_button.clicked.connect(self.delete_draft)
+
         self.save_button = QPushButton("Save", self)
         self.save_button.setObjectName("saveButton")
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_button.setToolTip("keep this strategy under its name")
         self.save_button.clicked.connect(self.save_draft)
 
+        row.addWidget(self.delete_button)
         row.addWidget(self.reset_button)
         row.addWidget(self.save_button)
         return row
@@ -321,23 +389,29 @@ class StrategyBuilderWindow(QMainWindow):
 
     def _refresh_saved(self) -> None:
         """List the kept drafts, the one being written among them."""
-        self.left.set_strategies(
-            strategies.load(include_archived=True), self.draft_strategy()
-        )
+        if not hasattr(self, "delete_button"):
+            return  # a rule changed while the window was still being built
+        self.left.set_strategies(strategies.load(), self.draft_strategy())
+        # The delete button is live only when a saved strategy is on show.
+        armed = self.left.selected_name is not None
+        if self.delete_button.property("armed") != armed:
+            self.delete_button.setProperty("armed", armed)
+            style = self.delete_button.style()
+            style.unpolish(self.delete_button)
+            style.polish(self.delete_button)
 
-    def archive_strategy(self, name: str) -> None:
-        """Put a saved strategy aside, kept but hidden."""
-        strategies.archive(name)
-        self._refresh_saved()
-
-    def restore_strategy(self, name: str) -> None:
-        """Bring an archived strategy back into the list."""
-        strategies.restore(name)
-        self._refresh_saved()
-
-    def delete_strategy(self, name: str) -> None:
-        """Remove a saved strategy for good."""
-        strategies.remove(name)
+    def delete_draft(self) -> None:
+        """Ask, then delete the selected strategy — or reset the draft."""
+        name = self.left.selected_name
+        if not name:
+            return
+        dialog = ConfirmDialog(name, self)
+        dialog.exec()
+        if dialog.choice == "delete":
+            strategies.remove(name)
+            self.reset_draft()
+        elif dialog.choice == "reset":
+            self.reset_draft()
         self._refresh_saved()
 
     def load_strategy(self, name: str) -> None:
@@ -362,11 +436,13 @@ class StrategyBuilderWindow(QMainWindow):
         self.entry_formula_changed.emit()
         self._schedule_fit()
         self._sync_report()
+        self._refresh_saved()
 
     def _exit_changed(self) -> None:
         self.exit_formula_changed.emit()
         self._schedule_fit()
         self._sync_report()
+        self._refresh_saved()
 
     def _sync_report(self) -> None:
         """Show the rules as they now stand on the candles."""

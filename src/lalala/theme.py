@@ -33,6 +33,8 @@ ACCENT_DIM = "#4a3a1d"  # accent-tinted border for checked / raised controls
 ACCENT_BG = "#241d0e"   # accent-tinted fill for the same
 UP = "#3ddc84"
 DOWN = "#ff5c5c"
+DOWN_DIM = "#5a2626"    # red border for a destructive control
+DOWN_BG = "#2a1414"     # red fill for the same
 BAND = "#6f7bd8"        # Bollinger bands, deliberately quieter than ACCENT
 
 STYLESHEET = f"""
@@ -490,40 +492,7 @@ QFrame#strategyRow[selected="true"] {{
 QLabel#strategyRowName {{
     color: {TEXT};
     font-size: 12px;
-    font-weight: 600;
-}}
-QFrame#strategyRow[archived="true"] QLabel#strategyRowName {{
-    color: {TEXT_MUTED};
     font-weight: 500;
-}}
-QLabel#strategyRowTime {{
-    color: {TEXT_FAINT};
-    font-size: 9px;
-}}
-QLabel#strategyRowStats {{
-    color: {TEXT_FAINT};
-    font-size: 9px;
-}}
-QPushButton#strategyMenuButton {{
-    background-color: transparent;
-    border: none;
-    color: {TEXT_FAINT};
-    font-size: 13px;
-    padding: 0;
-}}
-QPushButton#strategyMenuButton:hover {{
-    color: {TEXT};
-}}
-QPushButton#archiveToggle {{
-    background-color: transparent;
-    border: none;
-    color: {TEXT_FAINT};
-    font-size: 10px;
-    padding: 2px 2px;
-    text-align: left;
-}}
-QPushButton#archiveToggle:hover {{
-    color: {TEXT};
 }}
 QLabel#strategyRowBadge[tone="up"] {{
     color: {UP};
@@ -547,6 +516,54 @@ QPushButton#createStrategy {{
 }}
 QPushButton#createStrategy:hover {{
     border-color: {ACCENT};
+    color: {TEXT};
+}}
+
+/* Delete strategy: quiet until a saved strategy is on show, then red. */
+QPushButton#deleteStrategy {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT_FAINT};
+    font-size: 11px;
+    padding: 6px 14px;
+}}
+QPushButton#deleteStrategy:hover {{
+    color: {TEXT_MUTED};
+}}
+QPushButton#deleteStrategy[armed="true"] {{
+    background-color: {DOWN_BG};
+    border-color: {DOWN_DIM};
+    color: {DOWN};
+}}
+QPushButton#deleteStrategy[armed="true"]:hover {{
+    border-color: {DOWN};
+    color: {TEXT};
+}}
+
+/* The little confirm prompt on top of the window. */
+QDialog#confirmDialog {{
+    background-color: {PANEL};
+}}
+QLabel#confirmTitle {{
+    color: {TEXT};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#confirmBody {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+}}
+QPushButton#deleteConfirm {{
+    background-color: {DOWN_BG};
+    border: 1px solid {DOWN_DIM};
+    border-radius: 6px;
+    color: {DOWN};
+    font-size: 11px;
+    padding: 6px 14px;
+}}
+QPushButton#deleteConfirm:hover {{
+    border-color: {DOWN};
     color: {TEXT};
 }}
 

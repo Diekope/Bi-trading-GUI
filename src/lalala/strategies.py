@@ -21,11 +21,9 @@ from pathlib import Path
 __all__ = [
     "DEFAULT_PATH",
     "SavedStrategy",
-    "archive",
     "load",
     "path",
     "remove",
-    "restore",
     "save",
 ]
 
@@ -40,7 +38,6 @@ class SavedStrategy:
     timeframe: str
     entry: str
     exit: str
-    archived: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -48,7 +45,6 @@ class SavedStrategy:
             "timeframe": self.timeframe,
             "entry": self.entry,
             "exit": self.exit,
-            "archived": self.archived,
         }
 
 
@@ -57,8 +53,8 @@ def path() -> Path:
     return Path(os.environ.get("LALALA_STRATEGIES", DEFAULT_PATH)).expanduser()
 
 
-def _read_all() -> list[SavedStrategy]:
-    """Every strategy in the file, archived ones included."""
+def load() -> list[SavedStrategy]:
+    """Every saved strategy, oldest first. A missing or broken file is empty."""
     target = path()
     try:
         raw = json.loads(target.read_text())
@@ -79,72 +75,31 @@ def _read_all() -> list[SavedStrategy]:
                 timeframe=str(item.get("timeframe", "1m")),
                 entry=str(item.get("entry", "")),
                 exit=str(item.get("exit", "")),
-                archived=bool(item.get("archived", False)),
             )
         )
     return out
 
 
-def load(include_archived: bool = False) -> list[SavedStrategy]:
-    """Every saved strategy, oldest first. A missing or broken file is empty.
-
-    Archived strategies are left out unless `include_archived` is set.
-    """
-    kept = _read_all()
-    if include_archived:
-        return kept
-    return [item for item in kept if not item.archived]
-
-
 def save(strategy: SavedStrategy) -> list[SavedStrategy]:
-    """Add a strategy, or replace the one with the same name.
-
-    Saving under a name brings it back out of the archive.
-    """
+    """Add a strategy, or replace the one with the same name."""
     name = strategy.name.strip()
     if not name:
         raise ValueError("a strategy needs a name")
-    kept = [item for item in _read_all() if item.name != name]
+    kept = [item for item in load() if item.name != name]
     kept.append(
         SavedStrategy(
             name=name,
             timeframe=strategy.timeframe,
             entry=strategy.entry,
             exit=strategy.exit,
-            archived=False,
         )
     )
     _write(kept)
     return kept
 
 
-def archive(name: str) -> list[SavedStrategy]:
-    """Put a strategy aside: kept, but out of the way."""
-    return _set_archived(name, True)
-
-
-def restore(name: str) -> list[SavedStrategy]:
-    """Bring an archived strategy back into the list."""
-    return _set_archived(name, False)
-
-
-def _set_archived(name: str, archived: bool) -> list[SavedStrategy]:
-    kept = [
-        SavedStrategy(
-            item.name,
-            item.timeframe,
-            item.entry,
-            item.exit,
-            archived if item.name == name else item.archived,
-        )
-        for item in _read_all()
-    ]
-    _write(kept)
-    return kept
-
-
 def remove(name: str) -> list[SavedStrategy]:
-    kept = [item for item in _read_all() if item.name != name]
+    kept = [item for item in load() if item.name != name]
     _write(kept)
     return kept
 

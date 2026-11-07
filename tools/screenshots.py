@@ -102,8 +102,6 @@ def builder(app: QApplication) -> None:
         SavedStrategy("Edge vs model", "1m", "close < ema(close, 30)", "pnl <= 0 - sl"),
     ):
         strategies.save(item)
-    # One set aside, so the archive toggle shows.
-    strategies.archive("Edge vs model")
 
     window = StrategyBuilderWindow()
     window.resize(1280, 900)
@@ -144,7 +142,7 @@ def builder(app: QApplication) -> None:
     _save(formula.formula_card, "part-formula-card.png")
     _save(formula.selected_card, "part-selected-block.png")
 
-    # Code: the code and the right rail, with a variable picked.
+    # The code tab's right rail.
     window.entry_tile.set_mode("code")
     _settle(app)
     window.entry._select_variable("close")
@@ -152,6 +150,20 @@ def builder(app: QApplication) -> None:
     _save(window, "builder-code.png")
     rail = window.entry.vocab_card.parentWidget()
     _save(rail, "part-code-rail.png")
+
+    # Delete: a saved strategy on show arms the footer button, and the prompt.
+    from lalala.strat_builder import ConfirmDialog
+
+    window.name_edit.setText("Bollinger reversion")
+    window.entry.set_text("band = bollinger_lower(close, 20, 2)\nclose < band")
+    window.exit.set_text("pnl >= tp or pnl <= 0 - sl or bars >= 90")
+    _settle(app)
+    _save(window, "builder-delete.png")
+    dialog = ConfirmDialog("Bollinger reversion", window)
+    dialog.show()
+    _settle(app)
+    _save(dialog, "part-delete-prompt.png")
+    dialog.close()
     window.close()
 
 

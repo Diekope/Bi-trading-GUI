@@ -353,11 +353,11 @@ the upper part. The window does not have to fit two rules side by side any
 more.
 
 A **footer** spans the bottom of the window, as in the mock: the draft's name
-on the left, and `Reset` and `Save` on the right. `Reset` clears the draft —
-name, bar and both rules. `Save` writes it to `~/.config/lalala/strategies.json`
-under its name, replacing an earlier one of the same name rather than piling
-up; it needs a name and rules that check out, and the footer says which is
-missing.
+on the left, and `Delete strategy`, `Reset` and `Save` on the right. `Reset`
+clears the draft — name, bar and both rules. `Save` writes it to
+`~/.config/lalala/strategies.json` under its name, replacing an earlier one of
+the same name rather than piling up; it needs a name and rules that check out,
+and the footer says which is missing. `Delete strategy` is described below.
 
 The **STRATEGY** tile at the top of the rail is
 `STRATEGY` and holds one row: a text field (`name` as its placeholder) taking
@@ -367,19 +367,24 @@ defaulting to `1m`. It is only as tall as the title and that row.
 ![The saved-strategies rail: each kept draft with what it returned, the current draft lit, over Create a strategy](docs/images/part-saved-rail.png)
 
 Under it sits the **saved-strategies rail** — one row per kept draft, most
-recent first. Each row carries the **name** over the **bar it reads**, and on
-the right the **return** over the **trades it took and how many of them won**,
-all read from the same tail of candles the results tile uses. The draft you are
-on is lit; if it is not saved yet it shows at the top badged `draft`. Clicking a
-row loads that strategy back into the editor.
+recent first: the **name** on the left and the **return** it made over the same
+tail of candles the results tile reads on the right, in the mock's own shape.
+The draft you are on is lit; if it is not saved yet it shows at the top badged
+`draft`. Clicking a row loads that strategy back into the editor, and
+**Create a strategy** starts a fresh draft. The file is
+`~/.config/lalala/strategies.json` (`LALALA_STRATEGIES` overrides it) — plain
+JSON, one object per strategy with its name, bar and both rules as text; a
+missing or broken file simply reads as empty.
 
-Each row's `⋯` menu **archives** it (kept on disk, out of the list) or
-**deletes** it for good; a `show archived (n)` toggle brings the archived ones
-back, where the same menu offers **Restore**. **Create a strategy** starts a
-fresh draft. The file is `~/.config/lalala/strategies.json` (`LALALA_STRATEGIES`
-overrides it) — plain JSON, one object per strategy with its name, bar, both
-rules as text and an `archived` flag; a missing or broken file simply reads as
-empty.
+![The builder's Delete strategy prompt: delete it, reset the draft, or cancel](docs/images/part-delete-prompt.png)
+
+At the bottom, beside `Reset` and `Save`, a **Delete strategy** button sits
+quiet until a saved strategy is on show — then it turns red. Pressing it opens
+a small prompt: **Delete** removes the strategy from the file and clears the
+editor, **Reset** clears the draft but keeps the saved copy, and **Cancel**
+leaves both alone.
+
+![The footer with a saved strategy on show: Delete strategy armed red, beside Reset and Save](docs/images/builder-delete.png)
 
 Under it the right-hand column has **one rules tile**, and **ENTRY RULES** /
 **EXIT RULES** are the switch at its top: they are the same widget —

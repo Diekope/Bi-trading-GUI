@@ -709,29 +709,7 @@ def test_create_a_strategy_starts_a_fresh_draft(
     assert builder.exit_formula() == ""
 
 
-def test_a_saved_strategy_can_be_archived_then_restored(
-    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
-    builder.name_edit.setText("Dip")
-    builder.set_entry_formula("close < sma(close, 5)")
-    app.processEvents()
-    builder.save_button.click()
-    app.processEvents()
-    assert [row.name for row in builder.left.rows] == ["Dip"]
-
-    # Archiving takes the row out of the list but keeps it on disk.
-    builder.left.archived.emit("Dip")
-    app.processEvents()
-    assert builder.left.rows == []
-    assert builder.left.archive_toggle.isVisible() is True
-
-    builder.left.restored.emit("Dip")
-    app.processEvents()
-    assert [row.name for row in builder.left.rows] == ["Dip"]
-
-
-def test_a_saved_strategy_can_be_deleted(
+def test_a_saved_strategy_can_be_deleted_after_a_prompt(
     app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
 ) -> None:
     from lalala import strategies
@@ -743,13 +721,59 @@ def test_a_saved_strategy_can_be_deleted(
     builder.save_button.click()
     app.processEvents()
 
-    builder.left.deleted.emit("Dip")
+    # With a saved strategy on show, the delete button is armed (red).
+    assert builder.left.selected_name == "Dip"
+    assert builder.delete_button.property("armed") is True
+
+    # A cancelled prompt leaves everything as it was.
+    def cancel(_dialog):
+        return None
+
+    monkeypatch.setattr(
+        "lalala.strat_builder.ConfirmDialog.exec", cancel
+    )
+    builder.delete_button.click()
+    app.processEvents()
+    assert [item.name for item in strategies.load()] == ["Dip"]
+
+    # Confirming deletes it, and the editor is cleared.
+    def confirm(dialog):
+        dialog.choice = "delete"
+        return 1
+
+    monkeypatch.setattr(
+        "lalala.strat_builder.ConfirmDialog.exec", confirm
+    )
+    builder.delete_button.click()
+    app.processEvents()
+    assert strategies.load() == []
+    assert builder.name_edit.text() == ""
+    assert builder.left.selected_name is None
+    assert builder.delete_button.property("armed") is False
+
+
+def test_the_delete_prompt_offers_reset_or_delete(
+    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    from lalala import strategies
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    app.processEvents()
+    builder.save_button.click()
     app.processEvents()
 
-    # Gone from the store; the editor still holds it, now as a draft row.
-    assert strategies.load(include_archived=True) == []
-    assert [row.name for row in builder.left.rows] == ["Dip"]
-    assert builder.left.rows[0].badge.text() == "draft"
+    # Choosing Reset clears the draft but keeps the saved strategy.
+    def reset(dialog):
+        dialog.choice = "reset"
+        return 1
+
+    monkeypatch.setattr("lalala.strat_builder.ConfirmDialog.exec", reset)
+    builder.delete_button.click()
+    app.processEvents()
+    assert [item.name for item in strategies.load()] == ["Dip"]
+    assert builder.name_edit.text() == ""
 
 
 def test_the_code_page_has_the_vocabulary_and_the_values(
