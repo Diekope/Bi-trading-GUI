@@ -73,6 +73,9 @@ QStatusBar::item {{ border: none; }}
 #rulesStack {{
     background-color: transparent;
 }}
+#resultsStack {{
+    background-color: transparent;
+}}
 #venuePanel QLabel {{
     background-color: transparent;
     color: {TEXT_MUTED};
@@ -652,6 +655,10 @@ QPushButton#createStrategy:hover {{
 #venuePanel QLabel#hintLabel {{
     color: {TEXT_FAINT};
     font-size: 9px;
+}}
+#venuePanel QLabel#emptyNote {{
+    color: {TEXT_FAINT};
+    font-size: 10px;
 }}
 #venuePanel QCheckBox#paramToggle {{
     color: {TEXT_MUTED};

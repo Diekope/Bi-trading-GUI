@@ -172,3 +172,45 @@ def test_the_curve_chart_paints_before_any_run(app: QApplication) -> None:
 
     assert not chart.grab().toImage().isNull()
     chart.close()
+
+
+# -- the two subwindows ------------------------------------------------------
+
+
+def test_the_tile_has_overview_and_compare(app: QApplication) -> None:
+    tile = ReportTile()
+    tile.resize(320, 460)
+    tile.show()
+    app.processEvents()
+
+    assert [button.text() for button in tile.side_buttons.values()] == [
+        "OVERVIEW",
+        "COMPARE",
+    ]
+    for button in tile.side_buttons.values():
+        assert button.objectName() == "sideButton"
+        assert button.isCheckable() is True
+    assert tile.side_buttons["overview"].isChecked() is True
+    assert tile.pages.count() == 2
+
+    # OVERVIEW is what the rule did, and it is the one on show.
+    assert tile.side() == "overview"
+    assert tile.pages.currentWidget().isAncestorOf(tile.chart)
+    assert tile.pages.currentWidget().isAncestorOf(tile.note)
+
+    # COMPARE is set aside; switching shows it, and the switch goes back.
+    picked: list[str] = []
+    tile.side_changed.connect(picked.append)
+    tile.side_buttons["compare"].click()
+    app.processEvents()
+    assert tile.side() == "compare"
+    assert tile.pages.currentIndex() == 1
+    assert tile.pages.currentWidget().isAncestorOf(tile.compare_note)
+    assert tile.compare_message.text() == "put two runs side by side here"
+    assert picked == ["compare"]
+
+    tile.set_side("overview")
+    assert tile.side() == "overview"
+    assert tile.pages.currentIndex() == 0
+    assert picked == ["compare", "overview"]
+    tile.close()

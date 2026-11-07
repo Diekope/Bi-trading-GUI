@@ -17,13 +17,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -207,19 +210,73 @@ def _percent(value: float) -> str:
 
 
 class ReportTile(Card):
-    """The rule's numbers in two rows, then its curve against two others."""
+    """The run's numbers and its curves, over two subwindows.
+
+    `OVERVIEW` is what the rule did; `COMPARE` is set aside for putting two
+    runs side by side. Their names are the switch, the way ENTRY / EXIT switch
+    in the rules tile, and each keeps its own content.
+    """
+
+    side_changed = Signal(str)
+
+    SIDES = (("overview", "OVERVIEW"), ("compare", "COMPARE"))
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.current_side = "overview"
 
-        title = QLabel("RESULTS", self)
-        title.setObjectName("tileTitle")
-        self.body.addWidget(title)
+        # The two subwindows are switched by their names, as in the rules
+        # tile: one lit, the other a quiet invitation.
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+        self.sides = QButtonGroup(self)
+        self.sides.setExclusive(True)
+        self.side_buttons: dict[str, QPushButton] = {}
+        for index, (key, label) in enumerate(self.SIDES):
+            button = QPushButton(label, self)
+            button.setObjectName("sideButton")
+            button.setProperty("side", key)
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.sides.addButton(button, index)
+            self.side_buttons[key] = button
+            header.addWidget(button)
+        header.addStretch(1)
+        self.sides.idClicked.connect(self._pick_side)
+        self.body.addLayout(header)
 
-        self.note = QLabel("no rule yet", self)
+        # One page per subwindow, only one on show.
+        self.pages = QStackedWidget(self)
+        self.pages.setObjectName("resultsStack")
+        self.pages.addWidget(self._overview_page())
+        self.pages.addWidget(self._compare_page())
+        self.pages.setCurrentIndex(0)
+        self.body.addWidget(self.pages, 1)
+
+        self.entry_rule = None
+        self.exit_rule = None
+        self.resolution = "1h"
+        self.tp = PREVIEW_TP
+        self.sl = PREVIEW_SL
+        # What the rule's names read on the newest bar, for the panel beside
+        # the editor: (values, result).
+        self.watch: tuple = ({}, None)
+
+    # -- the subwindows ----------------------------------------------------
+
+    def _overview_page(self) -> QWidget:
+        page = QWidget(self)
+        page.setObjectName("resultsPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.note = QLabel("no rule yet", page)
         self.note.setObjectName("hintLabel")
         self.note.setWordWrap(True)
-        self.body.addWidget(self.note)
+        layout.addWidget(self.note)
 
         # Five numbers, two rows: PnL, Sharpe, max drawdown, then the two
         # counting ones.
@@ -232,9 +289,9 @@ class ReportTile(Card):
             ("PnL", "Sharpe", "Max DD", "Trades", "Win rate")
         ):
             row, column = divmod(index, 3)
-            label = QLabel(caption, self)
+            label = QLabel(caption, page)
             label.setObjectName("fieldLabel")
-            value = QLabel("—", self)
+            value = QLabel("—", page)
             value.setObjectName("metricValue_text")
             value.setFont(mono_font(9, bold=True))
             grid.addWidget(label, row * 2, column)
@@ -242,10 +299,10 @@ class ReportTile(Card):
             self._metrics.append((label, value))
         for column in range(3):
             grid.setColumnStretch(column, 1)
-        self.body.addLayout(grid)
+        layout.addLayout(grid)
 
-        self.chart = CurveChart(self)
-        self.body.addWidget(self.chart, 1)
+        self.chart = CurveChart(page)
+        layout.addWidget(self.chart, 1)
 
         # The legend reads along the bottom, under the lines it names.
         legend = QHBoxLayout()
@@ -257,22 +314,55 @@ class ReportTile(Card):
             ("random", "random buy"),
             ("hold", "buy & hold"),
         ):
-            label = QLabel(caption, self)
+            label = QLabel(caption, page)
             label.setObjectName(f"legend_{key}")
             label.setFont(mono_font(8, bold=True))
             legend.addWidget(label)
             self.legend[key] = label
         legend.addStretch(1)
-        self.body.addLayout(legend)
+        layout.addLayout(legend)
+        return page
 
-        self.entry_rule = None
-        self.exit_rule = None
-        self.resolution = "1h"
-        self.tp = PREVIEW_TP
-        self.sl = PREVIEW_SL
-        # What the rule's names read on the newest bar, for the panel beside
-        # the editor: (values, result).
-        self.watch: tuple = ({}, None)
+    def _compare_page(self) -> QWidget:
+        """The second subwindow. Set aside: two runs will sit here."""
+        page = QWidget(self)
+        page.setObjectName("resultsPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.compare_note = QLabel("nothing to compare yet", page)
+        self.compare_note.setObjectName("hintLabel")
+        self.compare_note.setWordWrap(True)
+        layout.addWidget(self.compare_note)
+        layout.addStretch(1)
+
+        self.compare_message = QLabel(
+            "put two runs side by side here", page
+        )
+        self.compare_message.setObjectName("emptyNote")
+        self.compare_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.compare_message.setWordWrap(True)
+        layout.addWidget(self.compare_message, 1)
+        layout.addStretch(1)
+        return page
+
+    def side(self) -> str:
+        return self.current_side
+
+    def set_side(self, key: str) -> None:
+        for index, (name, _) in enumerate(self.SIDES):
+            if name == key:
+                self.sides.button(index).setChecked(True)
+                self._pick_side(index)
+                return
+
+    def _pick_side(self, index: int) -> None:
+        if not 0 <= index < len(self.SIDES):
+            return
+        self.current_side = self.SIDES[index][0]
+        self.pages.setCurrentIndex(index)
+        self.side_changed.emit(self.current_side)
 
     # -- what to show ------------------------------------------------------
 

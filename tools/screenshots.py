@@ -98,6 +98,16 @@ def builder(app: QApplication) -> None:
         "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0"
     )
 
+    # Results: the two subwindows. Overview first, then Compare.
+    window.report.set_side("overview")
+    _settle(app)
+    _save(window.report, "part-report.png")
+    window.report.set_side("compare")
+    _settle(app)
+    _save(window.report, "part-report-compare.png")
+    window.report.set_side("overview")
+    _settle(app)
+
     # Rules: the presets gallery, first of the three tabs.
     window.entry_tile.set_mode("rules")
     _settle(app)
@@ -124,11 +134,20 @@ def builder(app: QApplication) -> None:
 
 
 def main() -> None:
+    import sys
+
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
-    terminal(app)
-    backtest(app)
-    builder(app)
+    # Optionally name which ones to rebuild: `... builder` skips the terminal
+    # and the backtest. No names means all of them.
+    wanted = set(sys.argv[1:])
+    for name, build in (
+        ("terminal", terminal),
+        ("backtest", backtest),
+        ("builder", builder),
+    ):
+        if not wanted or name in wanted:
+            build(app)
 
 
 if __name__ == "__main__":

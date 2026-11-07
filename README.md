@@ -511,7 +511,14 @@ back as one tile holding `20` and `2`, not a run of separate chips.
 
 ### Results tile
 
-![The results tile: the strategy, random-buy and buy & hold curves, as return since the start](docs/images/part-results.png)
+![The results tile on Overview: the strategy, random-buy and buy & hold curves, as return since the start](docs/images/part-report.png)
+
+The tile has **two subwindows**, switched by their names the way ENTRY / EXIT
+switch in the rules tile: **OVERVIEW** — the numbers and the curves — and
+**COMPARE**, set aside for putting two runs side by side. Only one is on show
+at a time; `OVERVIEW` is the default and `COMPARE` is an empty page for now.
+
+![The results tile on Compare: the empty page set aside for two runs](docs/images/part-report-compare.png)
 
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
@@ -588,6 +595,8 @@ walk's job, later.
 walk when the two are joined.
 
 ## Results tile
+
+![The backtest window's results tile: the three curves revealed as the walk runs](docs/images/part-results.png)
 
 Under the parameters, three curves are drawn live as the loop walks:
 **strategy** (amber), **random buy** (indigo) and **buy & hold** (grey dashed),
