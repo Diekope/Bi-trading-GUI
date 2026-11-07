@@ -95,8 +95,8 @@ class StrategyBuilderWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("lalala · create a strategy")
-        # Two rules tiles of three columns each, beside the rail.
-        self.setMinimumSize(1180, 640)
+        # The panels scroll, so the window does not have to be wide.
+        self.setMinimumSize(900, 620)
         self.resize(1280, 960)
 
         canvas = QWidget(self)

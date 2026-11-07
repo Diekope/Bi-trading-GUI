@@ -678,6 +678,23 @@ def test_the_live_values_reach_both_panels(
     assert builder.entry.formula.result is result
 
 
+def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.resize(1000, 800)
+    app.processEvents()
+    builder.timeframe.setCurrentText("1h")
+    builder.entry.preset_buttons[0].click()
+    app.processEvents()
+
+    formula = builder.entry.formula
+    # The panel has a natural width it will not go under...
+    assert formula.minimumSizeHint().width() > builder.entry_tile.width()
+    # ... and it sits in a scroll area, so the tile keeps its width.
+    assert formula.parentWidget().objectName() == "qt_scrollarea_viewport"
+    assert builder.entry_tile.width() < formula.minimumSizeHint().width()
+
+
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:

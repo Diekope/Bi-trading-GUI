@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -340,6 +341,21 @@ class RulesTile(Card):
         self.set_text(text)
         self.set_mode("formula")
 
+    def _scroll_page(self, content: QWidget) -> QWidget:
+        """Wrap a page's content so it scrolls instead of growing the tile."""
+        page = QWidget(self)
+        page.setObjectName("entryPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        scroll = QScrollArea(page)
+        scroll.setObjectName("pageScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        return page
+
     def _formula_page(self) -> QWidget:
         page = QWidget(self)
         page.setObjectName("entryPage")
@@ -352,8 +368,7 @@ class RulesTile(Card):
             functions=self.functions,
         )
         self.formula.changed.connect(self._formula_changed)
-        layout.addWidget(self.formula, 1)
-        return page
+        return self._scroll_page(self.formula)
 
     def _code_page(self) -> QWidget:
         """The code on the left, its vocabulary and its values on the right."""
@@ -451,7 +466,7 @@ class RulesTile(Card):
         values_layout.addStretch(1)
         side.addWidget(values_card, 2)
         layout.addLayout(side, 38)
-        return page
+        return self._scroll_page(page)
 
     def _variable_row(self, parent: QWidget, name: str, kind: str) -> QWidget:
         row = QWidget(parent)
