@@ -88,16 +88,35 @@ def backtest(app: QApplication) -> None:
 
 def builder(app: QApplication) -> None:
     """The three builder tabs, and the pieces the Formula/Code tabs are made of."""
+    from lalala import strategies
+    from lalala.strategies import SavedStrategy
+
+    # A few kept drafts, so the saved-strategies rail looks like the mock.
+    for item in (
+        SavedStrategy(
+            "Bollinger reversion", "1m",
+            "band = bollinger_lower(close, 20, 2)\nclose < band",
+            "pnl >= tp or pnl <= 0 - sl or bars >= 90",
+        ),
+        SavedStrategy("Late favorite", "5m", "close > sma(close, 50)", "pnl >= tp"),
+        SavedStrategy("Edge vs model", "1m", "close < ema(close, 30)", "pnl <= 0 - sl"),
+    ):
+        strategies.save(item)
+
     window = StrategyBuilderWindow()
     window.resize(1280, 900)
     window.show()
     _settle(app)
 
-    window.name_edit.setText("Bollinger reversion")
+    window.name_edit.setText("Volume spike")
     window.entry.set_text(
         "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0"
     )
     window.exit.set_text("pnl >= tp or pnl <= 0 - sl or bars >= 90")
+
+    # The saved-strategies rail.
+    _settle(app)
+    _save(window.left_column, "part-saved-rail.png")
 
     # Results: the three subwindows. Overview first, then Compare.
     window.report.set_view("overview")

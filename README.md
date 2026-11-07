@@ -346,7 +346,8 @@ the left, everything else on the right — separated by the same 8 px gap and
 nothing else. The split is **locked**: dragging a handle does nothing, so the
 share changes only when the window is resized.
 
-The rail holds the small **STRATEGY** tile on top and an empty tile under it.
+The rail holds the small **STRATEGY** tile on top and the saved-strategies
+list under it.
 The rest holds one rules tile with the **results** under it, the rule taking
 the upper part. The window does not have to fit two rules side by side any
 more.
@@ -362,6 +363,17 @@ The **STRATEGY** tile at the top of the rail is
 `STRATEGY` and holds one row: a text field (`name` as its placeholder) taking
 the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own width,
 defaulting to `1m`. It is only as tall as the title and that row.
+
+![The saved-strategies rail: each kept draft with what it returned, the current draft lit, over Create a strategy](docs/images/part-saved-rail.png)
+
+Under it sits the **saved-strategies rail** — one row per kept draft, most
+recent first, each showing the **return** it made over the same tail of candles
+the results tile reads. The draft you are on is lit; if it is not saved yet it
+shows at the top badged `draft`. Clicking a row loads that strategy back into
+the editor, and **Create a strategy** starts a fresh draft. The file is
+`~/.config/lalala/strategies.json` (`LALALA_STRATEGIES` overrides it) — plain
+JSON, one object per strategy with its name, bar and both rules as text; a
+missing or broken file simply reads as empty.
 
 Under it the right-hand column has **one rules tile**, and **ENTRY RULES** /
 **EXIT RULES** are the switch at its top: they are the same widget —

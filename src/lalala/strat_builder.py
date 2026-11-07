@@ -47,6 +47,7 @@ from lalala.panels import Card
 from lalala import strategies
 from lalala.strategies import SavedStrategy
 from lalala.strat_report import ReportTile
+from lalala.strat_saved import StrategyListTile
 from lalala.strat_rules import EXIT_PRESETS, RulesSwitcher, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
@@ -123,7 +124,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.left_column.setHandleWidth(CARD_GAP)
 
         self.strategy_tile = Card(self.left_column)
-        self.left = Card(self.left_column)
+        self.left = StrategyListTile(self.left_column)
 
         # The rest: one rules tile switching between ENTRY and EXIT, with the
         # report under it.
@@ -205,6 +206,9 @@ class StrategyBuilderWindow(QMainWindow):
         self.timeframe.currentTextChanged.connect(self._sync_report)
         self.timeframe.currentTextChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._describe_draft)
+        self.name_edit.textChanged.connect(self._refresh_saved)
+        self.left.chosen.connect(self.load_strategy)
+        self.left.create_requested.connect(self.reset_draft)
 
         # The naming tile is small and sits at the top of the left rail; the
         # empty tile takes the rest of it. The rules tile takes the width above
@@ -235,6 +239,8 @@ class StrategyBuilderWindow(QMainWindow):
         layout.addWidget(self.splitter, 1)
         layout.addLayout(self._footer())
         self.setCentralWidget(canvas)
+        # The saved drafts, the one being written among them.
+        self._refresh_saved()
 
     # -- the footer ---------------------------------------------------------
 
@@ -277,6 +283,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.exit.reset_draft()
         self._describe_draft()
         self._sync_report()
+        self._refresh_saved()
 
     def save_draft(self) -> None:
         """Keep the draft under its name, and say so."""
@@ -296,6 +303,37 @@ class StrategyBuilderWindow(QMainWindow):
             )
         )
         self.draft.setText(f"saved “{name}” · {len(saved)} kept")
+        self._refresh_saved()
+
+    # -- the saved strategies ---------------------------------------------
+
+    def draft_strategy(self) -> SavedStrategy:
+        """The editor's state as a strategy, for the saved list."""
+        return SavedStrategy(
+            name=self.name_edit.text().strip(),
+            timeframe=self.timeframe.currentText(),
+            entry=self.entry_formula(),
+            exit=self.exit_formula(),
+        )
+
+    def _refresh_saved(self) -> None:
+        """List the kept drafts, the one being written among them."""
+        self.left.set_strategies(strategies.load(), self.draft_strategy())
+
+    def load_strategy(self, name: str) -> None:
+        """Bring a saved strategy back into the editor."""
+        found = next(
+            (item for item in strategies.load() if item.name == name), None
+        )
+        if found is None:
+            return
+        self.name_edit.setText(found.name)
+        self.timeframe.setCurrentText(found.timeframe)
+        self.entry.set_text(found.entry)
+        self.exit.set_text(found.exit)
+        self._describe_draft()
+        self._sync_report()
+        self._refresh_saved()
 
     # -- the formula -------------------------------------------------------
 

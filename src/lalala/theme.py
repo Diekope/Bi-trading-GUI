@@ -474,6 +474,49 @@ QPushButton#saveButton:hover {{
     color: {TEXT};
 }}
 
+/* The saved-strategies rail: one row per kept draft, the current one lit. */
+QFrame#strategyRow {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+}}
+QFrame#strategyRow:hover {{
+    border-color: {ACCENT_DIM};
+}}
+QFrame#strategyRow[selected="true"] {{
+    background-color: {ACCENT_BG};
+    border-color: {ACCENT};
+}}
+QLabel#strategyRowName {{
+    color: {TEXT};
+    font-size: 12px;
+    font-weight: 600;
+}}
+QLabel#strategyRowBadge[tone="up"] {{
+    color: {UP};
+    font-size: 10px;
+}}
+QLabel#strategyRowBadge[tone="down"] {{
+    color: {DOWN};
+    font-size: 10px;
+}}
+QLabel#strategyRowBadge[tone="muted"] {{
+    color: {TEXT_FAINT};
+    font-size: 10px;
+}}
+QPushButton#createStrategy {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 6px;
+    color: {ACCENT};
+    font-size: 11px;
+    padding: 7px 14px;
+}}
+QPushButton#createStrategy:hover {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
+
 QPushButton#numberAdd, QPushButton#formulaReset {{
     background-color: {PANEL};
     border: 1px solid {BORDER};

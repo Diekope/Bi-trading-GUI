@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (  # noqa: E402
     QScrollArea,
 )
 
-from lalala.panels import Card  # noqa: E402
 from lalala.strat_builder import (  # noqa: E402
     COLUMN_SHARES,
     TIMEFRAMES,
@@ -27,6 +26,8 @@ from lalala.strat_builder import (  # noqa: E402
     StrategyBuilderWindow,
 )
 from lalala.strat_rules import RULES_MODES as ENTRY_MODES  # noqa: E402
+from lalala.strat_saved import StrategyListTile  # noqa: E402
+from lalala.strategies import SavedStrategy  # noqa: E402
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 
@@ -100,7 +101,7 @@ def test_the_window_holds_the_rail_and_the_rest(
     assert splitter.widget(1) is builder.right_column
 
 
-def test_the_naming_tile_sits_on_the_rail_over_an_empty_tile(
+def test_the_naming_tile_sits_on_the_rail_over_the_saved_list(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     rail = builder.left_column
@@ -109,10 +110,7 @@ def test_the_naming_tile_sits_on_the_rail_over_an_empty_tile(
     assert rail.orientation() == Qt.Orientation.Vertical
     assert rail.widget(0) is builder.strategy_tile
     assert rail.widget(1) is builder.left
-    assert isinstance(builder.left, Card)
-    # The tile under the naming is empty.
-    assert builder.left.findChildren(QLabel) == []
-    assert builder.left.body.count() == 0
+    assert isinstance(builder.left, StrategyListTile)
     assert (
         builder.left.geometry().top()
         - builder.strategy_tile.geometry().bottom()
@@ -652,6 +650,63 @@ def test_saving_needs_a_name_and_a_sound_rule(
     builder.save_button.click()
     app.processEvents()
     assert "fix the rules" in builder.draft.text()
+
+
+def test_saving_lists_it_in_the_rail(
+    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    app.processEvents()
+    assert [row.name for row in builder.left.rows] == ["Dip"]  # the draft
+
+    builder.save_button.click()
+    app.processEvents()
+
+    # Once saved it is a kept row, still lit, and no longer a draft.
+    assert [row.name for row in builder.left.rows] == ["Dip"]
+    assert builder.left.rows[0].badge.text() != "draft"
+    assert builder.left.rows[0].property("selected") is True
+
+
+def test_clicking_a_saved_strategy_loads_it(
+    app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    from lalala import strategies
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    strategies.save(
+        SavedStrategy("Dip", "1h", "close < sma(close, 5)", "pnl >= tp")
+    )
+    builder._refresh_saved()
+    app.processEvents()
+
+    picked: list[str] = []
+    builder.left.chosen.connect(picked.append)
+    builder.left.rows[0].clicked.emit("Dip")
+    app.processEvents()
+
+    assert picked == ["Dip"]
+    assert builder.name_edit.text() == "Dip"
+    assert builder.timeframe.currentText() == "1h"
+    assert builder.entry_formula() == "close < sma(close, 5)"
+    assert builder.exit_formula() == "pnl >= tp"
+
+
+def test_create_a_strategy_starts_a_fresh_draft(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.name_edit.setText("Dip")
+    builder.set_entry_formula("close < sma(close, 5)")
+    app.processEvents()
+
+    builder.left.create_button.click()
+    app.processEvents()
+
+    assert builder.name_edit.text() == ""
+    assert builder.entry_formula() == ""
+    assert builder.exit_formula() == ""
 
 
 def test_the_code_page_has_the_vocabulary_and_the_values(
