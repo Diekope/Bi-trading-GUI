@@ -382,9 +382,9 @@ and under them the live values that name reads on the newest bar, with the
 rule's result.
 
 The `Code` tab is the code, and under it `Variables`, the whole vocabulary
-with its types, then `Values`, the same last-bar numbers. Those two lists
-**scroll in place**; the page around them does not, so the code stays put
-while you read them. The code block and the formula bar sit in **wells** —
+with its types, beside `Values`, the same last-bar numbers. The two lists sit
+side by side and **scroll in place**; the page around them does not, so the
+code stays put while you read them. The code block and the formula bar sit in **wells** —
 darker than the card they are on, the way the mock draws them.
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,

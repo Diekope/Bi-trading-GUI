@@ -679,6 +679,12 @@ def test_the_code_lists_scroll_in_place(
     ]
     # One scroll area for VARIABLES, one for VALUES, both inside the page.
     assert len(lists) == 2
+    # They sit side by side, not one over the other.
+    vocab = lists[0].parentWidget().geometry()
+    values = lists[1].parentWidget().geometry()
+    assert vocab.left() != values.left()
+    assert vocab.top() == values.top()
+    assert min(vocab.left(), values.left()) >= 0
     # The page itself no longer scrolls: the lists do, so the code stays put.
     assert page.findChild(QScrollArea, "pageScroll") is None
 

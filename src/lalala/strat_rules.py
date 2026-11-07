@@ -423,10 +423,10 @@ class RulesTile(Card):
         code_layout.addWidget(self.code_note)
         layout.addWidget(code_card, 3)
 
-        # The vocabulary, and what it reads right now, under the code. Each
-        # one scrolls in place: the lists are longer than any tile, and the
-        # code above should not be pushed off while you read them.
-        side = QVBoxLayout()
+        # The vocabulary and what it reads right now, under the code, side by
+        # side. Each one scrolls in place: the lists are longer than any tile,
+        # and the code above should not be pushed off while you read them.
+        side = QHBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
 
