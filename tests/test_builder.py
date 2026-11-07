@@ -467,11 +467,14 @@ def test_each_tile_offers_presets_before_the_formulas(
 def test_clicking_a_preset_fills_the_tile(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    builder.entry.preset_buttons[0].click()  # Bollinger
+    builder.entry.preset_buttons[0].click()  # Bollinger reversion
     app.processEvents()
     assert builder.entry_formula() == "close < bollinger_lower(close, 20, 2)"
     assert builder.entry_formula_error() == ""
     assert builder.entry_formula_parsed() is not None
+    # Picking a preset goes straight to where the rule can be edited.
+    assert builder.entry_mode() == "formulas"
+    assert builder.entry_pages.currentIndex() == 1
 
     # The multi-line preset comes through whole.
     builder.entry.preset_buttons[5].click()  # Dip + volume

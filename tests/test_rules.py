@@ -180,6 +180,9 @@ def test_presets_fill_the_tile(app: QApplication) -> None:
     app.processEvents()
     assert tile.text() == "pnl >= tp"
     assert tile.error() == ""
+    # It goes straight to the tiles, ready to edit.
+    assert tile.mode() == "formulas"
+    assert tile.pages.currentIndex() == 1
 
     # A preset is an ordinary formula once it lands: editable like any other.
     tile.set_code("pnl >= tp * 0.5")

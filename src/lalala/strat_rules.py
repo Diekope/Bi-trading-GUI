@@ -374,7 +374,9 @@ class RulesTile(Card):
         return page
 
     def _use_preset(self, text: str) -> None:
+        """Load a ready-made rule and go straight to where it can be edited."""
         self.set_text(text)
+        self.set_mode("formulas")
 
     def _formula_page(self) -> QWidget:
         page = QWidget(self)

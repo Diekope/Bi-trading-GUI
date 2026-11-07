@@ -348,8 +348,8 @@ pills, and nothing shared between them.
 
 Each tile has **three tabs** — `Presets`, `Formulas`, `Code` — and starts on
 `Presets`, where ready-made rules are shown as a **gallery**: cards four to a
-row at most, left-aligned, each with a line about the rule. Picking one fills
-the tile and the rule is editable from there like any other. `Formulas` is the
+row at most, left-aligned, each with a line about the rule. Picking one loads
+it and jumps straight to `Formulas`, ready to edit. `Formulas` is the
 drag-and-drop builder and `Code` the same formula as text.
 
 | Tile | Presets |
