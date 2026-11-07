@@ -220,12 +220,9 @@ class FlowLayout(QLayout):
     chip visible instead of clipping the tail.
     """
 
-    def __init__(
-        self, parent=None, margin: int = 0, spacing: int = 4, centered: bool = False
-    ) -> None:
+    def __init__(self, parent=None, margin: int = 0, spacing: int = 4) -> None:
         super().__init__(parent)
         self._items: list = []
-        self._centered = centered
         self.setContentsMargins(margin, margin, margin, margin)
         self.setSpacing(spacing)
 
@@ -317,10 +314,8 @@ class FlowLayout(QLayout):
         spacing = self.spacing()
         y = inner.y()
         rows = self._rows(inner.width())
-        for items, total in rows:
+        for items, _total in rows:
             x = inner.x()
-            if self._centered:
-                x += max(0, (inner.width() - total) // 2)
             height = 0
             for item, hint in items:
                 if apply:
@@ -625,12 +620,10 @@ class DropZone(QWidget):
 class FlowHolder(QWidget):
     """A row of blocks that pins its height to what it wraps to."""
 
-    def __init__(
-        self, parent=None, spacing: int = 5, centered: bool = False
-    ) -> None:
+    def __init__(self, parent=None, spacing: int = 5) -> None:
         super().__init__(parent)
         self.setObjectName("paletteBlocks")
-        self.flow = FlowLayout(self, margin=0, spacing=spacing, centered=centered)
+        self.flow = FlowLayout(self, margin=0, spacing=spacing)
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )

@@ -274,7 +274,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             371 tests: parsing/search/aliases, slug math, candle + book
+tests/             372 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -347,10 +347,10 @@ with its own formula, its own title row of `Presets` / `Formulas` / `Code`
 pills, and nothing shared between them.
 
 Each tile has **three tabs** — `Presets`, `Formulas`, `Code` — and starts on
-`Presets`, where ready-made rules are shown as centred cards with a line about
-each.
-Picking one fills the tile and the rule is editable from there like any other.
-`Formulas` is the drag-and-drop builder and `Code` the same formula as text.
+`Presets`, where ready-made rules are shown as a **gallery**: cards four to a
+row at most, left-aligned, each with a line about the rule. Picking one fills
+the tile and the rule is editable from there like any other. `Formulas` is the
+drag-and-drop builder and `Code` the same formula as text.
 
 | Tile | Presets |
 | --- | --- |

@@ -19,6 +19,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -38,6 +39,10 @@ from lalala.formula_builder import (
     FormulaBuilder,
 )
 from lalala.panels import Card
+
+# A rule usually starts from a ready-made one. The presets are shown as a
+# gallery, this many to a row at most.
+PRESETS_PER_ROW = 4
 
 # The three ways a rule can be reached, in the order they appear: start from a
 # ready-made rule, drag one up, or write it as code.
@@ -74,34 +79,34 @@ ENTRY_PRESETS: tuple = (
     Preset(
         "Bollinger reversion",
         "close < bollinger_lower(close, 20, 2)",
-        "Buys when the close drops below the lower band.",
+        "Below the lower band.",
         "Entry 1",
     ),
     Preset(
         "SMA above",
         "close > sma(close, 20)",
-        "Buys while the close holds above its 20-bar average.",
+        "Above the average.",
     ),
     Preset(
         "Breakout",
         "close >= highest(high, 20)",
-        "Buys a new 20-bar high.",
+        "A new 20-bar high.",
     ),
     Preset(
         "RSI dip",
         "rsi(close, 14) < 30",
-        "Buys an oversold close.",
+        "An oversold close.",
     ),
     Preset(
         "Volume spike",
         "volume > 2 * sma(volume, 50)",
-        "Buys when volume runs twice its average.",
+        "Twice the volume.",
     ),
     Preset(
         "Dip + volume",
         "band = bollinger_lower(close, 20, 2)\n"
         "close < band and volume > sma(volume, 20)",
-        "A dip, but only when volume agrees.",
+        "A dip, with volume.",
     ),
 )
 
@@ -109,28 +114,28 @@ EXIT_PRESETS: tuple = (
     Preset(
         "Take profit",
         "pnl >= tp",
-        "Closes once the trade is up by the target.",
+        "Up by the target.",
     ),
     Preset(
         "Stop loss",
         "pnl <= 0 - sl",
-        "Closes once the trade is down by the stop.",
+        "Down by the stop.",
     ),
     Preset(
         "TP or SL",
         "pnl >= tp or pnl <= 0 - sl",
-        "Closes on either the target or the stop.",
+        "Target or stop.",
         "Exit 1",
     ),
     Preset(
         "Time stop",
         "bars >= 90",
-        "Closes a trade that has been open too long.",
+        "Open too long.",
     ),
     Preset(
         "Target, stop or time",
         "pnl >= tp or pnl <= 0 - sl or bars >= 90",
-        "All three ways out, whichever comes first.",
+        "Whichever comes first.",
     ),
 )
 
@@ -214,33 +219,30 @@ class PresetCard(QFrame):
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
-        self.setMinimumWidth(140)
-        self.setMaximumWidth(240)
+        self.setMinimumWidth(110)
+        self.setMinimumHeight(62)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 3, 7, 3)
-        layout.setSpacing(1)
+        layout.setContentsMargins(7, 5, 7, 5)
+        layout.setSpacing(3)
 
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(6)
-        top.addStretch(1)
         self.label = QLabel(preset.label, self)
         self.label.setObjectName("presetTitle")
+        self.label.setWordWrap(True)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
-        top.addWidget(self.label)
+        layout.addWidget(self.label)
+
         if preset.badge:
             self.badge = QLabel(preset.badge, self)
             self.badge.setObjectName("presetBadge")
+            self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.badge.setAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
-            top.addWidget(self.badge)
-        top.addStretch(1)
-        layout.addLayout(top)
+            layout.addWidget(self.badge)
 
         if preset.note:
             self.note = QLabel(preset.note, self)
@@ -330,7 +332,7 @@ class RulesTile(Card):
     # -- the pages ---------------------------------------------------------
 
     def _presets_page(self) -> QWidget:
-        """The ready-made rules, on a page of their own."""
+        """The ready-made rules, as a gallery of at most four to a row."""
         page = QWidget(self)
         page.setObjectName("entryPage")
         layout = QVBoxLayout(page)
@@ -343,20 +345,31 @@ class RulesTile(Card):
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
-        holder = FlowHolder(page, spacing=6, centered=True)
-        self.preset_holder = holder
+        # A grid, four columns wide. Rows with fewer cards keep their column,
+        # so the run starts at the left edge rather than being centred.
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+        self.preset_holder = grid
         self.preset_buttons: list[PresetCard] = []
-        for preset in self.presets:
-            card = PresetCard(preset, holder)
+        for index, preset in enumerate(self.presets):
+            card = PresetCard(preset, page)
+            card.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
             card.clicked.connect(
                 lambda _checked=False, text=preset.text: self._use_preset(text)
             )
-            holder.flow.addWidget(card)
+            grid.addWidget(card, index // PRESETS_PER_ROW, index % PRESETS_PER_ROW)
             self.preset_buttons.append(card)
-        layout.addWidget(holder)
+        for column in range(PRESETS_PER_ROW):
+            grid.setColumnStretch(column, 1)
+        rows = (len(self.presets) + PRESETS_PER_ROW - 1) // PRESETS_PER_ROW
+        grid.setRowStretch(rows, 1)
+        layout.addLayout(grid)
         layout.addStretch(1)
         return page
 
