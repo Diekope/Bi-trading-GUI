@@ -44,6 +44,9 @@ __all__ = [
     "Report",
     "backtest",
     "bar_context",
+    "curve_drawdown",
+    "curve_return",
+    "curve_sharpe",
     "entry_signals",
     "names_used",
     "evaluate",
@@ -544,6 +547,39 @@ def simulate(
 # -- the whole thing, with something to compare it to -----------------------
 
 
+def curve_return(curve) -> float:
+    """Return since the start of a curve."""
+    if not curve or curve[0] <= 0:
+        return 0.0
+    return curve[-1] / curve[0] - 1.0
+
+
+def curve_sharpe(curve) -> float:
+    """Mean over deviation of the per-bar returns, not annualised."""
+    returns = [
+        value / previous - 1.0
+        for previous, value in zip(curve, curve[1:])
+        if previous > 0
+    ]
+    if len(returns) < 2:
+        return 0.0
+    mean = sum(returns) / len(returns)
+    variance = sum((value - mean) ** 2 for value in returns) / (len(returns) - 1)
+    deviation = variance ** 0.5
+    return mean / deviation if deviation else 0.0
+
+
+def curve_drawdown(curve, capital: float) -> float:
+    """The worst peak-to-trough fall of a curve."""
+    peak = capital
+    worst = 0.0
+    for value in curve:
+        peak = max(peak, value)
+        if peak > 0:
+            worst = min(worst, value / peak - 1.0)
+    return worst
+
+
 @dataclass
 class Report:
     """One run: the curves to draw, and the numbers above them."""
@@ -556,6 +592,8 @@ class Report:
     wins: int
     fees: float = 0.0
     reasons: dict = field(default_factory=dict)
+    random_trades: int = 0
+    random_wins: int = 0
 
     @property
     def reason_shares(self) -> list:
@@ -584,35 +622,24 @@ class Report:
     def win_rate(self) -> float:
         return self.wins / self.trades if self.trades else 0.0
 
+    @property
+    def random_win_rate(self) -> float:
+        return (
+            self.random_wins / self.random_trades
+            if self.random_trades
+            else 0.0
+        )
+
     def return_of(self, curve) -> float:
-        if not curve or curve[0] <= 0:
-            return 0.0
-        return curve[-1] / curve[0] - 1.0
+        return curve_return(curve)
 
     @property
     def sharpe(self) -> float:
-        """Mean over deviation of the per-bar book returns, not annualised."""
-        returns = [
-            curve / previous - 1.0
-            for previous, curve in zip(self.strategy, self.strategy[1:])
-            if previous > 0
-        ]
-        if len(returns) < 2:
-            return 0.0
-        mean = sum(returns) / len(returns)
-        variance = sum((value - mean) ** 2 for value in returns) / (len(returns) - 1)
-        deviation = variance ** 0.5
-        return mean / deviation if deviation else 0.0
+        return curve_sharpe(self.strategy)
 
     @property
     def max_drawdown(self) -> float:
-        peak = self.capital
-        worst = 0.0
-        for value in self.strategy:
-            peak = max(peak, value)
-            if peak > 0:
-                worst = min(worst, value / peak - 1.0)
-        return worst
+        return curve_drawdown(self.strategy, self.capital)
 
 
 FEE = 0.0006
@@ -775,16 +802,28 @@ def backtest(
 
     rng = random.Random(seed)
     picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
-    random_curve, _, _, _ = _walk(closes, picks, exit_, tp, sl, capital, fee)
+    random_curve, random_results, _, _ = _walk(
+        closes, picks, exit_, tp, sl, capital, fee
+    )
 
     hold = [
         capital * (value / first) if value else capital for value in closes
     ]
 
     wins = sum(1 for value in results if value > 0)
+    random_wins = sum(1 for value in random_results if value > 0)
     counts: dict = {}
     for reason in reasons:
         counts[reason] = counts.get(reason, 0) + 1
     return Report(
-        capital, strategy, random_curve, hold, len(results), wins, fees, counts
+        capital,
+        strategy,
+        random_curve,
+        hold,
+        len(results),
+        wins,
+        fees,
+        counts,
+        len(random_results),
+        random_wins,
     )

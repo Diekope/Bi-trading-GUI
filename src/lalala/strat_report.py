@@ -453,22 +453,12 @@ class ReportTile(Card):
         return page
 
     def _compare_page(self) -> QWidget:
-        """Set aside: two runs will sit here side by side."""
-        page = QWidget(self)
-        page.setObjectName("resultsPage")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addStretch(1)
-        self.compare_message = QLabel(
-            "put two runs side by side here", page
-        )
-        self.compare_message.setObjectName("emptyNote")
-        self.compare_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.compare_message.setWordWrap(True)
-        layout.addWidget(self.compare_message, 1)
-        layout.addStretch(1)
-        return page
+        """The compare subwindow: the run against its two stand-ins."""
+        from lalala.strat_compare import ComparePage
+
+        self.compare = ComparePage(self)
+        self.compare_message = self.compare.tags[-1]  # the "+ Add" chip
+        return self.compare
 
     def view(self) -> str:
         return self.current_view
@@ -526,6 +516,9 @@ class ReportTile(Card):
         )
         self.chart.set_report(report)
         self.reasons.set_report(report)
+        self.compare.configure(
+            bars, self.entry_rule, self.exit_rule, report, self.tp, self.sl
+        )
         self.reasons_note.setText(
             f"{report.trades:,} trades · {len(report.reasons)} ways they ended"
             if report.trades
@@ -542,6 +535,7 @@ class ReportTile(Card):
             value.setText("—")
         self.reasons.set_report(None)
         self.reasons_note.setText("no trades yet")
+        self.compare.configure([], None, None, None, self.tp, self.sl)
         for key, caption in (
             ("strategy", "strategy"),
             ("random", "random buy"),

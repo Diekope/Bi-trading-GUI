@@ -539,15 +539,27 @@ back as one tile holding `20` and `2`, not a run of separate chips.
 The tile keeps its `RESULTS` title, with the span under it, and **two
 subwindows** as pills on the right — `Overview` and `Compare` — the way
 `Rules` / `Formula` / `Code` sit in the rules tile. Only one is on show at a
-time; `Overview` is the default, and `Compare` is an empty page set aside for
-putting two runs side by side (the trade list will live in the backtest
-window).
-
-![The results tile on Compare: the empty page set aside for two runs](docs/images/part-report-compare.png)
+time; `Overview` is the default.
 
 `Overview` is a **split**: on the left the six figures in one row, then the
 curve under them; on the right a rail listing **how the trades ended**, one bar
 per reason, most-appearing first.
+
+![The results tile on Compare: the runs, the table, the split and the sweep](docs/images/part-report-compare.png)
+
+`Compare` puts the run beside its two stand-ins, from the same tail of candles:
+
+- a row of **runs** — `Strategy`, `Random buy`, `Buy & hold`, and a `+ Add`
+  placeholder — then the three curves over a **table** of the same figures
+  (`PnL`, `Sharpe`, `Max DD`, `Win rate` for each);
+- a **train / test** handle, reading the first part of the span as the past and
+  the rest as the unknown, with each half's return;
+- a **walk-forward** count over four folds (`1 / 4 positive`);
+- a **TP × SL sweep** as a 5 × 5 heat-map, each cell the return of the run at
+  that take-profit and stop-loss, red through green.
+
+It recomputes only when it is on show, so the walk does not run behind
+`Overview`.
 
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,

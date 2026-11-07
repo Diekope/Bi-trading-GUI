@@ -539,9 +539,68 @@ QPushButton#deleteStrategy[armed="true"]:hover {{
     color: {TEXT};
 }}
 
+/* The compare subwindow: the compared runs, the table and the split. */
+#compareTag {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+}}
+#compareTagText {{
+    color: {TEXT};
+    font-size: 11px;
+}}
+#compareTagAdd {{
+    color: {TEXT_FAINT};
+    font-size: 11px;
+}}
+QLabel#tableHead {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 2px 0 6px 0;
+    border-bottom: 1px solid {BORDER};
+}}
+QLabel#tableMetric {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 3px 0;
+}}
+QLabel#tableCell {{
+    color: {TEXT};
+    font-size: 10px;
+    padding: 3px 0;
+}}
+QLabel#tableCell[tone="up"] {{
+    color: {UP};
+}}
+QLabel#tableCell[tone="down"] {{
+    color: {DOWN};
+}}
+QLabel#tableCell[tone="muted"] {{
+    color: {TEXT_MUTED};
+}}
+QSlider#splitSlider::groove:horizontal {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 3px;
+    height: 6px;
+}}
+QSlider#splitSlider::handle:horizontal {{
+    background-color: {ACCENT};
+    border-radius: 5px;
+    width: 10px;
+    margin: -4px 0;
+}}
+QSlider#splitSlider::sub-page:horizontal {{
+    background-color: {ACCENT_DIM};
+    border-radius: 3px;
+}}
+
 /* The little confirm prompt on top of the window. */
 QDialog#confirmDialog {{
     background-color: {PANEL};
+}}
+QDialog#confirmDialog QLabel {{
+    background-color: transparent;
 }}
 QLabel#confirmTitle {{
     color: {TEXT};

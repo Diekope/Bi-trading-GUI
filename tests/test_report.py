@@ -210,15 +210,20 @@ def test_the_tile_has_overview_and_compare(app: QApplication) -> None:
     assert page.isAncestorOf(tile.chart)
     assert page.isAncestorOf(tile.reasons)
 
-    # Compare is set aside for now; switching shows it, and the switch goes
-    # back.
+    # Compare is the run against its two stand-ins; switching shows it, and
+    # the switch goes back.
     picked: list[str] = []
     tile.view_changed.connect(picked.append)
     tile.view_buttons["compare"].click()
     app.processEvents()
     assert tile.view() == "compare"
     assert tile.pages.currentIndex() == 1
-    assert tile.compare_message.text() == "put two runs side by side here"
+    compare = tile.pages.currentWidget()
+    assert compare is tile.compare
+    assert compare.isAncestorOf(compare.chart)
+    assert [chip.name() for chip in compare.tags] == [
+        "Strategy", "Random buy", "Buy & hold", "+ Add",
+    ]
     assert picked == ["compare"]
 
     tile.set_view("overview")
