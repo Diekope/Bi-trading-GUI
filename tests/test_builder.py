@@ -491,51 +491,6 @@ def test_clicking_a_preset_fills_the_tile(
     assert builder.entry_formula().startswith("band = bollinger_lower")
 
 
-def test_the_strategy_submenu_loads_a_whole_strategy(
-    app: QApplication, builder: StrategyBuilderWindow
-) -> None:
-    from lalala.strat_rules import STRATEGY_LIBRARY
-
-    picker = builder.strategy_picker
-    assert picker.itemText(0) == "load an existing strategy…"
-    assert [picker.itemText(i) for i in range(1, picker.count())] == [
-        strategy.name for strategy in STRATEGY_LIBRARY
-    ]
-    # Nothing is loaded until one is picked.
-    assert builder.name_edit.text() == ""
-
-    # Pick "SMA trend" (index 2).
-    builder._load_strategy(2)
-    app.processEvents()
-    strategy = STRATEGY_LIBRARY[1]
-    assert builder.name_edit.text() == strategy.name
-    assert builder.timeframe.currentText() == strategy.timeframe
-    assert builder.entry_formula() == strategy.entry
-    assert builder.exit_formula() == strategy.exit
-    # Every library strategy checks out in its own tile.
-    assert builder.entry_formula_error() == ""
-    assert builder.exit_formula_error() == ""
-    # It shows what was loaded, on the tiles, not the presets page.
-    assert builder.entry_mode() == "formulas"
-    assert builder.exit_mode() == "formulas"
-    # The picker goes back to its prompt: it is a way in, not a selection.
-    assert picker.currentIndex() == 0
-
-
-def test_every_strategy_in_the_library_is_valid(
-    app: QApplication, builder: StrategyBuilderWindow
-) -> None:
-    from lalala.strat_rules import STRATEGY_LIBRARY
-
-    for index in range(1, builder.strategy_picker.count()):
-        builder._load_strategy(index)
-        app.processEvents()
-        assert builder.entry_formula_error() == "", STRATEGY_LIBRARY[index - 1]
-        assert builder.exit_formula_error() == "", STRATEGY_LIBRARY[index - 1]
-        assert builder.entry_formula_parsed() is not None
-        assert builder.exit_formula_parsed() is not None
-
-
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:

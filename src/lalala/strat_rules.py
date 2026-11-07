@@ -63,16 +63,6 @@ class Preset:
     badge: str = ""
 
 
-@dataclass(frozen=True)
-class Strategy:
-    """A whole strategy: its name, the bar it reads, and both rules."""
-
-    name: str
-    timeframe: str
-    entry: str
-    exit: str
-
-
 # Whole rules to start from, one set per tile. They are ordinary formulas —
 # picking one just fills the tile, and it can be edited from there.
 ENTRY_PRESETS: tuple = (
@@ -139,48 +129,13 @@ EXIT_PRESETS: tuple = (
     ),
 )
 
-# Whole strategies to load in one go: a name, a bar, and both rules. The
-# formulas are ordinary ones, checked by the same parser.
-STRATEGY_LIBRARY: tuple = (
-    Strategy(
-        "Bollinger reversion",
-        "1h",
-        "close < bollinger_lower(close, 20, 2)",
-        "pnl >= tp or pnl <= 0 - sl",
-    ),
-    Strategy(
-        "SMA trend",
-        "1h",
-        "close > sma(close, 50)",
-        "pnl <= 0 - sl",
-    ),
-    Strategy(
-        "Breakout",
-        "15m",
-        "close >= highest(high, 20)",
-        "pnl >= tp",
-    ),
-    Strategy(
-        "RSI dip",
-        "5m",
-        "rsi(close, 14) < 30",
-        "pnl >= tp or pnl <= 0 - sl or bars >= 90",
-    ),
-    Strategy(
-        "Volume pop",
-        "5m",
-        "volume > 2 * sma(volume, 50)",
-        "pnl >= tp or pnl <= 0 - sl",
-    ),
-)
-
 
 class PageStack(QStackedWidget):
     """A stack of pages whose size hints follow the page on show.
 
     A plain `QStackedWidget` reports the largest hint over *all* its pages
     whether or not they are visible, so the tall formula page would inflate
-    the tile's minimum while the code page was the one on screen.
+    the tile's minimum while the presets page was the one on screen.
     """
 
     def _current(self):
@@ -525,8 +480,10 @@ class RulesTile(Card):
 __all__ = [
     "ENTRY_PRESETS",
     "EXIT_PRESETS",
+    "PRESETS_PER_ROW",
     "RULES_MODES",
     "PageStack",
     "Preset",
+    "PresetCard",
     "RulesTile",
 ]

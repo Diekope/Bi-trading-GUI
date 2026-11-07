@@ -125,19 +125,6 @@ QLabel#presetBadge {{
     padding: 1px 7px;
 }}
 
-/* The strategy submenu: a dropdown that fills every field at once. */
-QComboBox#strategyPicker {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    color: {TEXT_MUTED};
-    font-size: 10px;
-    padding: 3px 8px;
-}}
-QComboBox#strategyPicker:hover {{
-    border-color: {ACCENT_DIM};
-    color: {TEXT};
-}}
 #paletteRule {{
     background-color: {BORDER};
     border: none;

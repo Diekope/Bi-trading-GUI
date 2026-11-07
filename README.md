@@ -254,7 +254,7 @@ src/lalala/
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
   strat_builder.py the builder window: strategy, entry and exit rules
-  strat_rules.py   one rules tile: Formulas/Code tabs over one formula
+  strat_rules.py   one rules tile: Presets/Formulas/Code over one formula
   formula.py       the entry/exit formula language: parse and check (no Qt)
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
   strat_results.py the results tile: three live curves, legend underneath
@@ -274,15 +274,15 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             372 tests: parsing/search/aliases, slug math, candle + book
+tests/             369 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
                    whole span, its strategy picker and benchmark curves, the
                    strategy builder window, its locked 21/47/32 columns, its
                    compact STRATEGY tile, the two rules tiles, their presets and
-                   their code
-                   refusal, the drag-and-drop formula builder, the formula
+                   their code refusal, the drag-and-drop formula builder, the
+                   formula
                    language itself, the chart and backtest settings, the
                    silent log, and the candle store and downloader
 
@@ -356,12 +356,6 @@ drag-and-drop builder and `Code` the same formula as text.
 | --- | --- |
 | `ENTRY RULES` | Bollinger reversion, SMA above, Breakout, RSI dip, Volume spike, Dip + volume |
 | `EXIT RULES` | Take profit, Stop loss, TP or SL, Time stop, Target, stop or time |
-
-The **STRATEGY** tile also carries a submenu, `load an existing strategy…`, for
-whole strategies rather than one rule: picking one fills the name, the
-timeframe and *both* rules at once. The five in the library — Bollinger
-reversion, SMA trend, Breakout, RSI dip and Volume pop — are ordinary formulas,
-so they are checked by the same parser as anything typed by hand.
 
 The two read **different vocabularies**:
 
