@@ -67,13 +67,14 @@ def strategy_pnl(entry: str, exit_: str, timeframe: str) -> float | None:
 
 
 class StrategyRow(QFrame):
-    """One saved strategy: its name on the left, its return on the right."""
+    """One saved strategy: its name and bar on the left, its return right."""
 
     clicked = Signal(str)
 
     def __init__(
         self,
         name: str,
+        timeframe: str,
         badge: str,
         colour: str,
         is_draft: bool = False,
@@ -94,7 +95,16 @@ class StrategyRow(QFrame):
 
         self.label = QLabel(name, self)
         self.label.setObjectName("strategyRowName")
-        row.addWidget(self.label, 1)
+        row.addWidget(self.label, 0)
+
+        # The bar it reads, small and quiet, so two strategies of the same
+        # name can still be told apart.
+        self.time_label = QLabel(timeframe, self)
+        self.time_label.setObjectName("strategyRowTime")
+        self.time_label.setFont(mono_font(8))
+        row.addWidget(self.time_label, 0)
+
+        row.addStretch(1)
 
         self.badge = QLabel(badge, self)
         self.badge.setObjectName("strategyRowBadge")
@@ -202,7 +212,14 @@ class StrategyListTile(Card):
                         strategy.entry, strategy.exit, strategy.timeframe
                     )
                 )
-            row = StrategyRow(strategy.name, badge, colour, draft_flag, self)
+            row = StrategyRow(
+                strategy.name,
+                strategy.timeframe,
+                badge,
+                colour,
+                draft_flag,
+                self,
+            )
             row.clicked.connect(self.chosen)
             row.set_selected(strategy.name == current)
             self.rows_layout.insertWidget(insert_at, row)

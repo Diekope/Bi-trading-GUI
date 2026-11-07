@@ -96,6 +96,7 @@ def test_saved_strategies_are_listed_most_recent_first(
     for row in tile.rows:
         assert isinstance(row, StrategyRow)
         assert row.badge.text().endswith("%")
+        assert row.time_label.text() == "1m"
     tile.close()
 
 
@@ -110,11 +111,12 @@ def test_the_draft_shows_among_the_saved_and_is_lit(
     tile.show()
 
     # A named draft that is not saved yet sits at the top, badged "draft".
-    draft = SavedStrategy("Fresh", "1m", "close > sma(close, 5)", "")
+    draft = SavedStrategy("Fresh", "5m", "close > sma(close, 5)", "")
     tile.set_strategies(saved, draft)
     app.processEvents()
     assert [row.name for row in tile.rows] == ["Fresh", "Dip"]
     assert tile.rows[0].badge.text() == DRAFT_BADGE
+    assert tile.rows[0].time_label.text() == "5m"
     assert tile.rows[0].property("selected") is True
     assert tile.rows[1].property("selected") is False
 

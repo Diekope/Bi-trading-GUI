@@ -492,6 +492,13 @@ QLabel#strategyRowName {{
     font-size: 12px;
     font-weight: 600;
 }}
+QLabel#strategyRowTime {{
+    color: {ACCENT};
+    font-size: 9px;
+    padding: 1px 5px;
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 4px;
+}}
 QLabel#strategyRowBadge[tone="up"] {{
     color: {UP};
     font-size: 10px;
