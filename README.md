@@ -333,12 +333,14 @@ nothing in it:
 uv run lalala-builder
 ```
 
-Three vertical tiles side by side, splitting the width **21 / 47 / 32** — a
-narrow rail, the working area, a wider rail — sharing the height and separated
-by the same 8 px gap and nothing else. The split is **locked**: dragging a
-handle does nothing, so the share changes only when the window is resized. The
-tiles lower their minimum width to 120 px so the 21% rail is not clamped by the
-card default.
+Two columns side by side, splitting the width **68 / 32** — the work on the
+left, the report on the right — separated by the same 8 px gap and nothing
+else. The split is **locked**: dragging a handle does nothing, so the share
+changes only when the window is resized.
+
+The work is a vertical split: the small **STRATEGY** tile across the top, and
+under it the two rules tiles **side by side**, sharing that width evenly each
+one three columns wide. The window will not shrink past what those two need.
 
 A **footer** spans the bottom of the window, as in the mock: the draft's name
 on the left, and `Reset` and `Save` on the right. `Reset` clears the draft —
@@ -347,13 +349,14 @@ under its name, replacing an earlier one of the same name rather than piling
 up; it needs a name and rules that check out, and the footer says which is
 missing.
 
-The middle column stacks three tiles. The compact **STRATEGY** tile on top is
-titled `STRATEGY` and holds one row: a text field (`name` as its placeholder)
-taking the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own
-width, defaulting to `1m`. It is only as tall as the title and that row.
+The **STRATEGY** tile across the top is
+`STRATEGY` and holds one row: a text field (`name` as its placeholder) taking
+the slack, and a dropdown of `1m`, `5m`, `15m` and `1h` at its own width,
+defaulting to `1m`. It is only as tall as the title and that row, and it spans
+the whole work area.
 
-Under it, two tiles share the rest of the column **evenly**: **ENTRY RULES**
-and **EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
+Under it, two tiles share the rest **evenly**: **ENTRY RULES** and
+**EXIT RULES**. They are the same widget — `strat_rules.RulesTile` — each
 with its own formula, its own title row of `Rules` / `Formula` / `Code`
 pills, and nothing shared between them.
 
@@ -365,7 +368,7 @@ builder and `Code` the same formula as text.
 
 The `Formula` tab is three columns, as in the mock: **Blocks** on the left —
 a search box over one dashed group per kind (`Data`, `Indicators`, `Maths`,
-`Logic`) — the **Formula** in the middle (variables, the condition line, the
+`Logic` — boxes, not different colours, so the list reads as one surface) — the **Formula** in the middle (variables, the condition line, the
 number box, the text, the status), and the **Selected block** on the right.
 Clicking a chip selects it: the card shows its name, its source and its
 window, all editable, and under them the live values that name reads on the

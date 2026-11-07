@@ -842,9 +842,15 @@ class FormulaBuilder(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
-        root.addWidget(self._blocks_card(), 26)
-        root.addWidget(self._formula_card(), 48)
-        root.addWidget(self._selected_card(), 26)
+        cards = (
+            (self._blocks_card(), 26, 132),
+            (self._formula_card(), 48, 156),
+            (self._selected_card(), 26, 132),
+        )
+        for card, stretch, floor in cards:
+            # A floor, so a narrow tile does not crush a column to a sliver.
+            card.setMinimumWidth(floor)
+            root.addWidget(card, stretch)
 
         self.add_strip()
 

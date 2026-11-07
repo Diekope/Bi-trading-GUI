@@ -330,8 +330,10 @@ QLineEdit#numberEdit:focus {{
 #blocksScroll, #blocksInner, #selectedHolder, #valuesBox {{
     background-color: transparent;
 }}
+/* The groups are boxes, not different colours: the card behind them shows
+   through, so the list reads as one surface. */
 #blockGroup {{
-    background-color: {CANVAS};
+    background-color: transparent;
     border: 1px dashed {BORDER};
     border-radius: 8px;
 }}

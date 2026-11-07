@@ -51,7 +51,7 @@ from lalala.strat_rules import EXIT_PRESETS, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
-COLUMN_SHARES = (0.21, 0.47, 0.32)
+COLUMN_SHARES = (0.68, 0.32)
 
 # The bar the strategy reads, one of the compactions the store supports.
 TIMEFRAMES = ("1m", "5m", "15m", "1h")
@@ -92,7 +92,8 @@ class StrategyBuilderWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("lalala · create a strategy")
-        self.setMinimumSize(560, 560)
+        # Two rules tiles of three columns each, plus the report.
+        self.setMinimumSize(1040, 620)
         self.resize(1280, 960)
 
         canvas = QWidget(self)
@@ -104,36 +105,40 @@ class StrategyBuilderWindow(QMainWindow):
         layout.setContentsMargins(CARD_GAP, CARD_GAP, CARD_GAP, CARD_GAP)
         layout.setSpacing(CARD_GAP)
 
-        # Vertical split: three tiles side by side, the gap doing the dividing
-        # rather than a drawn line. The handles are locked: the 21/47/32 share
-        # is fixed, and changes only when the window does.
+        # Two columns: the work on the left, the report on the right. The
+        # handles are locked: the share is fixed, and changes only when the
+        # window does.
         self.splitter = LockedSplitter(Qt.Orientation.Horizontal, canvas)
         self.splitter.setObjectName("builderSplitter")
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(CARD_GAP)
 
-        self.left = Card(self.splitter)
-        # The middle column is a vertical split of three tiles, not one tile
-        # divided: each has its own card chrome, separated by the same gap.
-        self.center = QSplitter(Qt.Orientation.Vertical, self.splitter)
-        self.center.setObjectName("builderMiddleSplit")
-        self.center.setChildrenCollapsible(False)
-        self.center.setHandleWidth(CARD_GAP)
+        # The work is a vertical split: the small naming tile across the top,
+        # then the two rules tiles side by side under it.
+        self.work = QSplitter(Qt.Orientation.Vertical, self.splitter)
+        self.work.setObjectName("builderWork")
+        self.work.setChildrenCollapsible(False)
+        self.work.setHandleWidth(CARD_GAP)
 
-        self.strategy_tile = Card(self.center)
-        self.entry_tile = RulesTile("ENTRY RULES", self.center)
+        self.rules = QSplitter(Qt.Orientation.Horizontal, self.work)
+        self.rules.setObjectName("builderRules")
+        self.rules.setChildrenCollapsible(False)
+        self.rules.setHandleWidth(CARD_GAP)
+
+        self.strategy_tile = Card(self.work)
+        self.entry_tile = RulesTile("ENTRY RULES", self.rules)
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
         self.exit_tile = RulesTile(
             "EXIT RULES",
-            self.center,
+            self.rules,
             palettes=EXIT_PALETTES,
             fields=EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
             presets=EXIT_PRESETS,
         )
-        # The right rail reports what the rule did over the candles on disk.
+        # The right side reports what the rule did over the candles on disk.
         self.report = ReportTile(self.splitter)
         self.right = self.report
 
@@ -189,24 +194,29 @@ class StrategyBuilderWindow(QMainWindow):
         self.timeframe.currentTextChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._describe_draft)
 
-        for tile in (self.strategy_tile, self.entry_tile, self.exit_tile):
-            self.center.addWidget(tile)
-            tile.setMinimumWidth(120)
-        self.center.setStretchFactor(0, 0)
-        self.center.setStretchFactor(1, 0)   # entry: only the height it needs
-        self.center.setStretchFactor(2, 1)   # exit: takes the rest
+        # The naming tile is small and spans the top; the two rules sit under
+        # it, side by side, each keeping only the width it can use.
+        self.work.addWidget(self.strategy_tile)
+        self.work.addWidget(self.rules)
+        self.rules.addWidget(self.entry_tile)
+        self.rules.addWidget(self.exit_tile)
+        self.strategy_tile.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self.work.setStretchFactor(0, 0)   # naming: its own small height
+        self.work.setStretchFactor(1, 1)   # the rules take the rest
+        self.rules.setStretchFactor(0, 1)
+        self.rules.setStretchFactor(1, 1)
         self._column_set = False
         self._fit_pending = False
         self.entry_tile.installEventFilter(self)
         self.exit_tile.installEventFilter(self)
 
-        for column in (self.left, self.center, self.right):
+        for column in (self.work, self.report):
             self.splitter.addWidget(column)
-            # The card's default floor is too high for a 21% rail: it would
-            # win the argument with the proportions at ordinary widths.
-            column.setMinimumWidth(120)
-        for column in range(3):
-            self.splitter.setStretchFactor(column, 1)
+            column.setMinimumWidth(160)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 0)
         self._proportions_set = False
 
         layout.addWidget(self.splitter, 1)
@@ -327,10 +337,9 @@ class StrategyBuilderWindow(QMainWindow):
 
     def column_sizes(self) -> list[int]:
         """Pixel widths that satisfy `COLUMN_SHARES`, in the current width."""
-        usable = max(3, self.splitter.width() - 2 * CARD_GAP)
-        left = round(usable * COLUMN_SHARES[0])
-        middle = round(usable * COLUMN_SHARES[1])
-        return [left, middle, usable - left - middle]
+        usable = max(3, self.splitter.width() - CARD_GAP)
+        work = round(usable * COLUMN_SHARES[0])
+        return [work, usable - work]
 
     def entry_mode(self) -> str:
         """Which entry editor is showing."""
@@ -370,24 +379,33 @@ class StrategyBuilderWindow(QMainWindow):
 
     def _maybe_fit(self) -> None:
         self._fit_pending = False
+        # The work and the report keep their exact share of the width.
+        columns = self.column_sizes()
+        if self.splitter.sizes() != columns and self.splitter.width() > 0:
+            self.splitter.setSizes(columns)
+
+        # The naming tile across the top, the rules taking the rest of the
+        # work area, and the two rules sharing that width evenly.
         top = self.strategy_tile.sizeHint().height()
-        available = max(0, self.center.height() - top - 2 * CARD_GAP)
-        # The two rules tiles share the column evenly.
-        entry = available // 2
-        exit_ = available - entry
-        sizes = self.center.sizes()
-        wanted = [top, entry, exit_]
-        if len(sizes) == 3 and all(
-            abs(sizes[i] - wanted[i]) <= 1 for i in range(3)
+        rest = max(0, self.work.height() - top - CARD_GAP)
+        heights = self.work.sizes()
+        wanted = [top, rest]
+        if len(heights) != 2 or any(
+            abs(heights[i] - wanted[i]) > 1 for i in range(2)
         ):
-            return
-        self.center.setSizes(wanted)
+            self.work.setSizes(wanted)
+
+        width = self.rules.width()
+        half = width // 2
+        widths = [half, width - half]
+        if self.rules.sizes() != widths and width > 0:
+            self.rules.setSizes(widths)
 
     def _fit_column(self) -> None:
-        """The two rules tiles share the middle column evenly.
+        """The naming tile keeps its height; the two rules share what is left.
 
-        The strategy tile keeps only the height its content needs; everything
-        below it is split half and half between entry and exit.
+        Both rules tiles are the same width, side by side, and the report keeps
+        the right-hand column.
         """
         self._maybe_fit()
 
