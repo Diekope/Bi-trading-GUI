@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from lalala.candles import candle_file, tail_rows
 from lalala.cards import mono_font
-from lalala.formula_eval import backtest
+from lalala.formula_eval import backtest, watch_values
 from lalala.panels import Card
 from lalala.theme import ACCENT, BAND, BORDER, TEXT, TEXT_FAINT, TEXT_MUTED, UP, DOWN
 
@@ -270,6 +270,9 @@ class ReportTile(Card):
         self.resolution = "1h"
         self.tp = PREVIEW_TP
         self.sl = PREVIEW_SL
+        # What the rule's names read on the newest bar, for the panel beside
+        # the editor: (values, result).
+        self.watch: tuple = ({}, None)
 
     # -- what to show ------------------------------------------------------
 
@@ -288,11 +291,14 @@ class ReportTile(Card):
     def refresh(self) -> None:
         bars, year = load_bars(self.resolution)
         if not bars:
+            self.watch = ({}, None)
             self._clear("no candles on disk — download history in the backtest window")
             return
         if self.entry_rule is None or self.entry_rule.condition is None:
+            self.watch = ({}, None)
             self._clear(f"{year} · {self.resolution} — no entry rule yet")
             return
+        self.watch = watch_values(self.entry_rule, bars)
 
         report = backtest(
             bars,

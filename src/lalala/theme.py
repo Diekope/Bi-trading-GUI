@@ -321,6 +321,76 @@ QLineEdit#numberEdit {{
 QLineEdit#numberEdit:focus {{
     border-color: {ACCENT};
 }}
+/* -- the builder's three columns ------------------------------------- */
+#formulaCard, #selectedCard {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+}}
+#blocksScroll, #blocksInner, #selectedHolder, #valuesBox {{
+    background-color: transparent;
+}}
+#blockGroup {{
+    background-color: {CANVAS};
+    border: 1px dashed {BORDER};
+    border-radius: 8px;
+}}
+QLabel#panelTitle {{
+    color: {TEXT};
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QLabel#groupLabel {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+}}
+QLineEdit#searchEdit {{
+    background-color: {CANVAS};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 5px 8px;
+}}
+QLineEdit#searchEdit:focus {{
+    border-color: {ACCENT};
+}}
+QLabel#selectedName {{
+    color: {ACCENT};
+    font-size: 11px;
+    font-weight: bold;
+    padding: 1px 0;
+}}
+QComboBox#sourceSelect {{
+    background-color: {CANVAS};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 4px 8px;
+}}
+QLabel#valueKey {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    font-family: monospace;
+}}
+QLabel#valueNumber {{
+    color: {TEXT};
+    font-size: 10px;
+    font-family: monospace;
+}}
+QLabel#valueResult[state="on"] {{
+    color: {UP};
+    font-size: 10px;
+    font-weight: bold;
+}}
+QLabel#valueResult[state="off"] {{
+    color: {DOWN};
+    font-size: 10px;
+    font-weight: bold;
+}}
+
 QLabel#draftLabel {{
     color: {TEXT_MUTED};
     font-size: 10px;

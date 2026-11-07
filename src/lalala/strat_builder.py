@@ -294,6 +294,9 @@ class StrategyBuilderWindow(QMainWindow):
             self.exit.parsed(),
             self.timeframe.currentText(),
         )
+        # The panel beside the editor shows the newest bar's numbers.
+        values, result = self.report.watch
+        self.entry.set_values(values, result)
 
     def entry_formula(self) -> str:
         """The entry formula text the tiles add up to."""

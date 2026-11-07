@@ -277,7 +277,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             415 tests: parsing/search/aliases, slug math, candle + book
+tests/             422 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -362,6 +362,17 @@ Each tile has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
 at most, left-aligned, each with a line about the rule. Picking one loads it and
 jumps straight to `Formula`, ready to edit. `Formula` is the drag-and-drop
 builder and `Code` the same formula as text.
+
+The `Formula` tab is three columns, as in the mock: **Blocks** on the left —
+a search box over one dashed group per kind (`Data`, `Indicators`, `Maths`,
+`Logic`) — the **Formula** in the middle (variables, the condition line, the
+number box, the text, the status), and the **Selected block** on the right.
+Clicking a chip selects it: the card shows its name, its source and its
+window, all editable, and under them the live values that name reads on the
+newest bar, with the rule's result.
+
+The `Code` tab is the code on the left and two cards beside it: `Variables`,
+the whole vocabulary with its types, and `Values`, the same last-bar numbers.
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,
 `liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they

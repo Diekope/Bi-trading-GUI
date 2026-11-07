@@ -44,6 +44,19 @@ def store(tmp_path, monkeypatch):
     candles._ROW_CACHE.clear()
 
 
+def _write_candles(year: int, count: int) -> None:
+    """A little history for the report to read."""
+    from lalala import candles
+    from lalala.candles import append_rows, candle_file
+
+    rows = []
+    for index in range(count):
+        price = 100.0 + (index % 20)
+        rows.append((index * 60_000, price, price + 1, price - 1, price, 1.0))
+    append_rows(candle_file(year), rows)
+    candles._ROW_CACHE.clear()
+
+
 @pytest.fixture
 def builder(app: QApplication) -> StrategyBuilderWindow:
     window = StrategyBuilderWindow()
@@ -395,7 +408,7 @@ def test_the_exit_tile_reads_the_trade_and_takes_no_indicators(
     exit_groups = [title for title, _ in EXIT_PALETTES]
     assert "Indicators" in entry_groups
     assert "Indicators" not in exit_groups
-    assert exit_groups == ["Trade", "Logic & Maths"]
+    assert exit_groups == ["Trade", "Maths", "Logic"]
     assert list(builder.exit.formula.blocks) == exit_groups
 
     labels = [block.item.label for block in builder.exit.formula.blocks["Trade"]]
@@ -596,6 +609,49 @@ def test_saving_needs_a_name_and_a_sound_rule(
     builder.save_button.click()
     app.processEvents()
     assert "fix the rules" in builder.draft.text()
+
+
+def test_the_code_page_has_the_vocabulary_and_the_values(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    builder.mode_buttons["code"].click()
+    app.processEvents()
+
+    # The vocabulary names every word the rule may use.
+    texts = [
+        label.text()
+        for label in builder.entry_tile.findChildren(QLabel)
+    ]
+    assert "VARIABLES" in texts and "VALUES" in texts
+    assert "close" in texts and "model_p" in texts
+    assert "sma()" in texts and "zscore()" in texts
+
+    # The values beside it are the newest bar's, with the rule's verdict.
+    _write_candles(2021, 200)
+    builder.set_entry_formula("z = zscore(close, 20)\nz < 0 - 2 and close > 0")
+    builder._sync_report()
+    app.processEvents()
+    values = {
+        label.text()
+        for label in builder.entry.code_values.findChildren(QLabel)
+    }
+    assert "close" in values and "z" in values
+    assert "result" in values
+
+
+def test_the_live_values_reach_both_panels(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    _write_candles(2021, 200)
+    builder.set_entry_formula("close > 0")
+    builder._sync_report()
+    app.processEvents()
+
+    values, result = builder.report.watch
+    assert values.get("close") is not None
+    # The panel beside the editor has them, and so does the code tab.
+    assert builder.entry.formula.values.get("close") == values["close"]
+    assert builder.entry.formula.result is result
 
 
 def test_the_exit_tile_has_the_same_tabs_as_the_entry(

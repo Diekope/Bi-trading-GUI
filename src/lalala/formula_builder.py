@@ -29,12 +29,14 @@ from PySide6.QtCore import QMimeData, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -78,27 +80,31 @@ class Item:
     missing: bool = False      # named, but nothing here carries it
 
 
-LOGIC_ITEMS: tuple = (
-    Item("AND", ("and",)),
-    Item("OR", ("or",)),
-    Item("NOT", ("not",)),
-    Item("=", ("=",), "assigns the line above to a name"),
-    Item("(", ("(",)),
-    Item(")", (")",)),
-    Item(",", (",",)),
+MATHS_ITEMS: tuple = (
     Item("+", ("+",)),
     Item("−", ("-",)),
     Item("×", ("*",)),
     Item("÷", ("/",)),
     Item("%", ("%",)),
     Item("^", ("^",)),
-    Item("log", ("log",), "natural log"),
+    Item("(", ("(",)),
+    Item(")", (")",)),
+    Item(",", (",",)),
+    Item("=", ("=",), "assigns the line above to a name"),
     Item("<", ("<",)),
     Item("<=", ("<=",)),
     Item(">", (">",)),
     Item(">=", (">=",)),
     Item("==", ("==",)),
     Item("!=", ("!=",)),
+    Item("abs", note="abs(close)", call=("abs", "close", (), "abs")),
+    Item("log", note="log(close)", call=("log", "close", (), "log")),
+)
+
+LOGIC_ITEMS: tuple = (
+    Item("AND", ("and",)),
+    Item("OR", ("or",)),
+    Item("NOT", ("not",)),
 )
 
 
@@ -138,7 +144,8 @@ PALETTES: tuple = (
             Item("zscore", note="zscore(close, period)", call=("zscore", "close", ("20",), "zscore")),
         ),
     ),
-    ("Logic & Maths", LOGIC_ITEMS),
+    ("Maths", MATHS_ITEMS),
+    ("Logic", LOGIC_ITEMS),
 )
 
 # An exit rule sees the open trade, not the bar, and takes no indicators.
@@ -154,7 +161,8 @@ EXIT_PALETTES: tuple = (
             Item("bars", ("bars",), "bars the trade has been open"),
         ),
     ),
-    ("Logic & Maths", LOGIC_ITEMS),
+    ("Maths", MATHS_ITEMS),
+    ("Logic", LOGIC_ITEMS),
 )
 
 
@@ -494,6 +502,9 @@ class Chip(QFrame):
         if self._press is not None and self.is_slot():
             # A click, not a drag, on a slot: arm it for the number box.
             self.builder.arm_slot(self)
+        elif self._press is not None:
+            # A click on any other chip shows it in the card beside the rule.
+            self.builder.select_chip(self)
         self._press = None
 
     # -- dropping into a slot ---------------------------------------------
@@ -821,60 +832,96 @@ class FormulaBuilder(QWidget):
         self.strips: list[ChipStrip] = []
         self.active: ChipStrip | None = None
         self.armed: Chip | None = None
+        self.selected: Chip | None = None
+        self.values: dict = {}
+        self.result = None
         self._parsed = None
 
-        root = QVBoxLayout(self)
+        # Three columns, as in the mock: the blocks to drag, the formula being
+        # built, and whatever block is selected.
+        root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(6)
-        root.addWidget(self._palettes())
-        root.addWidget(self._canvas(), 1)
+        root.setSpacing(8)
+        root.addWidget(self._blocks_card(), 26)
+        root.addWidget(self._formula_card(), 48)
+        root.addWidget(self._selected_card(), 26)
 
         self.add_strip()
 
-    # -- the palette card --------------------------------------------------
+    # -- the blocks card ---------------------------------------------------
 
-    def _palettes(self) -> QWidget:
+    def _blocks_card(self) -> QWidget:
+        """The sources: a search box, then one dashed group per kind."""
         box = QFrame(self)
         box.setObjectName("formulaPalette")
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(box)
-        outer.setContentsMargins(10, 6, 10, 6)
-        outer.setSpacing(5)
+        outer.setContentsMargins(10, 8, 10, 8)
+        outer.setSpacing(8)
+
+        title = QLabel("BLOCKS", box)
+        title.setObjectName("panelTitle")
+        outer.addWidget(title)
+
+        self.search_edit = QLineEdit(box)
+        self.search_edit.setObjectName("searchEdit")
+        self.search_edit.setPlaceholderText("search a block…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._filter_blocks)
+        outer.addWidget(self.search_edit)
 
         self.blocks: dict[str, list[PaletteBlock]] = {}
-        for title, items in self.palette:
-            outer.addLayout(self._palette_row(box, title, items))
-
-        rule = QFrame(box)
-        rule.setObjectName("paletteRule")
-        rule.setFrameShape(QFrame.Shape.HLine)
-        rule.setFixedHeight(1)
-        outer.addWidget(rule)
-
-        outer.addLayout(self._number_row(box))
+        scroll = QScrollArea(box)
+        scroll.setObjectName("blocksScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("blocksInner")
+        column = QVBoxLayout(inner)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+        for group, items in self.palette:
+            column.addWidget(self._block_group(inner, group, items))
+        column.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
         return box
 
-    def _palette_row(
-        self, parent: QWidget, title: str, items: tuple
-    ) -> QHBoxLayout:
-        """A caption, then the blocks of one group, side by side and wrapping."""
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        caption = QLabel(title.upper(), parent)
-        caption.setObjectName("paletteTitle")
-        caption.setFixedWidth(72)
-        row.addWidget(caption, 0, Qt.AlignmentFlag.AlignTop)
+    def _block_group(self, parent: QWidget, title: str, items: tuple) -> QWidget:
+        """One dashed group: its caption, then its blocks, wrapping."""
+        frame = QFrame(parent)
+        frame.setObjectName("blockGroup")
+        frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(9, 7, 9, 9)
+        layout.setSpacing(6)
 
-        holder = FlowHolder(parent, spacing=4)
+        caption = QLabel(title.upper(), frame)
+        caption.setObjectName("paletteTitle")
+        layout.addWidget(caption)
+
+        holder = FlowHolder(frame, spacing=4)
         blocks: list[PaletteBlock] = []
         for item in items:
             block = PaletteBlock(item, holder)
             holder.flow.addWidget(block)
             blocks.append(block)
         self.blocks[title] = blocks
-        row.addWidget(holder, 1)
-        return row
+        layout.addWidget(holder)
+        return frame
+
+    def _filter_blocks(self, text: str) -> None:
+        """Hide blocks whose label does not contain what was typed."""
+        want = text.strip().lower()
+        for blocks in self.blocks.values():
+            for block in blocks:
+                block.setVisible(not want or want in block.item.label.lower())
+        for frame in self.findChildren(QFrame, "blockGroup"):
+            visible = any(
+                child.isVisible()
+                for child in frame.findChildren(PaletteBlock)
+            )
+            frame.setVisible(visible or not want)
 
     def _number_row(self, parent: QWidget) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -907,15 +954,24 @@ class FormulaBuilder(QWidget):
 
     # -- the canvas --------------------------------------------------------
 
-    def _canvas(self) -> QWidget:
-        box = QWidget(self)
-        box.setObjectName("formulaCanvas")
+    def _formula_card(self) -> QWidget:
+        box = QFrame(self)
+        box.setObjectName("formulaCard")
+        box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
+
+        title = QLabel("FORMULA", box)
+        title.setObjectName("panelTitle")
+        layout.addWidget(title)
+
+        variables = QLabel("Variables", box)
+        variables.setObjectName("groupLabel")
+        layout.addWidget(variables)
 
         # The lines hug their content: any slack goes to the bottom of the
-        # tile, not into a gap between the lines and the buttons.
+        # card, not into a gap between the lines and the buttons.
         self.strip_layout = QVBoxLayout()
         self.strip_layout.setContentsMargins(0, 0, 0, 0)
         self.strip_layout.setSpacing(4)
@@ -929,6 +985,8 @@ class FormulaBuilder(QWidget):
         )
         self.add_line_button.clicked.connect(lambda: self.add_strip())
         layout.addWidget(self.add_line_button)
+
+        layout.addLayout(self._number_row(box))
 
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
@@ -958,6 +1016,162 @@ class FormulaBuilder(QWidget):
         layout.addWidget(self.warning_label)
         layout.addStretch(1)
         return box
+
+    # -- the selected block ------------------------------------------------
+
+    def _selected_card(self) -> QWidget:
+        """The block that is selected, its parameters, and its live value."""
+        box = QFrame(self)
+        box.setObjectName("selectedCard")
+        box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
+
+        title = QLabel("SELECTED BLOCK", box)
+        title.setObjectName("panelTitle")
+        layout.addWidget(title)
+
+        self.selected_holder = QWidget(box)
+        self.selected_holder.setObjectName("selectedHolder")
+        self.selected_layout = QVBoxLayout(self.selected_holder)
+        self.selected_layout.setContentsMargins(0, 0, 0, 0)
+        self.selected_layout.setSpacing(6)
+        layout.addWidget(self.selected_holder)
+
+        self.values_title = QLabel("LIVE VALUES", box)
+        self.values_title.setObjectName("panelTitle")
+        layout.addWidget(self.values_title)
+
+        self.values_box = QWidget(box)
+        self.values_box.setObjectName("valuesBox")
+        self.values_layout = QVBoxLayout(self.values_box)
+        self.values_layout.setContentsMargins(0, 0, 0, 0)
+        self.values_layout.setSpacing(0)
+        layout.addWidget(self.values_box)
+        layout.addStretch(1)
+
+        self._refresh_selected()
+        return box
+
+    def _clear_layout(self, layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _refresh_selected(self) -> None:
+        """Rebuild the selected-block card and the live values under it."""
+        if not hasattr(self, "selected_layout"):
+            return
+        self._clear_layout(self.selected_layout)
+        self._clear_layout(self.values_layout)
+
+        chip = self.selected
+        if chip is None:
+            hint = QLabel("pick a block in a line to see it here", self)
+            hint.setObjectName("hintLabel")
+            hint.setWordWrap(True)
+            self.selected_layout.addWidget(hint)
+        else:
+            name = chip.tokens()[0] if chip.tokens() else "—"
+            badge = QLabel(str(name), self)
+            badge.setObjectName("selectedName")
+            self.selected_layout.addWidget(badge)
+
+            if isinstance(chip, CallChip):
+                # Its source, then one field per number it carries.
+                label = QLabel("Source", self)
+                label.setObjectName("fieldLabel")
+                self.selected_layout.addWidget(label)
+                source = QComboBox(self)
+                source.setObjectName("sourceSelect")
+                source.addItems(FIELDS)
+                source.setCurrentText(chip.series)
+                source.currentTextChanged.connect(
+                    lambda text, chip=chip: self._set_series(chip, text)
+                )
+                self.selected_layout.addWidget(source)
+                for index, field in enumerate(chip.fields):
+                    number = QLabel(
+                        "Window" if index == 0 else "Value", self
+                    )
+                    number.setObjectName("fieldLabel")
+                    self.selected_layout.addWidget(number)
+                    entry = QLineEdit(field.text(), self)
+                    entry.setObjectName("numberEdit")
+                    entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+                    entry.textChanged.connect(
+                        lambda text, field=field: field.setText(text)
+                    )
+                    self.selected_layout.addWidget(entry)
+            elif chip.is_slot():
+                hint = QLabel(
+                    "an empty slot: type a value to fill it", self
+                )
+                hint.setObjectName("hintLabel")
+                hint.setWordWrap(True)
+                self.selected_layout.addWidget(hint)
+
+        # The live values: what the rule's own names read on the newest bar.
+        if not self.values:
+            empty = QLabel("no values yet — the report fills these", self)
+            empty.setObjectName("hintLabel")
+            empty.setWordWrap(True)
+            self.values_layout.addWidget(empty)
+            return
+        for name, value in self.values.items():
+            row = QWidget(self.values_box)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 3, 0, 3)
+            line.setSpacing(6)
+            key = QLabel(name, row)
+            key.setObjectName("valueKey")
+            shown = QLabel(
+                "—" if value is None else f"{value:,.4g}", row
+            )
+            shown.setObjectName("valueNumber")
+            line.addWidget(key, 1)
+            line.addWidget(shown)
+            self.values_layout.addWidget(row)
+        if self.result is not None:
+            row = QWidget(self.values_box)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 3, 0, 3)
+            line.setSpacing(6)
+            key = QLabel("result", row)
+            key.setObjectName("valueKey")
+            shown = QLabel("TRUE" if self.result else "FALSE", row)
+            shown.setObjectName("valueResult")
+            shown.setProperty("state", "on" if self.result else "off")
+            line.addWidget(key, 1)
+            line.addWidget(shown)
+            self.values_layout.addWidget(row)
+
+    def _set_series(self, chip: CallChip, series: str) -> None:
+        if chip.series != series:
+            chip.series = series
+            self._refresh()
+            self.changed.emit()
+
+    def select_chip(self, chip: Chip | None) -> None:
+        """Show a block in the card beside the formula."""
+        self.selected = chip
+        self._refresh_selected()
+
+    def selected_name(self) -> str:
+        if self.selected is None:
+            return ""
+        tokens = self.selected.tokens()
+        return tokens[0] if tokens else ""
+
+    def set_values(self, values: dict, result=None) -> None:
+        """The last bar's numbers, pushed in by whoever ran the rule."""
+        self.values = dict(values or {})
+        self.result = result
+        self._refresh_selected()
 
     # -- lines -------------------------------------------------------------
 
@@ -1018,6 +1232,8 @@ class FormulaBuilder(QWidget):
         if chip.strip is None:
             return
         chip.strip.remove_chip(chip)
+        if self.selected is chip:
+            self.select_chip(None)
         self._refresh()
         self.changed.emit()
 

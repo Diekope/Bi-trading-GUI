@@ -356,36 +356,149 @@ class RulesTile(Card):
         return page
 
     def _code_page(self) -> QWidget:
+        """The code on the left, its vocabulary and its values on the right."""
         page = QWidget(self)
         page.setObjectName("entryPage")
-        layout = QVBoxLayout(page)
+        layout = QHBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
 
-        self.code_edit = QPlainTextEdit(page)
+        # The code itself, in a card.
+        code_card = QFrame(page)
+        code_card.setObjectName("formulaCard")
+        code_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        code_layout = QVBoxLayout(code_card)
+        code_layout.setContentsMargins(10, 8, 10, 8)
+        code_layout.setSpacing(6)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(8)
+        title = QLabel("formula.txt", code_card)
+        title.setObjectName("panelTitle")
+        head.addWidget(title)
+        head.addStretch(1)
+        note = QLabel("the code the tiles stand for — editable", code_card)
+        note.setObjectName("groupLabel")
+        head.addWidget(note)
+        code_layout.addLayout(head)
+
+        self.code_edit = QPlainTextEdit(code_card)
         self.code_edit.setObjectName("codeEdit")
         self.code_edit.setFont(mono_font(9))
         self.code_edit.setTabChangesFocus(True)
-        self.code_edit.setMinimumHeight(96)
         self.code_edit.setPlaceholderText(self.placeholder)
         self.code_edit.setToolTip(
             "one condition, optionally after `name = …` lines"
         )
         self.code_edit.textChanged.connect(self._code_edited)
+        code_layout.addWidget(self.code_edit, 1)
 
-        self.code_error = QLabel("", page)
+        self.code_error = QLabel("", code_card)
         self.code_error.setObjectName("formulaError")
         self.code_error.setWordWrap(True)
         self.code_note = QLabel(
-            "the code the tiles stand for — edit it and the tiles follow", page
+            "edit it and the tiles follow; a line the language cannot read is "
+            "refused",
+            code_card,
         )
         self.code_note.setObjectName("hintLabel")
         self.code_note.setWordWrap(True)
+        code_layout.addWidget(self.code_error)
+        code_layout.addWidget(self.code_note)
+        layout.addWidget(code_card, 62)
 
-        layout.addWidget(self.code_edit, 1)
-        layout.addWidget(self.code_error)
-        layout.addWidget(self.code_note)
+        # The vocabulary, and what it reads right now.
+        side = QVBoxLayout()
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(8)
+
+        vocab = QFrame(page)
+        vocab.setObjectName("selectedCard")
+        vocab.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        vocab_layout = QVBoxLayout(vocab)
+        vocab_layout.setContentsMargins(10, 8, 10, 8)
+        vocab_layout.setSpacing(4)
+        vocab_title = QLabel("VARIABLES", vocab)
+        vocab_title.setObjectName("panelTitle")
+        vocab_layout.addWidget(vocab_title)
+        for name in self.fields:
+            vocab_layout.addWidget(
+                self._variable_row(vocab, name, "float")
+            )
+        for name in sorted(self.functions):
+            vocab_layout.addWidget(
+                self._variable_row(vocab, f"{name}()", "function")
+            )
+        vocab_layout.addStretch(1)
+        side.addWidget(vocab, 3)
+
+        values_card = QFrame(page)
+        values_card.setObjectName("selectedCard")
+        values_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        values_layout = QVBoxLayout(values_card)
+        values_layout.setContentsMargins(10, 8, 10, 8)
+        values_layout.setSpacing(4)
+        values_title = QLabel("VALUES", values_card)
+        values_title.setObjectName("panelTitle")
+        values_layout.addWidget(values_title)
+        self.code_values = QWidget(values_card)
+        self.code_values.setObjectName("valuesBox")
+        self.code_values_layout = QVBoxLayout(self.code_values)
+        self.code_values_layout.setContentsMargins(0, 0, 0, 0)
+        self.code_values_layout.setSpacing(0)
+        values_layout.addWidget(self.code_values)
+        values_layout.addStretch(1)
+        side.addWidget(values_card, 2)
+        layout.addLayout(side, 38)
         return page
+
+    def _variable_row(self, parent: QWidget, name: str, kind: str) -> QWidget:
+        row = QWidget(parent)
+        line = QHBoxLayout(row)
+        line.setContentsMargins(0, 2, 0, 2)
+        line.setSpacing(6)
+        key = QLabel(name, row)
+        key.setObjectName("valueKey")
+        shown = QLabel(kind, row)
+        shown.setObjectName("groupLabel")
+        line.addWidget(key, 1)
+        line.addWidget(shown)
+        return row
+
+    def _refresh_code_values(self) -> None:
+        """The newest bar's numbers, under the vocabulary."""
+        if not hasattr(self, "code_values_layout"):
+            return
+        while self.code_values_layout.count():
+            item = self.code_values_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        values, result = self.formula.values, self.formula.result
+        for name, value in values.items():
+            shown = "—" if value is None else f"{value:,.4g}"
+            self.code_values_layout.addWidget(
+                self._variable_row(self.code_values, name, shown)
+            )
+        if result is not None:
+            row = QWidget(self.code_values)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 2, 0, 2)
+            key = QLabel("result", row)
+            key.setObjectName("valueKey")
+            shown = QLabel("TRUE" if result else "FALSE", row)
+            shown.setObjectName("valueResult")
+            shown.setProperty("state", "on" if result else "off")
+            line.addWidget(key, 1)
+            line.addWidget(shown)
+            self.code_values_layout.addWidget(row)
+
+    def set_values(self, values, result=None) -> None:
+        """What the rule reads on the newest bar, for both panels."""
+        self.formula.set_values(values, result)
+        self._refresh_code_values()
 
     # -- mode --------------------------------------------------------------
 

@@ -39,8 +39,10 @@ __all__ = [
     "backtest",
     "bar_context",
     "entry_signals",
+    "names_used",
     "evaluate",
     "evaluate_scalar",
+    "watch_values",
     "simulate",
 ]
 
@@ -420,6 +422,60 @@ def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
         return []
     values = evaluate(formula, bar_context(bars, fields))
     return [index for index, value in enumerate(values) if _truth(value)]
+
+
+def names_used(formula: Formula) -> list:
+    """Every name the formula mentions, fields and variables alike."""
+    seen: list = []
+
+    def walk(node) -> None:
+        if isinstance(node, Name):
+            if node.name not in seen:
+                seen.append(node.name)
+            return
+        if isinstance(node, Call):
+            for argument in node.args:
+                walk(argument)
+            return
+        if isinstance(node, Unary):
+            walk(node.operand)
+            return
+        if isinstance(node, Binary):
+            walk(node.left)
+            walk(node.right)
+            return
+        if isinstance(node, Assignment):
+            walk(node.value)
+
+    for assignment in formula.assignments:
+        walk(assignment.value)
+    if formula.condition is not None:
+        walk(formula.condition)
+    return seen
+
+
+def watch_values(formula: Formula, bars, fields=ENTRY_FIELDS):
+    """What the rule's names read on the last bar, and whether it holds there.
+
+    The panel beside the editor shows a block's live value; this is where those
+    come from — the fields and variables the rule mentions, read on the newest
+    bar, with its result.
+    """
+    if formula is None or formula.condition is None or not bars:
+        return {}, None
+    context = bar_context(bars, fields)
+    scope = dict(context)
+    for assignment in formula.assignments:
+        scope[assignment.name] = _eval(assignment.value, scope)
+    condition = _eval(formula.condition, scope)
+    wanted = [name for name in names_used(formula) if name in scope]
+    values = {}
+    for name in wanted:
+        series = scope[name]
+        if series:
+            values[name] = series[-1]
+    result = condition[-1] if condition else None
+    return values, (None if result is None else _truth(result))
 
 
 def evaluate_scalar(formula: Formula, values: dict) -> bool:

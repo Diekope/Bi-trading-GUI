@@ -8,7 +8,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QComboBox,
+    QFrame,
+    QLabel,
+    QLineEdit,
+)
 
 from lalala.formula_builder import (  # noqa: E402
     MIME,
@@ -86,10 +92,11 @@ def test_the_palette_is_rows_of_blocks_and_a_number_box(
     assert [title for title, _ in PALETTES] == [
         "Data",
         "Indicators",
-        "Logic & Maths",
+        "Maths",
+        "Logic",
     ]
     # One row per group, each a horizontal run of blocks.
-    assert list(builder.blocks) == ["Data", "Indicators", "Logic & Maths"]
+    assert list(builder.blocks) == ["Data", "Indicators", "Maths", "Logic"]
     for title, blocks in builder.blocks.items():
         assert blocks, f"{title} has something to drag"
         for block in blocks:
@@ -111,17 +118,14 @@ def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
     builder.show()
     app.processEvents()
 
-    # A row of blocks reads left to right from the same top edge.
-    data = builder.blocks["Data"]
-    first_row = [b for b in data if b.geometry().top() == data[0].geometry().top()]
-    assert len(first_row) >= 3
+    # A group reads left to right from the same top edge, wrapping when the
+    # column is narrow.
+    maths = builder.blocks["Maths"]
+    rows = {block.geometry().top() for block in maths}
+    assert len(rows) > 1
+    first_row = [b for b in maths if b.geometry().top() == maths[0].geometry().top()]
     lefts = [block.geometry().left() for block in first_row]
     assert lefts == sorted(lefts)
-
-    # A long row wraps rather than running off; Logic & Maths is the long one.
-    logic = builder.blocks["Logic & Maths"]
-    rows = {block.geometry().top() for block in logic}
-    assert len(rows) > 1
     builder.close()
 
 
@@ -160,7 +164,7 @@ def test_dropping_tokens_builds_the_text_and_parses(
 ) -> None:
     strip = builder.strips[0]
     _drop(builder, strip, _tokens("Data", "close"))
-    _drop(builder, strip, _tokens("Logic & Maths", "<"))
+    _drop(builder, strip, _tokens("Maths", "<"))
     _drop(builder, strip, ("10",))
     app.processEvents()
 
@@ -197,7 +201,7 @@ def test_an_indicators_number_is_edited_in_the_tile(
 ) -> None:
     strip = builder.strips[0]
     _drop_call(builder, strip, "Indicators", "SMA")
-    _drop(builder, strip, _tokens("Logic & Maths", "<"))
+    _drop(builder, strip, _tokens("Maths", "<"))
     _drop(builder, strip, ("10",))
     app.processEvents()
     assert builder.formula_text() == "sma(close, 20) < 10"
@@ -341,7 +345,7 @@ def test_a_series_line_then_a_condition(
 
     second = builder.add_strip()
     _drop(builder, second, ("close",))
-    _drop(builder, second, _tokens("Logic & Maths", "<"))
+    _drop(builder, second, _tokens("Maths", "<"))
     _drop(builder, second, ("mid",))
     app.processEvents()
 
@@ -427,6 +431,109 @@ def test_reading_text_back_keeps_indicator_tiles(
         "band = bollinger_lower(close, 20, 2)\nclose < band and rsi(close, 14) < 30"
     )
     assert builder.error() == ""
+
+
+def test_the_blocks_card_has_a_search_that_filters(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    assert builder.search_edit.placeholderText() == "search a block…"
+
+    builder.search_edit.setText("boll")
+    app.processEvents()
+    shown = [
+        block.item.label
+        for blocks in builder.blocks.values()
+        for block in blocks
+        if block.isVisible()
+    ]
+    assert shown and all("boll" in label.lower() for label in shown)
+
+    builder.search_edit.setText("")
+    app.processEvents()
+    assert all(
+        block.isVisible()
+        for blocks in builder.blocks.values()
+        for block in blocks
+    )
+
+
+def test_a_clicked_block_shows_in_the_selected_card(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.strips[0]
+    _drop_call(builder, strip, "Indicators", "SMA")
+    _drop(builder, strip, _tokens("Maths", "<"))
+    _drop(builder, strip, ("10",))
+    app.processEvents()
+
+    chip = strip.chips()[0]
+    builder.select_chip(chip)
+    app.processEvents()
+
+    assert builder.selected is chip
+    assert builder.selected_name() == "sma"
+    # Its source and its window are editable from the card.
+    assert builder.findChild(QComboBox, "sourceSelect") is not None
+    numbers = [
+        entry
+        for entry in builder.selected_holder.findChildren(QLineEdit)
+        if entry.objectName() == "numberEdit"
+    ]
+    assert numbers and numbers[0].text() == "20"
+
+    numbers[0].setText("50")
+    app.processEvents()
+    assert chip.fields[0].text() == "50"
+    assert builder.formula_text() == "sma(close, 50) < 10"
+
+
+def test_taking_the_selected_chip_off_clears_the_card(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.strips[0]
+    _drop(builder, strip, ("close",))
+    chip = strip.chips()[0]
+    builder.select_chip(chip)
+
+    builder.remove_chip(chip)
+
+    assert builder.selected is None
+    assert builder.selected_name() == ""
+
+
+def test_the_live_values_are_shown_with_the_result(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    builder.set_values({"close": 61234.5, "z": -2.31, "spread": None}, True)
+    app.processEvents()
+
+    texts = [label.text() for label in builder.values_box.findChildren(QLabel)]
+    assert "close" in texts and "z" in texts and "spread" in texts
+    assert "6.123e+04" in texts
+    assert "TRUE" in texts
+
+    builder.set_values({"close": 1.0}, False)
+    app.processEvents()
+    assert "FALSE" in [
+        label.text() for label in builder.values_box.findChildren(QLabel)
+    ]
+
+
+def test_every_group_is_its_own_dashed_box(app: QApplication) -> None:
+    builder = FormulaBuilder()
+    builder.resize(600, 420)
+    builder.show()
+    app.processEvents()
+
+    groups = [
+        frame
+        for frame in builder.findChildren(QFrame)
+        if frame.objectName() == "blockGroup"
+    ]
+    assert len(groups) == len(PALETTES)
+    for frame in groups:
+        assert frame.findChildren(PaletteBlock)
+    builder.close()
 
 
 def test_the_changed_signal_fires_on_every_edit(
@@ -516,8 +623,8 @@ def test_blocks_and_chips_are_coloured_by_what_they_are(
     # A chip wears its own group, and an indicator tile is one chip.
     strip = builder.strips[0]
     _drop(builder, strip, _tokens("Data", "close"))
-    _drop(builder, strip, _tokens("Logic & Maths", "AND"))
-    _drop(builder, strip, _tokens("Logic & Maths", "+"))
+    _drop(builder, strip, _tokens("Logic", "AND"))
+    _drop(builder, strip, _tokens("Maths", "+"))
     _drop_call(builder, strip, "Indicators", "SMA")
     app.processEvents()
 
