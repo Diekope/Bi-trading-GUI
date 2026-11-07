@@ -3,6 +3,8 @@
 Dark trading terminal. Hyperliquid candles are live on the right; the left
 column tracks the current Polymarket five-minute BTC up/down market.
 
+![The terminal: the Polymarket BTC up/down column on the left, live Hyperliquid candles on the right](docs/images/terminal.png)
+
 ## Run
 
 ```sh
@@ -29,6 +31,12 @@ Tests (headless, no network, no sockets):
 
 ```sh
 uv run pytest -q
+```
+
+The images in this file live in `docs/images/`; regenerate them offscreen with:
+
+```sh
+uv run python tools/screenshots.py
 ```
 
 ## What works now
@@ -368,9 +376,13 @@ at most, left-aligned, each with a line about the rule. Picking one loads it and
 jumps straight to `Formula`, ready to edit. `Formula` is the drag-and-drop
 builder and `Code` the same formula as text.
 
+![The builder on the Rules tab: the presets gallery, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
+
 The `Formula` and `Code` panels have a natural size of their own and **scroll**
 inside the tile rather than making it grow, so a narrow window keeps the rules
 where they are and the panel moves under the cursor.
+
+![The Formula tab: Blocks | Formula | Selected block, with the lines under LET and BUY WHEN](docs/images/builder-formula.png)
 
 The `Formula` tab is three columns, as in the mock. **Blocks** is the small
 left rail (200 px, fixed) — a search box over one dashed group per kind
@@ -383,12 +395,17 @@ text is one small read-only line that scrolls sideways. The lines are grouped
 into subsections: named series sit under **`LET`**, which only appears once
 there is at least one variable, and the condition sits under **`BUY WHEN`** on
 the entry side and **`EXIT WHEN`** on the exit side. The **Selected block** is
-the right rail
-(a little under 250 px), pushed against the edge and scrolling in place: its
-name, source and live values stay readable in a short tile. Clicking a chip
-selects it: the card shows its name, its source and its window, all editable,
-and under them the live values that name reads on the newest bar, with the
-rule's result.
+the right rail (a little under 250 px), pushed against the edge and scrolling
+in place: its name, source and live values stay readable in a short tile.
+Clicking a chip selects it: the card shows its name, its source and its window,
+all editable, and under them the live values that name reads on the newest bar,
+with the rule's result.
+
+| | |
+| --- | --- |
+| ![The Blocks rail: a search box over dashed groups per kind](docs/images/part-blocks.png) | ![The Selected block card: the name, its source and window, and the live values](docs/images/part-selected-block.png) |
+
+![The formula card: the LET variables, then BUY WHEN and the condition, over the formula as text](docs/images/part-formula-card.png)
 
 The `Code` tab is the code on the left, with a right rail holding `Variables`,
 the whole vocabulary with its types, over `Values`, the last bar's numbers.
@@ -398,6 +415,10 @@ code stays put while you read them. Clicking a word in `Variables` picks it:
 the row stays lit and `Values` explains it in a line and shows its number on
 the newest bar. The code block and the formula bar sit in **wells** — darker
 than the card they are on, the way the mock draws them.
+
+![The Code tab: the code on the left, Variables over Values in the right rail, with close selected](docs/images/builder-code.png)
+
+![The code tab's right rail: the vocabulary above, and the picked variable described in Values below](docs/images/part-code-rail.png)
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,
 `liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they
@@ -489,6 +510,8 @@ Reading text back keeps indicators whole: `bollinger_lower(close, 20, 2)` comes
 back as one tile holding `20` and `2`, not a run of separate chips.
 
 ### Results tile
+
+![The results tile: the strategy, random-buy and buy & hold curves, as return since the start](docs/images/part-results.png)
 
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
@@ -589,6 +612,8 @@ with, not of the whole book: with a $2,000 cap, a 10% position is $200 a
 trade.
 
 ## Backtest tile
+
+![The backtest window: the walk and its figures on the left, the span, parameters and results stacked on the right](docs/images/backtest.png)
 
 Below the history controls sits a gallery of the run's inputs — three or four
 to a line, wrapping with the tile's width:
