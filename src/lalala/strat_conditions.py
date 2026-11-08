@@ -525,10 +525,13 @@ class ConditionGroup(QFrame):
         self.rows_box.setSpacing(6)
         column.addLayout(self.rows_box)
 
-        self.add_cell_button = QPushButton("+  cell", self)
-        self.add_cell_button.setObjectName("addCondition")
+        self.add_cell_button = QPushButton("+", self)
+        self.add_cell_button.setObjectName("addCell")
         self.add_cell_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_cell_button.setToolTip("add a condition, a math term or a value")
+        self.add_cell_button.setToolTip(
+            "add a condition, a math operator or a value"
+        )
+        self.add_cell_button.setFixedWidth(26)
         self.add_cell_button.clicked.connect(self._open_cell_menu)
         column.addWidget(self.add_cell_button, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -614,8 +617,6 @@ class ConditionGroup(QFrame):
         self.rows_box.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
-        if not self.rows:
-            self.add_row()
         self._update_removes()
         self.changed.emit()
 
@@ -947,7 +948,7 @@ class RulesPage(QWidget):
         group.changed.connect(self._group_changed)
         group.removed.connect(self.remove_group)
         group.activated.connect(self._operand_activated)
-        for parts in rows or [None]:
+        for parts in rows or []:
             group.add_row(parts)
         self.groups_box.insertWidget(len(self.groups), group)
         self.groups.append(group)
@@ -1049,7 +1050,7 @@ class RulesPage(QWidget):
                     formula = parse(source, self.fields, self.functions)
                 except FormulaError:
                     raw = self.add_group()
-                    raw.rows[0].set_parts(source, "<", "", raw=True)
+                    raw.add_row().set_parts(source, "<", "", raw=True)
                 else:
                     for item in formula.assignments:
                         self.add_assignment(

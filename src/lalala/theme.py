@@ -666,6 +666,18 @@ QPushButton#addCondition:hover, QPushButton#addGroup:hover,
 QPushButton#addVariable:hover {{
     color: {TEXT};
 }}
+QPushButton#addCell {{
+    background-color: transparent;
+    border: 1px dashed {BORDER};
+    border-radius: 4px;
+    color: {ACCENT};
+    font-size: 13px;
+    padding: 0;
+}}
+QPushButton#addCell:hover {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
 #conditionPreview {{
     background-color: #101114;
     border: 1px solid {BORDER};

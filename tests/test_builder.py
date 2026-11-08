@@ -513,7 +513,9 @@ def test_each_rule_tab_starts_with_conditions(
         page = tile.conditions
         assert len(page.groups) == 1
         assert page.groups[0].caption.text() == "GROUP 1"
-        assert len(page.groups[0].rows) == 1
+        # A fresh rule holds no empty cells: only the little + to add one.
+        assert page.groups[0].rows == []
+        assert not page.groups[0].add_cell_button.isHidden()
         # The variables rail offers what the rule can use.
         assert page.variable_buttons
 
@@ -528,7 +530,7 @@ def test_the_condition_rows_fill_the_rule(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     page = builder.entry.conditions
-    row = page.groups[0].rows[0]
+    row = page.groups[0].add_row()
     row.left.setCurrentText("close")
     row.op.setCurrentText("<")
     row.right.setCurrentText("bollinger_lower(close, 20, 2)")
@@ -540,16 +542,17 @@ def test_the_condition_rows_fill_the_rule(
 
     # A second group joins with AND, and its rows can be OR.
     group = page.add_group(logic="or")
-    group.rows[0].left.setCurrentText("volume")
-    group.rows[0].op.setCurrentText(">")
-    group.rows[0].right.setCurrentText("0")
+    group_row = group.add_row()
+    group_row.left.setCurrentText("volume")
+    group_row.op.setCurrentText(">")
+    group_row.right.setCurrentText("0")
     app.processEvents()
     assert builder.entry_formula() == (
         "close < bollinger_lower(close, 20, 2) and volume > 0"
     )
 
     # The exit tile has its own conditions, in the trade's words.
-    exit_row = builder.exit.conditions.groups[0].rows[0]
+    exit_row = builder.exit.conditions.groups[0].add_row()
     exit_row.left.setCurrentText("pnl")
     exit_row.op.setCurrentText(">=")
     exit_row.right.setCurrentText("tp")
