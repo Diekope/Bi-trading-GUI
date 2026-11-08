@@ -392,6 +392,8 @@ class StrategyBuilderWindow(QMainWindow):
         if not hasattr(self, "delete_button"):
             return  # a rule changed while the window was still being built
         self.left.set_strategies(strategies.load(), self.draft_strategy())
+        if hasattr(self, "report"):
+            self.report.set_selected(self.left.selected_name)
         # The delete button is live only when a saved strategy is on show.
         armed = self.left.selected_name is not None
         if self.delete_button.property("armed") != armed:
@@ -450,6 +452,9 @@ class StrategyBuilderWindow(QMainWindow):
             self.entry.parsed(),
             self.exit.parsed(),
             self.timeframe.currentText(),
+        )
+        self.report.set_selected(
+            self.left.selected_name if hasattr(self, "left") else None
         )
         # The panel beside the editor shows the newest bar's numbers.
         values, result = self.report.watch

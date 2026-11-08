@@ -559,9 +559,10 @@ per reason, most-appearing first.
 
 `+ Add` lists the saved strategies; picking one re-parses its stored entry and
 exit rules, runs it over the same bars with the same TP / SL, and gives it its
-own chip, curve and table column. Clicking that chip takes it back out, and a
-new rule clears the added strategies. Names that are already added, or whose
-rules no longer parse, are shown greyed out.
+own chip, curve and table column. The strategy already on show is left out of
+the list — it is the first chip — and so are names already added. The list also
+greys out strategies whose rules no longer parse. Clicking a chip takes that run
+back out, and a new rule clears the added strategies.
 
 The sweep is a parameter search: it re-runs the whole span for each of the 25
 take-profit / stop-loss pairs and colours the result, so a rule that only works

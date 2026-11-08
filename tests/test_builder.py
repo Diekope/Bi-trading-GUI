@@ -692,6 +692,8 @@ def test_clicking_a_saved_strategy_loads_it(
     assert builder.timeframe.currentText() == "1h"
     assert builder.entry_formula() == "close < sma(close, 5)"
     assert builder.exit_formula() == "pnl >= tp"
+    # The strategy on show is not offered again under "+ Add".
+    assert builder.report.compare.selected_name == "Dip"
 
 
 def test_create_a_strategy_starts_a_fresh_draft(

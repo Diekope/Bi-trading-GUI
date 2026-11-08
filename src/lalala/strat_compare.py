@@ -289,6 +289,7 @@ class ComparePage(QWidget):
         self.tp = 2.0
         self.sl = 1.0
         self.runs: list[dict] = []
+        self.selected_name: str | None = None
         self._dirty = True
 
         layout = QVBoxLayout(self)
@@ -372,11 +373,18 @@ class ComparePage(QWidget):
             )
         )
 
+    def set_selected(self, name: str | None) -> None:
+        """Name the strategy already on show, so `+ Add` leaves it out."""
+        self.selected_name = name or None
+
     def _build_add_menu(self) -> QMenu:
         menu = QMenu(self)
-        saved = load_strategies()
+        saved = [
+            item for item in load_strategies()
+            if item.name != self.selected_name
+        ]
         if not saved:
-            empty = menu.addAction("No saved strategies yet")
+            empty = menu.addAction("No other saved strategies")
             empty.setEnabled(False)
         else:
             for strategy in saved:
@@ -422,6 +430,8 @@ class ComparePage(QWidget):
         """Compare a saved strategy over the same bars, with the same TP / SL."""
         if not self._ready():
             return
+        if strategy.name == self.selected_name:
+            return  # the run on show already is that strategy
         if any(run["label"] == strategy.name for run in self.runs):
             return
         try:

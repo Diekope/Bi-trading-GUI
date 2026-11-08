@@ -481,7 +481,6 @@ class ReportTile(Card):
         from lalala.strat_compare import ComparePage
 
         self.compare = ComparePage(self)
-        self.compare_message = self.compare.tags[-1]  # the "+ Add" chip
         return self.compare
 
     def view(self) -> str:
@@ -510,6 +509,10 @@ class ReportTile(Card):
         if resolution is not None:
             self.resolution = resolution
         self.refresh()
+
+    def set_selected(self, name: str | None) -> None:
+        """Tell Compare which saved strategy is already the run on show."""
+        self.compare.set_selected(name)
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)

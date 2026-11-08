@@ -241,6 +241,44 @@ def test_the_add_menu_lists_saved_strategies(
     page.close()
 
 
+def test_the_strategy_on_show_is_not_offered_again(
+    app: QApplication, tmp_path, monkeypatch
+) -> None:
+    _write_year(2021, 600)
+    bars, _ = load_bars("1m")
+    entry, exit_ = _rules()
+    report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "saved.json"))
+    from lalala import strategies
+
+    current = SavedStrategy(
+        "On show", "1m", "close > sma(close, 10)", "pnl >= tp"
+    )
+    other = SavedStrategy(
+        "Another", "1m", "close < sma(close, 20)", "pnl >= tp"
+    )
+    strategies.save(current)
+    strategies.save(other)
+
+    page = ComparePage()
+    page.resize(820, 320)
+    page.show()
+    page.configure(bars, entry, exit_, report, 2.0, 1.0)
+    page.set_selected("On show")
+    app.processEvents()
+
+    menu = page._build_add_menu()
+    texts = [action.text() for action in menu.actions()]
+    assert "Another · 1m" in texts
+    assert not any(text.startswith("On show") for text in texts)
+
+    # Even asked directly, the run on show is not added twice.
+    page.add_strategy(current)
+    assert page.runs == []
+    page.close()
+
+
 def test_an_empty_rule_leaves_the_table_dashed(app: QApplication) -> None:
     page = ComparePage()
     page.resize(820, 320)
