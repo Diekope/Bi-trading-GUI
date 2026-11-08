@@ -1300,6 +1300,64 @@ QPushButton#sideButton:checked {{
     font-size: 10px;
 }}
 
+/* The bar under the terminal: strategy, reading, bets. */
+#strategyBar {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {CARD_RADIUS}px;
+}}
+QLabel#gl {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+}}
+QLabel#readingValue {{
+    color: {TEXT};
+}}
+QLabel#readingValue[state="on"] {{
+    color: {UP};
+}}
+QLabel#readingValue[state="off"] {{
+    color: {DOWN};
+}}
+QLabel#armedChip {{
+    background-color: #12251a;
+    border: 1px solid #1f4530;
+    border-radius: 8px;
+    color: {UP};
+    font-size: 10px;
+    font-weight: bold;
+    padding: 1px 8px;
+}}
+QComboBox#strategySelect {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    padding: 4px 8px;
+}}
+QPushButton#betUp {{
+    background-color: #12251a;
+    border: 1px solid #1f4530;
+    border-radius: 4px;
+    color: {UP};
+    font-size: 11px;
+    padding: 4px 12px;
+}}
+QPushButton#betUp:hover {{
+    border-color: {UP};
+}}
+QPushButton#betDown {{
+    background-color: #2a1517;
+    border: 1px solid #5a2626;
+    border-radius: 4px;
+    color: #ff8a8a;
+    font-size: 11px;
+    padding: 4px 12px;
+}}
+QPushButton#betDown:hover {{
+    border-color: {DOWN};
+}}
+
 QCheckBox#overlayToggle {{
     color: {TEXT_MUTED};
     font-size: 10px;

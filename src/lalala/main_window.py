@@ -28,11 +28,18 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
-from lalala.market_data import DEFAULT_MARKET, TIMEFRAMES, CandleSeries, Market
+from lalala.market_data import (
+    DEFAULT_MARKET,
+    TIMEFRAMES,
+    CandleSeries,
+    Market,
+    bollinger_bands,
+)
 from lalala.panels import MAX_TILES
 from lalala.polymarket_data import PolymarketMarket, window_price_points
 from lalala.polymarket_feed import PolymarketFeed
 from lalala.polymarket_panel import VIEW_MS, PolymarketPanel
+from lalala.strategy_bar import StrategyBar
 from lalala.theme import CANVAS, CARD_GAP
 
 log = logging.getLogger(__name__)
@@ -67,6 +74,9 @@ class MainWindow(QMainWindow):
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(2, 0, 2, 0)
         top_layout.setSpacing(10)
+        self.status_label = QLabel("Live · BTC 5m · Polymarket + Hyperliquid")
+        self.status_label.setObjectName("gl")
+        top_layout.addWidget(self.status_label)
         top_layout.addStretch(1)
 
         # Chart overlays: one switch per indicator, applied to every card.
@@ -93,6 +103,10 @@ class MainWindow(QMainWindow):
         self.latency_label.setToolTip(
             "WebSocket round-trip to api.hyperliquid.xyz"
         )
+        self.pm_latency_label = QLabel("PM ● —")
+        self.pm_latency_label.setObjectName("latencyLabel")
+        self.pm_latency_label.setToolTip("Round-trip to the Polymarket feed")
+        top_layout.addWidget(self.pm_latency_label)
         top_layout.addWidget(self.latency_label)
         layout.addWidget(top_bar)
 
@@ -117,6 +131,10 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([560, 560])
 
         layout.addWidget(self.splitter, 1)
+
+        # The bar under it: the armed strategy, its reading, and the two bets.
+        self.strategy_bar = StrategyBar(canvas)
+        layout.addWidget(self.strategy_bar)
         self.setCentralWidget(canvas)
         self.installEventFilter(self)
 
@@ -313,6 +331,24 @@ class MainWindow(QMainWindow):
     def _on_candles(self, series: CandleSeries) -> None:
         for card in self.cards:
             card.apply_candles(series)
+        self._refresh_strategy_bar()
+
+    def _refresh_strategy_bar(self) -> None:
+        """The strategy's reading on the newest bar, and the two sides' prices."""
+        bar = getattr(self, "strategy_bar", None)
+        if bar is None:
+            return
+        candles = getattr(self.main_card.chart, "_candles", ())
+        close = candles[-1].c if candles else None
+        band = None
+        if len(candles) >= 20:
+            bands = bollinger_bands(candles[-20:])
+            last = bands[-1] if bands else None
+            band = last[2] if last else None
+        bar.set_reading(close, band)
+        bar.set_bets(
+            self.polymarket.up_tile.price, self.polymarket.down_tile.price
+        )
 
     def _on_card_history(self, coin: str, interval: str, before_ms: int) -> None:
         # The main card exists before the feed, so this indirection keeps the
@@ -349,6 +385,12 @@ class MainWindow(QMainWindow):
         else:
             color = "#ff5c5c"
         self.polymarket.set_latency(milliseconds, color)
+        label = getattr(self, "pm_latency_label", None)
+        if label is not None:
+            label.setText(f"PM ● {milliseconds:.0f} ms")
+            label.setStyleSheet(
+                f"#latencyLabel {{ color: {color}; font-size: 10px; }}"
+            )
 
     def _on_connected(self, is_connected: bool) -> None:
         if not is_connected:
