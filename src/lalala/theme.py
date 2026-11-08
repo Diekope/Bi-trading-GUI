@@ -681,6 +681,18 @@ QPushButton#addCell:hover {{
     border-color: {ACCENT};
     color: {TEXT};
 }}
+QLineEdit#chipNameEdit {{
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    color: {ACCENT};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    padding: 1px 2px;
+}}
+QLineEdit#chipNameEdit:focus {{
+    border-bottom-color: {ACCENT};
+}}
 #conditionPreview {{
     background-color: #101114;
     border: 1px solid {BORDER};

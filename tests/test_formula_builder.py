@@ -24,6 +24,7 @@ from lalala.formula_builder import (  # noqa: E402
     Chip,
     ChipStrip,
     FormulaBuilder,
+    NameChip,
     PaletteBlock,
 )
 from lalala.theme import apply_dark_theme  # noqa: E402
@@ -356,6 +357,26 @@ def test_a_series_line_then_a_condition(
     assert parsed is not None and parsed.series_names == ("mid",)
 
 
+def test_add_variable_gives_a_name_field(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    strip = builder.add_variable()
+    app.processEvents()
+
+    chips = strip.chips()
+    # A line starts with the editable name, then `=`, then an empty slot.
+    assert isinstance(chips[0], NameChip)
+    assert chips[0].edit.placeholderText() == "name"
+    assert chips[0].edit.hasFocus()
+    assert [chip.token for chip in chips[1:]] == ["=", None]
+
+    # Typing the name makes it the line's first token.
+    chips[0].edit.setText("band")
+    app.processEvents()
+    assert strip.tokens()[0] == "band"
+    assert strip.has_empty_slots() is True
+
+
 def test_the_lines_sit_under_let_and_buy_when(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
@@ -475,7 +496,7 @@ def test_reading_text_back_keeps_indicator_tiles(
         [type(chip).__name__ for chip in strip.chips()]
         for strip in builder.strips
     ]
-    assert kinds[0] == ["Chip", "Chip", "CallChip"]
+    assert kinds[0] == ["NameChip", "Chip", "CallChip"]
     assert kinds[1].count("CallChip") == 1
     calls = [
         chip

@@ -525,6 +525,49 @@ class Chip(QFrame):
             event.acceptProposedAction()
 
 
+class NameChip(Chip):
+    """The name of a named series — the one token you type free-hand.
+
+    Every other token is dragged from the palette; a name cannot be, so this
+    chip carries a small text field: type the name, then drop the series it
+    stands for onto the line after the `=`.
+    """
+
+    def __init__(self, token, builder: "FormulaBuilder", parent=None) -> None:
+        super().__init__(token, builder, parent)
+        self.edit = QLineEdit(str(token or ""), self)
+        self.edit.setObjectName("chipNameEdit")
+        self.edit.setPlaceholderText("name")
+        self.edit.setFixedWidth(78)
+        self._layout.replaceWidget(self.label, self.edit)
+        self.label.hide()
+        self.edit.textChanged.connect(self._on_name)
+        self.handle.setVisible(False)
+        self.remove_button.setVisible(False)
+
+    def _on_name(self, text: str) -> None:
+        self.token = text.strip()
+        self.builder.contents_changed()
+
+    def is_slot(self) -> bool:
+        return False
+
+    def tokens(self) -> list:
+        return [self.token] if self.token else []
+
+    def _apply(self) -> None:
+        # The name is shown in its text field, not in the label.
+        self.setProperty("slot", False)
+        self.setProperty("group", "name")
+        self.setAcceptDrops(False)
+        self.setCursor(Qt.CursorShape.IBeamCursor)
+        self._repolish()
+
+    def focus_name(self) -> None:
+        self.edit.setFocus()
+        self.edit.selectAll()
+
+
 class CallChip(Chip):
     """An indicator as a single tile, with its own numbers inside it.
 
@@ -726,6 +769,11 @@ class ChipStrip(QFrame):
 
     def add_chip(self, token, index: int | None = None) -> Chip:
         chip = Chip(token, self.builder, self.zone)
+        return self._place(chip, index)
+
+    def add_name_chip(self, token="", index: int | None = None) -> NameChip:
+        """The editable name of a named series, at the head of a line."""
+        chip = NameChip(token, self.builder, self.zone)
         return self._place(chip, index)
 
     def add_call_chip(self, spec, index: int | None = None) -> CallChip:
@@ -1495,9 +1543,16 @@ class FormulaBuilder(QWidget):
             lines[token.line].append(token.text)
         for line in order:
             strip = self.add_strip()
-            for kind, payload in self._plan(lines[line]):
+            plan = self._plan(lines[line])
+            for position, (kind, payload) in enumerate(plan):
                 if kind == "call":
                     strip.add_call_chip(payload)
+                elif (
+                    position == 0
+                    and len(plan) > 1
+                    and plan[1] == ("token", "=")
+                ):
+                    strip.add_name_chip(payload)
                 else:
                     strip.add_chip(payload)
         self._refresh()
@@ -1522,9 +1577,19 @@ class FormulaBuilder(QWidget):
             self.strip_layout.addWidget(self.strips[-1])
 
     def add_variable(self) -> ChipStrip:
-        """Add a named series just above the condition."""
+        """Add a named series above the condition: `name = ▢`.
+
+        The name field takes the cursor, so it is obvious where to type; the
+        expression then goes in the empty slot after the `=`.
+        """
         index = max(0, len(self.strips) - 1)
-        return self.add_strip(at=index)
+        strip = self.add_strip(at=index)
+        name = strip.add_name_chip("")
+        strip.add_chip("=")
+        strip.add_chip(None)
+        self._refresh()
+        name.focus_name()
+        return strip
 
     def _refresh(self) -> None:
         self._refresh_warning()
@@ -1598,6 +1663,7 @@ __all__ = [
     "FlowLayout",
     "FormulaBuilder",
     "Item",
+    "NameChip",
     "PaletteBlock",
     "drag_pixmap",
     "group_for_token",
