@@ -223,11 +223,32 @@ def test_the_window_never_grows_past_the_chart() -> None:
     from lalala.strat_playback import CHART_BARS
 
     play = Playback(sample_candles(CHART_BARS + 50), rule="random", stride=25)
-    for _ in range(30):
+    while not play.done:
         play.step()
 
     assert play.done is True
     assert len(play.recent()) == CHART_BARS
+
+
+def test_a_saved_rule_can_drive_the_walk() -> None:
+    from lalala.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from lalala.strat_playback import build_session
+
+    formula = parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS)
+    params = {
+        "initial_capital": 10_000.0,
+        "tp": 2.0,
+        "sl": 1.0,
+        "position": 10.0,
+        "sizing": "balance",
+        "cash": 2_000.0,
+    }
+    session = build_session([], params, "saved", "1m", entry_formula=formula)
+    # The rule's bars were worked out up front, and the walk opens on them.
+    assert session.strategy._entries is not None
+    while not session.strategy.done:
+        session.advance()
+    assert session.strategy.trades >= 0
 
 
 def test_sharpe_is_kept_without_the_curve() -> None:
@@ -333,7 +354,9 @@ def test_the_tile_walks_and_reports_progress(app: QApplication) -> None:
     assert tile.playback.index > 0
 
     values = [value.text() for _, value in tile._metric_labels]
-    assert any("/300" in text for text in values)
+    assert all("/ 300" not in text for text in values)  # progress moved out
+    assert "300 candles" in tile.progress_label.text()
+    assert 0 < tile.progress.value() <= 1000
     tile.close()
 
 

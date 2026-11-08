@@ -1,4 +1,4 @@
-"""The strategy window: two halves, the right one stacked into two tiles."""
+"""The strategy window: the run and its inputs on top, results across the bottom."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from lalala.strat_builder import StrategyBuilderWindow  # noqa: E402
 from lalala.strat_params import ParamsTile  # noqa: E402
 from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
 from lalala.strat_window import StratWindow  # noqa: E402
-from lalala.theme import CANVAS, apply_dark_theme  # noqa: E402
+from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 # A year holds this many bars in the tests, so faking one stays cheap.
 TEST_BARS_PER_YEAR = 10
@@ -67,41 +67,61 @@ def _pick(tile: DownloadTile, start: int, end: int, resolution: str) -> None:
     tile.resolution.group.button(RESOLUTIONS.index(resolution)).click()
 
 
-def test_the_window_splits_in_two_halves(app: QApplication, window) -> None:
+def test_the_results_span_the_bottom(app: QApplication, window) -> None:
     assert window.windowTitle() == "lalala · backtest + strategy"
-    assert window.splitter.count() == 2
-    assert window.splitter.orientation() == Qt.Orientation.Horizontal
-    left, right = window.splitter.sizes()
-    assert abs(left - right) <= 1
+    # The whole window is a vertical splitter: the run on top, results below.
+    assert window.outer.orientation() == Qt.Orientation.Vertical
+    assert window.outer.count() == 2
+    assert window.outer.widget(0) is window.splitter
+    assert window.outer.widget(1) is window.results
+
+    # The results are as wide as the window's content area.
+    app.processEvents()
+    canvas = window.centralWidget()
+    assert window.results.width() == pytest.approx(
+        canvas.width() - 2 * CARD_GAP, abs=2
+    )
 
     image = window.grab().toImage()
     assert not image.isNull()
-    handle = window.splitter.handle(1)
+    handle = window.outer.handle(1)
     gap = handle.mapTo(window, handle.rect().center())
     assert image.pixelColor(gap).name() == CANVAS
 
 
-def test_the_right_side_stacks_four_tiles(app: QApplication, window) -> None:
-    column = window.right
-    assert column.orientation() == Qt.Orientation.Vertical
-    assert column.count() == 4
-    assert column.widget(0) is window.download
-    assert column.widget(1) is window.params
-    assert column.widget(2) is window.strategy
-    assert column.widget(3) is window.results
+def test_the_top_row_is_the_run_and_its_inputs(app: QApplication, window) -> None:
+    # The run on the left, a narrow input column on the right.
+    assert window.splitter.count() == 2
+    assert window.splitter.orientation() == Qt.Orientation.Horizontal
+    assert window.splitter.widget(0) is window.left
+    assert window.splitter.widget(1) is window.right_scroll
+    assert window.right_scroll.widget() is window.right
+    app.processEvents()
+    left, right = window.splitter.sizes()
+    assert left > right  # the run takes the slack; the column stays narrow
+
+
+def test_the_right_column_stacks_five_tiles(app: QApplication, window) -> None:
+    column = window.right.layout()
+    widgets = [column.itemAt(i).widget() for i in range(5)]
+    assert widgets == [
+        window.download,
+        window.params,
+        window.strategy,
+        window.save_run,
+        window.load_run,
+    ]
     for tile in (window.download, window.params, window.strategy, window.results):
         assert isinstance(tile, Card)
 
 
 def test_the_input_tiles_fit_their_content(app: QApplication, window) -> None:
     app.processEvents()
-    _, params, strategy, results = window.right.sizes()
-
-    # The inputs keep only the height their content needs…
-    assert params == pytest.approx(window.params.sizeHint().height(), abs=8)
-    assert strategy == pytest.approx(window.strategy.sizeHint().height(), abs=8)
-    # …and the results tile takes everything left over.
-    assert results > params
+    # The inputs keep to the height their content needs…
+    for tile in (window.download, window.params, window.strategy):
+        assert tile.height() <= tile.sizeHint().height() + 12
+    # And the results take the whole bottom row.
+    assert window.results.height() > window.params.height()
 
 
 def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:
@@ -327,6 +347,60 @@ def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
     assert "coin flip" in tile.note.text()
 
 
+def test_the_strategy_tile_lists_saved_strategies(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    import json
+
+    from lalala import strategies
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    (tmp_path / "strategies.json").write_text(
+        json.dumps(
+            [
+                {
+                    "name": "Edge",
+                    "timeframe": "1m",
+                    "entry": "close < sma(close, 5)",
+                    "exit": "pnl >= tp",
+                }
+            ]
+        )
+    )
+    tile = window.strategy
+    tile.refresh_saved()
+    assert tile.picker.findText("Edge") >= 0
+
+    # Picking it points the run at its entry rule.
+    tile.picker.setCurrentText("Edge")
+    app.processEvents()
+    assert window.left.rule_key() == "saved"
+    assert window.left.saved_entry() == "close < sma(close, 5)"
+
+
+def test_a_run_saves_and_reloads(app: QApplication, window, monkeypatch, tmp_path) -> None:
+    from lalala import runs
+
+    monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
+    window.left.set_source([], "1m")
+    window.left.restart()
+    window.left.pause()
+    session = window.left.session
+    while not session.strategy.done:
+        session.advance()
+    window.left._refresh_metrics()
+
+    window.save_run.name.setText("my run")
+    window.save_run.save_requested.emit("my run")
+    app.processEvents()
+    assert runs.get("my run") is not None
+    assert window.load_run.picker.findText("my run") >= 0
+
+    window.load_run.load_requested.emit("my run")
+    app.processEvents()
+    assert window.left.session is not None
+
+
 def test_the_create_strategy_button_is_a_placeholder(
     app: QApplication, window
 ) -> None:
@@ -364,7 +438,7 @@ def test_a_strategy_change_waits_for_the_button(
     assert playback.playback.index == index
     assert playback.playback.rule != "random"
 
-    window.left.run_button.click()
+    window.left.restart_button.click()
     app.processEvents()
     assert playback.playback.index == 0
     assert playback.playback.rule == "random"
@@ -385,7 +459,7 @@ def test_starting_a_run_and_restarting_it(app: QApplication, window) -> None:
     playback.run_button.click()
     app.processEvents()
     assert playback.playing() is True
-    assert playback.run_button.text() == "Restart"
+    assert playback.run_button.text() == "Pause"
     for _ in range(6):
         playback.playback.advance()
     assert playback.playback.index == 6
@@ -401,6 +475,44 @@ def test_starting_a_run_and_restarting_it(app: QApplication, window) -> None:
     assert playback.playback.index == 0
 
 
+def test_run_becomes_pause_and_resume(app: QApplication, window) -> None:
+    playback = window.left
+
+    playback.run_button.click()
+    app.processEvents()
+    assert playback.playing() is True
+    assert playback.run_button.text() == "Pause"
+
+    playback.run_button.click()  # pause
+    app.processEvents()
+    assert playback.playing() is False
+    assert playback.run_button.text() == "Resume"
+
+    playback.run_button.click()  # resume
+    app.processEvents()
+    assert playback.playing() is True
+    assert playback.run_button.text() == "Pause"
+
+
+def test_the_header_has_restart_speed_and_a_progress_bar(
+    app: QApplication, window
+) -> None:
+    from lalala.strat_playback import SPEEDS
+
+    playback = window.left
+    assert playback.restart_button.text() == "Restart"
+    assert [
+        playback.speed.itemText(i) for i in range(playback.speed.count())
+    ] == list(SPEEDS)
+    assert playback.speed.currentText() == SPEEDS[0]
+    assert playback.progress_label.text() == "—"
+
+    playback.run_button.click()
+    app.processEvents()
+    assert playback.progress.value() >= 0
+    assert "candles" in playback.progress_label.text()
+
+
 def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> None:
     tile = window.download
     monkeypatch.setattr(tile.downloader, "start", lambda years: True)
@@ -410,6 +522,53 @@ def test_a_failed_download_says_so(app: QApplication, window, monkeypatch) -> No
 
     assert "download failed" in tile.status.text()
     assert tile.download_button.isEnabled() is True
+
+
+def test_the_results_switch_between_overview_and_trades(
+    app: QApplication, window
+) -> None:
+    results = window.results
+    assert results.part() == "overview"
+    assert results.stack.currentIndex() == 0
+    assert set(results.tab_buttons) == {"overview", "trades"}
+
+    window.left.set_source([], "1m")
+    window.left.restart()
+    window.left.pause()
+    session = window.left.session
+    assert session is not None
+    while not session.strategy.done:
+        session.advance()
+    window.left._refresh_metrics()
+    results.refresh()
+
+    assert session.strategy.trades > 0
+    results.set_part(1)
+    app.processEvents()
+    assert results.stack.currentIndex() == 1
+    page = results.trades_page
+    assert page.table.rowCount() == min(page.SHOWN, session.strategy.trades)
+    # Newest first, a Long, with a coloured PnL and an exit reason.
+    assert page.table.item(0, 2).text() == "Long"
+    assert page.table.item(0, 6).text() in ("TP", "SL", "Time")
+    assert page.table.item(0, 5).text().startswith(("+", "−", "-"))
+    # A trade is picked, so the detail panel shows it…
+    assert page.detail_title.text().startswith("Trade #")
+    # …and the candle chart is told which trade to bring out.
+    page.table.selectRow(0)
+    app.processEvents()
+    assert window.left.player.trade is not None
+    assert window.left.player.trade["out_index"] >= (
+        window.left.player.trade["in_index"]
+    )
+
+    # The exit filter narrows the list.
+    page.exit.setCurrentText("SL")
+    app.processEvents()
+    assert all(
+        page.table.item(row, 6).text() == "SL"
+        for row in range(page.table.rowCount())
+    )
 
 
 # -- backtest parameters ---------------------------------------------------
@@ -434,10 +593,18 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
     }
 
 
-def test_the_gallery_wraps_by_width(app: QApplication, window) -> None:
-    from lalala.strat_params import NARROW_COLUMNS, WIDE_COLUMNS, WIDE_AT
+def test_the_gallery_wraps_by_width(app: QApplication) -> None:
+    from lalala.strat_params import (
+        NARROW_COLUMNS,
+        WIDE_AT,
+        WIDE_COLUMNS,
+        ParamsTile,
+    )
 
-    tile = window.params
+    # The wrapping is the tile's own, so test it on a tile of its own — in the
+    # window it lives in a narrow column and never reaches its wide layout.
+    tile = ParamsTile()
+    tile.show()
     assert len(tile._elements) == 8
 
     tile.resize(WIDE_AT + 40, tile.height())
@@ -450,6 +617,7 @@ def test_the_gallery_wraps_by_width(app: QApplication, window) -> None:
     app.processEvents()
     assert tile._columns == NARROW_COLUMNS
     assert tile._grid.getItemPosition(3)[1] == 0  # fourth element starts row 2
+    tile.close()
 
 
 def test_the_sizing_mode_changes_what_position_means(

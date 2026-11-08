@@ -256,7 +256,7 @@ src/lalala/
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
   logs.py          the silent log: a rotating file, never the console
   strat.py         entry point for the blank backtest/strategy window
-  strat_window.py  second window, split in two, for backtest + strategy work
+  strat_window.py  second window: run + inputs on top, results below
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
   strat_playback.py the left tile: a streamed walk over the whole span
   strat_params.py  the backtest tile: a gallery of run inputs
@@ -270,6 +270,8 @@ src/lalala/
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
   strat_report.py the right rail: the rule run over the candles on disk
   strategies.py    saved strategies: one JSON file, read and replaced by name
+  runs.py          saved backtest runs: span, params, strategy and trades
+  core.py          the walk: the Rust core when built, Python fallback
   strat_results.py the results tile: three live curves, legend underneath
   candles.py       the local 1m candle store: paths, coverage, CSV helpers
   candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
@@ -693,9 +695,20 @@ walk when the two are joined.
 
 ![The backtest window's results tile: the three curves revealed as the walk runs](docs/images/part-results.png)
 
-Under the parameters, three curves are drawn live as the loop walks:
-**strategy** (amber), **random buy** (indigo) and **buy & hold** (grey dashed),
-with a running total for each in a legend along the bottom.
+The results tile has **two parts**, picked by the pills in its header.
+**Overview** shows the figures (PnL, Sharpe, Max DD, Trades, Win rate, Fees),
+the three curves — **strategy** (amber), **random buy** (indigo) and **buy &
+hold** (grey dashed) with a running total each in a legend — a **drawdown**
+curve under them, and, down the right column, **how trades end** (a bar per
+exit — take profit, stop loss, time) with the **PnL distribution** of the trade
+returns beneath it. **Trades** is a filterable table —
+`Entry · Market · Side · In → Out · Size · PnL · Exit` — with a search box and
+side / result / exit filters, and a detail panel for the picked trade: its
+entry and exit (time · price), the reason, how long it ran and its fees, its
+return, and a little line of the price through the trade. **Picking a row
+brings that trade out on the candle chart** — a violet band over the stretch it
+held, a line across it, and its entry and exit prices marked. It reads the
+newest `SHOWN` (400) trades so a long run stays light.
 
 Everything is drawn as **return from the start**, not as a dollar balance. Over
 a long span buy and hold compounds many times over while a strategy that
@@ -717,7 +730,12 @@ trade.
 
 ## Backtest tile
 
-![The backtest window: the walk and its figures on the left, the span, parameters and results stacked on the right](docs/images/backtest.png)
+![The backtest window: the walk and its figures across the top left, the span, parameters and strategy in a narrow column, and the results full width along the bottom](docs/images/backtest.png)
+
+The window is two rows, as in the mock. The **top row** is the run: the
+playback panel on the left, and a narrow column on the right stacking the
+history controls, the run's inputs and the strategy. The **bottom row** is the
+results tile, spanning the full width under both.
 
 Below the history controls sits a gallery of the run's inputs — three or four
 to a line, wrapping with the tile's width:
@@ -739,19 +757,40 @@ and are clamped on the way in — an unknown `sizing` mode falls back to
 locale, and are bounded so a percentage cannot exceed the whole book.
 
 Both the history tile and the parameters tile keep only the height their
-content needs; the results tile below them takes the rest of the column.
+content needs; the strategy tile follows them, and the spare height is left
+empty. The results tile spans the window's full width below.
 
 Decided and hard-coded for the run (no switches in the UI): fees and slippage
 are fixed, one position is held at a time, and a trade is refused across a
-data gap rather than filled through it. The entry rule is a separate tile.
+data gap rather than filled through it.
+
+The **strategy tile** picks the entry rule: the two built-ins (**Random buy**,
+the baseline, and **Bollinger reversion**), then every **saved strategy** from
+`strategies.json`. Picking a saved one points the run at its entry rule — the
+rule is checked over the whole span and the walk opens on the bars it fires on
+(exits stay the params' TP / SL / hold). **SAVE RUN** keeps the run under a
+name — the span, resolution, parameters, strategy and every trade, in
+`~/.config/lalala/runs.json` (`LALALA_RUNS` overrides it) — and **LOAD RUN**
+opens one again: the controls are set back and the walk re-runs.
+
+The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
+extension wrapped by `lalala.core`). When it is built it runs the walk; when it
+is not, the same walk runs in Python, so nothing depends on the build. To build
+it: `uv run maturin develop --release --manifest-path rust/lalala_core/Cargo.toml`.
 
 ## Playback tile
 
 The left half holds the run as a moving picture: bare candles scroll past a
 playhead while a row of figures above recomputes on every candle — PnL,
-equity, progress (`30% · 120/400`), Sharpe, drawdown, max drawdown, max gain,
-the current streak, the best winning and worst losing streak, trades, win rate,
-fees.
+equity, Sharpe, drawdown, max drawdown, max gain, the current streak, the best
+winning and worst losing streak, trades, win rate, fees.
+
+Its header carries **Restart**, a **speed** picker (`×1 ×2 ×4 ×8`), and the
+**Run** button, which turns into **Pause** while the walk plays (then
+**Resume**, and back to **Run** once it is spent). Under the header a **progress
+bar** and its readout count the candles — `100% · 196,496 / 196,496 candles`.
+The trail always follows the newest candle; a trade picked in the results
+rewinds the walk to it so it is on screen.
 
 - **Equity is realised only.** An open position is carried at what it cost, so
   entering a trade moves nothing but its fee; the result lands when it closes.

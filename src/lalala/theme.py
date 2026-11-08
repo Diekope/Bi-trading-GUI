@@ -80,13 +80,14 @@ QStatusBar::item {{ border: none; }}
     color: {TEXT_MUTED};
 }}
 QSplitter#cardSplitter, QSplitter#tileSplitter, QSplitter#stratSplitter,
-QSplitter#stratColumn, QSplitter#builderSplitter,
+QSplitter#stratOuter, QSplitter#stratColumn, QSplitter#builderSplitter,
 QSplitter#builderMiddleSplit, QSplitter#formulaSplit {{
     background-color: transparent;
 }}
 QSplitter#cardSplitter::handle:horizontal,
 QSplitter#tileSplitter::handle:vertical,
 QSplitter#stratSplitter::handle:horizontal,
+QSplitter#stratOuter::handle:vertical,
 QSplitter#stratColumn::handle:vertical,
 QSplitter#builderSplitter::handle:horizontal,
 QSplitter#builderMiddleSplit::handle:vertical,
@@ -97,7 +98,9 @@ QSplitter#formulaSplit::handle:vertical {{
 /* Plain containers inside a card must not paint the canvas colour. */
 #resolutionPicker, #paramsGrid, #entryPages, #entryPage, #resultsPage,
 #formulaBuilder, #formulaCanvas, #stripArea, #stripHolder,
-#paletteInner, #paletteBlocks, #dropZone {{
+#paletteInner, #paletteBlocks, #dropZone,
+#stratColumnScroll, #stratColumn,
+#stratColumnScroll > QWidget > QWidget {{
     background-color: transparent;
 }}
 
@@ -927,7 +930,7 @@ QPushButton#startButton:hover {{
     border-color: {ACCENT};
 }}
 
-/* The compact Run/Restart switch in the playback tile's header. */
+/* The Run / Pause switch in the playback tile's header. */
 QPushButton#runButton {{
     background-color: {ACCENT_BG};
     border: 1px solid {ACCENT_DIM};
@@ -937,6 +940,65 @@ QPushButton#runButton {{
     padding: 1px 10px;
 }}
 QPushButton#runButton:hover {{
+    border-color: {ACCENT};
+}}
+/* The Restart button beside it: a quiet ghost. */
+QPushButton#restartButton {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 1px 10px;
+}}
+QPushButton#restartButton:hover {{
+    border-color: {ACCENT_DIM};
+    color: {TEXT};
+}}
+QComboBox#speedSelect {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    font-size: 10px;
+    padding: 1px 6px;
+}}
+QComboBox#speedSelect:hover {{
+    border-color: {ACCENT_DIM};
+}}
+/* The progress bar: an amber fill in a dark groove. */
+QProgressBar#playbackProgress {{
+    background-color: {PANEL_ALT};
+    border: none;
+    border-radius: 3px;
+}}
+QProgressBar#playbackProgress::chunk {{
+    background-color: {ACCENT};
+    border-radius: 3px;
+}}
+QLabel#progressCount {{
+    color: {TEXT_MUTED};
+}}
+/* The trades detail panel. */
+#tradesPage, #tradeSpark {{
+    background-color: transparent;
+}}
+QFrame#tradeDetail {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+}}
+QLabel#tradeValue {{
+    color: {TEXT};
+}}
+QLineEdit#tradeSearch {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    padding: 4px 8px;
+}}
+QLineEdit#tradeSearch:focus {{
     border-color: {ACCENT};
 }}
 
@@ -952,6 +1014,44 @@ QPushButton#createStrategy {{
 QPushButton#createStrategy:hover {{
     border-color: {ACCENT};
     color: {TEXT};
+}}
+
+QLineEdit#runName {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    padding: 4px 8px;
+}}
+QLineEdit#runName:focus {{
+    border-color: {ACCENT};
+}}
+QPushButton#saveRun {{
+    background-color: {ACCENT_BG};
+    border: 1px solid {ACCENT_DIM};
+    border-radius: 4px;
+    color: {ACCENT};
+    font-size: 11px;
+    padding: 4px 12px;
+}}
+QPushButton#saveRun:hover {{
+    border-color: {ACCENT};
+    color: {TEXT};
+}}
+QPushButton#loadRun {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT};
+    font-size: 11px;
+    padding: 4px 12px;
+}}
+QPushButton#loadRun:hover {{
+    border-color: {ACCENT_DIM};
+    color: {TEXT};
+}}
+QPushButton#loadRun:disabled {{
+    color: {TEXT_FAINT};
 }}
 
 #venuePanel QLabel#tileTitle {{
@@ -1005,6 +1105,47 @@ QPushButton#createStrategy:hover {{
 }}
 #venuePanel QLabel#legend_hold {{
     color: {TEXT_MUTED};
+}}
+/* Overview / Trades pills in the results header. */
+QPushButton#resultTab {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    padding: 2px 12px;
+}}
+QPushButton#resultTab:hover {{
+    color: {TEXT};
+}}
+QPushButton#resultTab:checked {{
+    background-color: {ACCENT_BG};
+    border-color: {ACCENT_DIM};
+    color: {ACCENT};
+}}
+#resultsStack, #overviewPage {{
+    background-color: transparent;
+}}
+/* The trades table: quiet rows, a hairline under each. */
+QTableWidget#tradesTable {{
+    background-color: transparent;
+    border: none;
+    color: {TEXT};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+}}
+QTableWidget#tradesTable::item {{
+    padding: 4px 8px;
+    border-bottom: 1px solid #1f2024;
+}}
+QTableWidget#tradesTable QHeaderView::section {{
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    color: {TEXT_MUTED};
+    font-family: "Inter", sans-serif;
+    font-size: 10px;
+    padding: 4px 8px;
 }}
 /* Metric values in the results tile, coloured by what they mean. */
 #venuePanel QLabel#metricValue_accent {{

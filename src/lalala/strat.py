@@ -19,6 +19,12 @@ def run(argv: list[str] | None = None) -> int:
     setup()
     install_qt_handler()
 
+    # If a stray C++ object ever takes the process down, leave a Python
+    # traceback on stderr instead of a bare segfault.
+    import faulthandler
+
+    faulthandler.enable()
+
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

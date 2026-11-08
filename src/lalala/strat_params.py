@@ -179,6 +179,29 @@ class ParamsTile(Card):
             "dyn_tp_reverse": _number(self.reverse_field.text()),
         }
 
+    def set_params(self, values: dict) -> None:
+        """Fill the gallery from a saved run's values."""
+        fields = {
+            "initial_capital": self.initial_capital,
+            "position": self.position,
+            "tp": self.tp_field,
+            "sl": self.sl_field,
+            "cash": self.cash_field,
+            "dyn_tp_reverse": self.reverse_field,
+        }
+        for key, widget in fields.items():
+            value = values.get(key)
+            if value is not None:
+                widget.setText(_format(float(value)))
+        mode = values.get("sizing")
+        if mode in SIZING_LABELS:
+            self.sizing.setCurrentText(SIZING_LABELS[mode])
+        if values.get("dynamic_tp") is not None:
+            self.dynamic_tp.setChecked(bool(values["dynamic_tp"]))
+        self._apply_sizing(self.sizing_mode())
+        self._apply_dynamic(self.dynamic_tp.isChecked())
+        self.changed.emit()
+
     # -- behavior ----------------------------------------------------------
 
     def _apply_sizing(self, mode: str) -> None:

@@ -165,6 +165,16 @@ class DownloadTile(Card):
             self.resolution.current(),
         )
 
+    def set_span(self, start: int, end: int, resolution: str) -> None:
+        """Point the picker at a saved run's span and resolution."""
+        self.start_year.setCurrentText(str(start))
+        self.end_year.setCurrentText(str(end))
+        try:
+            index = RESOLUTIONS.index(resolution)
+        except ValueError:
+            index = 0
+        self.resolution.group.button(index).click()
+
     def coverage(self) -> tuple[list[int], list[int]]:
         start, end, _ = self.span()
         return coverage(start, end)

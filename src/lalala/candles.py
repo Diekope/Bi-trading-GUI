@@ -96,7 +96,12 @@ def row_count(path: Path) -> int:
         return cached
     try:
         with path.open("rb") as handle:
-            lines = sum(1 for _ in handle)
+            lines = 0
+            while True:
+                block = handle.read(1 << 20)
+                if not block:
+                    break
+                lines += block.count(b"\n")
     except OSError:
         return 0
     count = max(0, lines - 1)

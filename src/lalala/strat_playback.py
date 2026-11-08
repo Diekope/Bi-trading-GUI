@@ -34,11 +34,14 @@ from datetime import datetime, timezone
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -47,14 +50,18 @@ from lalala.cards import mono_font
 from lalala.panels import Card
 from lalala.theme import ACCENT, DOWN, TEXT_FAINT, TEXT_MUTED, UP
 
+# The colour a picked trade is drawn in on the chart.
+TRADE_HILITE = "#c08bff"
+
 # A run is watched over about this long, whatever the span holds.
 WATCH_MS = 120_000
 STEP_MS = 50
 FRAME_MS = 30
 MAX_TICKS = max(1, WATCH_MS // STEP_MS)
 
-# What the picture needs, no matter how long the run is.
-CHART_BARS = 600
+# What the picture needs, no matter how long the run is. A good stretch, so the
+# chart can be scrolled back through the candles it has already drawn.
+CHART_BARS = 1500
 MAX_MARKERS = 4000
 
 MAX_READ = 48_000
@@ -71,6 +78,10 @@ WIDE_AT = 520
 SAMPLE_SEED = 11
 # A span with nothing on disk still has something to show.
 SAMPLE_BARS = 400
+
+# How many bars each step walks. `WATCH_MS` already fits the run to the span;
+# this is the watcher's own multiplier on top.
+SPEEDS = ("×1", "×2", "×4", "×8")
 
 # The strategies the run can be pointed at. Random buy is the baseline: an
 # entry rule that cannot beat a coin flip has no edge, so it stays in the list
@@ -213,6 +224,15 @@ def load_candles(
     return bars
 
 
+def load_all_candles(years: list[int], resolution: str) -> list[Candle]:
+    """The whole span in memory, for a rule-driven run.
+
+    A saved strategy is a formula, and a formula is checked over a whole
+    series rather than streamed, so this one run reads the span into a list.
+    """
+    return list(iter_candles(years, resolution))
+
+
 def sample_candles(count: int = SAMPLE_BARS, seed: int = SAMPLE_SEED) -> list[Candle]:
     """A fixed-seed walk, for when the store has nothing to show."""
     rng = random.Random(seed)
@@ -311,12 +331,16 @@ class Playback:
         entry_chance: float = 0.03,
         total: int | None = None,
         stride: int = 1,
+        entries=None,
     ) -> None:
         self._feed_factory = _feed_factory(candles)
         if total is None:
             total = len(candles) if isinstance(candles, (list, tuple)) else 0
         self.total = total
         self.stride = max(1, stride)
+        # A rule-driven run hands over the exact bars to open on; otherwise the
+        # rule name decides, bar by bar.
+        self._entries = None if entries is None else set(entries)
         self.capital = capital
         self.tp = tp
         self.sl = sl
@@ -342,12 +366,17 @@ class Playback:
         self.qty = 0.0
         self.entry_price = 0.0
         self.entry_index = 0
+        self.entry_stamp = 0
+        self.entry_notional = 0.0
+        self.entry_fee = 0.0
         self.entry_cost = 0.0
+        self._path: list[float] = []
         self.peak = self.capital
         self.max_drawdown = 0.0
         self.max_gain = 0.0
         self.fees = 0.0
         self.trade_returns: list[float] = []
+        self.trades_log: list[tuple] = []  # (in stamp, in px, out stamp, out px, result)
         self.streak = 0          # > 0 wins in a row, < 0 losses in a row
         self.best_win = 0
         self.worst_loss = 0
@@ -511,6 +540,8 @@ class Playback:
         """
         if self.index == 0:
             return False
+        if self._entries is not None:
+            return self.index in self._entries
         if self.rule == "random":
             return self._rng.random() < self.entry_chance
         if self.rule == "bollinger":
@@ -534,19 +565,28 @@ class Playback:
         self.fees += cost
         self.entry_price = candle.close
         self.entry_index = self.index
+        self.entry_stamp = candle.stamp
+        self.entry_notional = notional
+        self.entry_fee = cost
         self.entry_cost = notional + cost
+        self._path = [candle.close]
         self.markers.append((self.index, "in", candle.close))
 
     def _manage(self, candle: Candle) -> None:
+        self._path.append(candle.close)
         target = self.entry_price * (1.0 + self.tp / 100.0)
         stop = self.entry_price * (1.0 - self.sl / 100.0)
         price: float | None = None
+        reason = "time"
         if self.tp > 0 and candle.high >= target:
             price = target
+            reason = "tp"
         elif self.sl > 0 and candle.low <= stop:
             price = stop
+            reason = "sl"
         elif self.index - self.entry_index >= self.max_hold:
             price = candle.close
+            reason = "time"
         if price is None:
             return
         proceeds = self.qty * price
@@ -557,12 +597,41 @@ class Playback:
         self.qty = 0.0
         self.entry_cost = 0.0
         self.markers.append((self.index, "out", price))
-        self._book(proceeds - cost, invested)
+        self._book(
+            proceeds - cost, invested, candle.stamp, price, reason,
+            self.entry_fee + cost, self._path, self.index,
+        )
 
-    def _book(self, proceeds: float, invested: float) -> None:
+    def _book(
+        self,
+        proceeds: float,
+        invested: float,
+        exit_stamp: int = 0,
+        exit_price: float = 0.0,
+        reason: str = "time",
+        fees: float = 0.0,
+        path: list | None = None,
+        exit_index: int = 0,
+    ) -> None:
         """Record the trade's return and move the streak counters."""
         result = proceeds / invested - 1.0 if invested else 0.0
         self.trade_returns.append(result)
+        self.trades_log.append(
+            (
+                self.entry_stamp,
+                self.entry_index,
+                self.entry_price,
+                exit_stamp,
+                exit_index,
+                exit_price,
+                result,
+                self.entry_notional,
+                proceeds - invested,
+                reason,
+                fees,
+                _slim(path or []),
+            )
+        )
         if result > 0:
             self.streak = self.streak + 1 if self.streak > 0 else 1
             self.best_win = max(self.best_win, self.streak)
@@ -583,11 +652,6 @@ class Playback:
         return [
             ("PnL", f"{pnl * 100:+,.2f}%", "accent" if pnl >= 0 else "down"),
             ("Equity", _money(self.equity), "text"),
-            (
-                "Progress",
-                f"{self.progress * 100:,.0f}% · {self.index:,}/{self.total:,}",
-                "muted",
-            ),
             (
                 "Sharpe",
                 f"{self.sharpe:,.2f}" if self.trades else "—",
@@ -611,6 +675,15 @@ class Playback:
 
 def _money(value: float) -> str:
     return f"${value:,.0f}"
+
+
+def _slim(points, cap: int = 60) -> tuple:
+    """A price path cut down to at most `cap` points, keeping its shape."""
+    points = list(points)
+    if len(points) <= cap:
+        return tuple(points)
+    step = len(points) / cap
+    return tuple(points[int(index * step)] for index in range(cap))
 
 
 # -- the three curves ------------------------------------------------------
@@ -675,6 +748,27 @@ class BacktestSession:
             return 0.0
         return curve[-1] / curve[0] - 1.0
 
+    def seek(self, target: int) -> None:
+        """Rewind the walk and fast-forward to bar `target`, curves and all.
+
+        The walk consumes `stride` bars a step, so `target` is turned into
+        steps. No session is rebuilt — the feeds rewind in place — so scrubbing
+        is cheap and does not churn the widgets.
+        """
+        self.strategy.reset()
+        self.random.reset()
+        self.strategy_curve = []
+        self.random_curve = []
+        self.benchmark = []
+        self.low = self.high = self.capital
+        stride = max(1, self.strategy.stride)
+        for _ in range(max(0, target) // stride):
+            if self.strategy.done:
+                break
+            self.strategy.step()
+            self.random.step()
+        self._sample()
+
 
 def _walk_settings(params: dict) -> dict:
     return {
@@ -693,19 +787,41 @@ def build_session(
     rule: str = DEFAULT_STRATEGY,
     resolution: str = "1m",
     fallback: list[Candle] | None = None,
+    entry_formula=None,
+    fields=None,
 ) -> BacktestSession:
-    """A run over the whole span, streamed rather than loaded."""
+    """A run over the whole span.
+
+    A built-in rule streams the span off disk. A saved rule (a formula) is
+    checked over the whole series first, so that run reads the span into a
+    list and hands the walk the exact bars to open on.
+    """
     settings = _walk_settings(params)
-    total = count_bars(years, resolution)
-    if total:
-        feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
-    else:
-        bars = fallback if fallback is not None else sample_candles()
+    entries = None
+    if entry_formula is not None:
+        from lalala.formula import ENTRY_FIELDS
+        from lalala.formula_eval import entry_signals
+
+        bars = load_all_candles(years, resolution) or (
+            fallback if fallback is not None else sample_candles()
+        )
         total = len(bars)
+        entries = set(
+            entry_signals(entry_formula, bars, fields or ENTRY_FIELDS)
+        )
         feeds = [lambda: iter(bars) for _ in range(2)]
+    else:
+        total = count_bars(years, resolution)
+        if total:
+            feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
+        else:
+            bars = fallback if fallback is not None else sample_candles()
+            total = len(bars)
+            feeds = [lambda: iter(bars) for _ in range(2)]
     stride = plan_stride(total)
     strategy = Playback(
-        feeds[0], rule=rule, total=total, stride=stride, **settings
+        feeds[0], rule=rule, total=total, stride=stride, entries=entries,
+        **settings,
     )
     random_buy = Playback(
         feeds[1], rule="random", total=total, stride=stride, **settings
@@ -726,6 +842,8 @@ class CandlePlayer(QWidget):
         # chart slides by this much every frame, so it scrolls like a live one
         # instead of hopping a whole slot at a time.
         self.offset = 0.0
+        # The trade to bring out, when a row is picked in the results.
+        self.trade: dict | None = None
         # The price window eases, so filling the tile does not make it jump.
         self._low: float | None = None
         self._high: float | None = None
@@ -734,6 +852,10 @@ class CandlePlayer(QWidget):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+
+    def set_trade(self, trade: dict | None) -> None:
+        self.trade = trade
+        self.update()
 
     def set_offset(self, offset: float) -> None:
         self.offset = max(0.0, min(0.999, offset))
@@ -802,7 +924,15 @@ class CandlePlayer(QWidget):
         else:
             self._low += (low - pad - self._low) * EASE_RANGE
             self._high += (high + pad - self._high) * EASE_RANGE
+            # Never let the eased range leave a candle off the plot: expand at
+            # once when the window pokes out, and ease the shrink back after.
+            self._low = min(self._low, low - pad)
+            self._high = max(self._high, high + pad)
         low, high = self._low, self._high
+        if high - low <= 0:
+            # A flat stretch would divide by zero; give it a sliver of room.
+            spread = max(abs(high) * 1e-4, 1e-6)
+            low, high = low - spread, high + spread
 
         def x_of(position: int) -> float:
             return right - (playhead - position + 0.5) * slot
@@ -846,6 +976,56 @@ class CandlePlayer(QWidget):
                     )
                 )
 
+        # The picked trade, brought out in its own colour: the stretch it held,
+        # a line across it, and its entry and exit prices.
+        trade = self.trade
+        if trade is not None:
+            x_in = x_of(trade["in_index"])
+            x_out = x_of(trade["out_index"])
+            y_in = y_of(trade["in_price"])
+            y_out = y_of(trade["out_price"])
+            band = QColor(TRADE_HILITE)
+            band.setAlpha(46)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(band)
+            painter.drawRect(
+                QRectF(
+                    min(x_in, x_out), top, abs(x_out - x_in), bottom - top
+                )
+            )
+            painter.setPen(QPen(QColor(TRADE_HILITE), 1.5))
+            painter.drawLine(QPointF(x_in, y_in), QPointF(x_out, y_out))
+            painter.setBrush(QColor(ACCENT))
+            painter.drawEllipse(QPointF(x_in, y_in), 4, 4)
+            painter.setBrush(
+                QColor(UP if trade["result"] >= 0 else DOWN)
+            )
+            painter.drawEllipse(QPointF(x_out, y_out), 4, 4)
+            painter.setFont(mono_font(7))
+            painter.setPen(QColor(TRADE_HILITE))
+            painter.drawText(
+                QRectF(x_in - 30, y_in - 18, 60, 14),
+                Qt.AlignmentFlag.AlignCenter,
+                f"{trade['in_price']:,.0f}",
+            )
+            painter.drawText(
+                QRectF(x_out - 30, y_out + 4, 60, 14),
+                Qt.AlignmentFlag.AlignCenter,
+                f"{trade['out_price']:,.0f}",
+            )
+            # A tag at the top of the band, so the pick is easy to spot.
+            label = f"#{trade.get('n', 0):,}"
+            centre = (x_in + x_out) / 2
+            painter.setBrush(QColor(TRADE_HILITE))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(QRectF(centre - 24, top - 2, 48, 13))
+            painter.setPen(QColor("#0f1013"))
+            painter.drawText(
+                QRectF(centre - 24, top - 2, 48, 13),
+                Qt.AlignmentFlag.AlignCenter,
+                label,
+            )
+
         # Times: the newest at the right edge, and the oldest only once the
         # trail has actually reached the left of the plot.
         painter.setFont(mono_font(7))
@@ -887,24 +1067,72 @@ class PlaybackTile(Card):
         self._wanted_resolution = "1m"
         self._wanted_params: dict | None = None
         self._wanted_rule = DEFAULT_STRATEGY
+        self._speed = 1
+        self._entry_formula = None
+        self._entry_fields = None
+        self._saved_name = ""
+        self._saved_entry = ""
 
+        # Header: the title over its status line, then Restart, a speed picker
+        # and the Run / Pause button, as in the mock.
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(8)
+        titles = QVBoxLayout()
+        titles.setContentsMargins(0, 0, 0, 0)
+        titles.setSpacing(0)
         title = QLabel("BACKTEST")
         title.setObjectName("tileTitle")
+        titles.addWidget(title)
+        self.note = QLabel("idle — press Run")
+        self.note.setObjectName("hintLabel")
+        titles.addWidget(self.note)
+        header.addLayout(titles)
+        header.addStretch(1)
+
+        self.restart_button = QPushButton("Restart")
+        self.restart_button.setObjectName("restartButton")
+        self.restart_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.restart_button.setToolTip(
+            "Start the walk over with the current span"
+        )
+        self.restart_button.clicked.connect(self.restart)
+        header.addWidget(
+            self.restart_button, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+
+        self.speed = QComboBox()
+        self.speed.setObjectName("speedSelect")
+        self.speed.addItems(SPEEDS)
+        self.speed.setFixedWidth(64)
+        self.speed.setToolTip("How many candles each step walks")
+        self.speed.currentTextChanged.connect(self._speed_changed)
+        header.addWidget(self.speed, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self.run_button = QPushButton("Run")
         self.run_button.setObjectName("runButton")
         self.run_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.run_button.setToolTip("Start the walk over with the current span")
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.run_button)
+        self.run_button.setToolTip("Start, pause and resume the walk")
+        self.run_button.clicked.connect(self._on_run)
+        header.addWidget(self.run_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.body.addLayout(header)
 
-        self.note = QLabel("idle — press Run")
-        self.note.setObjectName("hintLabel")
-        self.body.addWidget(self.note)
+        # Progress: the bar and the bar count, as in the mock.
+        progress_row = QHBoxLayout()
+        progress_row.setContentsMargins(0, 0, 0, 0)
+        progress_row.setSpacing(10)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("playbackProgress")
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(6)
+        self.progress_label = QLabel("—")
+        self.progress_label.setObjectName("progressCount")
+        self.progress_label.setFont(mono_font(7))
+        progress_row.addWidget(self.progress, 1)
+        progress_row.addWidget(self.progress_label)
+        self.body.addLayout(progress_row)
 
         self._metrics = QGridLayout()
         self._metrics.setContentsMargins(0, 0, 0, 0)
@@ -931,16 +1159,67 @@ class PlaybackTile(Card):
         self._timer.setInterval(FRAME_MS)
         self._timer.timeout.connect(self._tick)
         self._elapsed = 0
-        self.run_button.clicked.connect(self.restart)
+        # A one-shot to reveal a picked trade after the click has settled.
+        self._pending_trade: dict | None = None
+        self._reveal_timer = QTimer(self)
+        self._reveal_timer.setSingleShot(True)
+        self._reveal_timer.setInterval(0)
+        self._reveal_timer.timeout.connect(self._reveal_pending)
         self._refresh_metrics()
+        self._refresh_progress()
+
+    def set_trade(self, trade: dict | None) -> None:
+        """Bring a picked trade out on the chart, once the click has settled.
+
+        Deferred to a timer the tile owns: revealing a trade may rewind the
+        walk and refresh the results, and doing that inside the table's
+        selection handler re-enters the table and can crash Qt.
+        """
+        self._pending_trade = trade
+        self._reveal_timer.start()
+
+    def _reveal_pending(self) -> None:
+        self._reveal_trade(self._pending_trade)
+
+    def _reveal_trade(self, trade: dict | None) -> None:
+        if trade is None:
+            self.player.set_trade(None)
+            return
+        # Rewind the walk so the trade sits in the middle of the trail: a
+        # little past its exit, about half a screen of candles.
+        if self.session is not None:
+            room = self.player.visible_count(self.player.width())
+            out = int(trade.get("out_index", 0))
+            target = min(self.session.total, out + max(1, room // 2))
+            self.session.seek(target)
+            self.playback = self.session.strategy
+            self.player.playback = self.playback
+            self._elapsed = 0
+            self.player.reset_range()
+            self._refresh_metrics()
+            self._refresh_progress()
+            self.advanced.emit()
+        self.player.set_trade(trade)
+        self.player.update()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        """Stop the walk before the tile goes, so no tick lands on a dead widget."""
+        self._timer.stop()
+        self._reveal_timer.stop()
+        super().closeEvent(event)
 
     # -- the loop ----------------------------------------------------------
+
+    def _speed_changed(self, text: str) -> None:
+        try:
+            self._speed = max(1, int(text.lstrip("×x")))
+        except ValueError:
+            self._speed = 1
 
     def _tick(self) -> None:
         if self.playback.done:
             # It stops here. Starting over is a decision, not a loop.
             self.pause()
-            self.run_button.setText("Run")
             self.note.setText(
                 f"finished — {self.playback.trades:,} trades, "
                 f"{self.playback.win_rate * 100:,.0f}% won, press Run to replay"
@@ -949,11 +1228,15 @@ class PlaybackTile(Card):
         self._elapsed += FRAME_MS
         if self._elapsed >= STEP_MS:
             self._elapsed -= STEP_MS
-            if self.session is not None:
-                self.session.advance()
-            else:
-                self.playback.advance()
+            for _ in range(self._speed):
+                if self.playback.done:
+                    break
+                if self.session is not None:
+                    self.session.advance()
+                else:
+                    self.playback.advance()
             self._refresh_metrics()
+            self._refresh_progress()
             self.advanced.emit()
         # Every frame, not every candle: this is what makes it scroll.
         self.player.set_offset(self._elapsed / STEP_MS)
@@ -961,15 +1244,30 @@ class PlaybackTile(Card):
 
     def play(self) -> None:
         self._timer.start()
+        self.run_button.setText("Pause")
 
     def pause(self) -> None:
         self._timer.stop()
+        self.run_button.setText("Run" if self.playback.done else "Resume")
 
     def playing(self) -> bool:
         return self._timer.isActive()
 
-    def restart(self) -> None:
-        """Adopt the controls and start the walk over. The only way it resets."""
+    def _on_run(self) -> None:
+        """Run to start, then Pause and Resume; Run again once it is spent."""
+        if not self._launched or self.playback.done:
+            self.restart()
+        elif self.playing():
+            self.pause()
+        else:
+            self.play()
+
+    def restart(self, to: int = 0, autoplay: bool = True) -> None:
+        """Adopt the controls and start the walk over. The only way it resets.
+
+        `to` fast-forwards to a bar first, for the replay scrubber; `autoplay`
+        keeps a seek paused so the chosen stretch can be studied.
+        """
         params = self._wanted_params or {
             "initial_capital": 10_000.0,
             "tp": 2.0,
@@ -983,6 +1281,8 @@ class PlaybackTile(Card):
             params,
             self._wanted_rule,
             self._wanted_resolution,
+            entry_formula=self._entry_formula,
+            fields=self._entry_fields,
         )
         self.playback = self.session.strategy
         self.player.playback = self.playback
@@ -995,14 +1295,23 @@ class PlaybackTile(Card):
 
         self._launched = True
         self._elapsed = 0
+        # Fast-forward to the sought bar before anything is drawn.
+        for _ in range(max(0, to)):
+            if self.playback.done:
+                break
+            self.session.advance()
         self.player.set_offset(0.0)
         self.player.reset_range()
-        self.run_button.setText("Restart")
         self._describe()
         self._refresh_metrics()
+        self._refresh_progress()
         self.player.update()
         self.restarted.emit(self.session)
-        self.play()
+        if autoplay:
+            self.play()
+        else:
+            self.pause()
+            self.run_button.setText("Run" if self.playback.done else "Resume")
 
     # -- source ------------------------------------------------------------
 
@@ -1020,13 +1329,46 @@ class PlaybackTile(Card):
     def set_strategy(self, rule: str) -> None:
         """Remember the strategy. Nothing changes until the next restart."""
         self._wanted_rule = rule
+        self._entry_formula = None
+        self._entry_fields = None
+        self._saved_name = ""
+        self._saved_entry = ""
         self._describe()
+
+    def rule_key(self) -> str:
+        return self._wanted_rule
+
+    def saved_entry(self) -> str:
+        return self._saved_entry
+
+    def set_saved_strategy(self, name: str, entry: str, fields=None) -> bool:
+        """Point the run at a saved strategy's entry rule.
+
+        The rule is parsed once, here; a rule the language cannot read is
+        refused and the built-in is kept.
+        """
+        from lalala.formula import ENTRY_FIELDS, FUNCTIONS, FormulaError, parse
+
+        try:
+            formula = parse(entry, fields or ENTRY_FIELDS, FUNCTIONS)
+        except FormulaError:
+            self._describe()
+            return False
+        self._wanted_rule = "saved"
+        self._entry_formula = formula
+        self._entry_fields = tuple(fields or ENTRY_FIELDS)
+        self._saved_name = name
+        self._saved_entry = entry
+        self._describe()
+        return True
 
     def _describe(self) -> None:
         if not self._launched:
             self.note.setText("idle — press Run")
             return
         name = strategy_label(self._wanted_rule)
+        if self._wanted_rule == "saved" and self._saved_name:
+            name = self._saved_name
         stride = self.playback.stride
         pace = "" if stride <= 1 else f" · fast-forward ×{stride:,}"
         if self._wanted_years:
@@ -1059,6 +1401,19 @@ class PlaybackTile(Card):
             self._metrics.setColumnStretch(
                 column, 1 if column < columns else 0
             )
+
+    def _refresh_progress(self) -> None:
+        """The bar and the candle count."""
+        play = self.playback
+        if self._launched and play.total:
+            self.progress.setValue(int(play.progress * 1000))
+            self.progress_label.setText(
+                f"{play.progress * 100:,.0f}% · "
+                f"{play.index:,} / {play.total:,} candles"
+            )
+        else:
+            self.progress.setValue(0)
+            self.progress_label.setText("—")
 
     def _refresh_metrics(self) -> None:
         if self._launched:

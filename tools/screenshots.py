@@ -77,12 +77,18 @@ def backtest(app: QApplication) -> None:
     while not session.strategy.done:
         session.advance()
     window.left._refresh_metrics()
+    window.left._refresh_progress()
     window.left.player.update()
     window.results.refresh()
     _settle(app)
 
     _save(window, "backtest.png")
     _save(window.results, "part-results.png")
+
+    # And the trades part, with a trade picked.
+    window.results.set_part(1)
+    _settle(app)
+    _save(window.results, "part-trades.png")
     window.close()
 
 
