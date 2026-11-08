@@ -18,7 +18,6 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
-    QCheckBox,
     QLabel,
     QMainWindow,
     QSplitter,
@@ -78,25 +77,6 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("gl")
         top_layout.addWidget(self.status_label)
         top_layout.addStretch(1)
-
-        # Chart overlays: one switch per indicator, applied to every card.
-        self.volume_toggle = QCheckBox("Volume")
-        self.volume_toggle.setObjectName("overlayToggle")
-        self.volume_toggle.setToolTip("Volume bars under the candles")
-        self.volume_toggle.setChecked(True)
-        self.volume_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.volume_toggle.toggled.connect(self._apply_overlays)
-
-        self.bollinger_toggle = QCheckBox("Bollinger")
-        self.bollinger_toggle.setObjectName("overlayToggle")
-        self.bollinger_toggle.setToolTip("20-period, 2σ Bollinger bands")
-        self.bollinger_toggle.setChecked(False)
-        self.bollinger_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.bollinger_toggle.toggled.connect(self._apply_overlays)
-
-        top_layout.addWidget(self.volume_toggle)
-        top_layout.addWidget(self.bollinger_toggle)
-        top_layout.addSpacing(4)
 
         self.latency_label = QLabel("HL ● connecting…")
         self.latency_label.setObjectName("latencyLabel")
@@ -183,8 +163,6 @@ class MainWindow(QMainWindow):
 
     def _new_card(self, coin: str | None, *, closable: bool) -> MarketCard:
         card = MarketCard(coin, closable=closable, parent=self.stack)
-        card.chart.set_show_volume(self.volume_toggle.isChecked())
-        card.chart.set_show_bollinger(self.bollinger_toggle.isChecked())
         card.set_market_source(lambda: self._markets)
         card.market_changed.connect(
             lambda chosen, c=card: self._on_market_chosen(c, chosen)
@@ -237,14 +215,6 @@ class MainWindow(QMainWindow):
             card.add_button.setToolTip(
                 f"Add a market tile — {remaining} left (⌘T)" if remaining else ""
             )
-
-    def _apply_overlays(self, *_args) -> None:
-        """Checkboxes are global: every card, current and future, follows them."""
-        show_volume = self.volume_toggle.isChecked()
-        show_bollinger = self.bollinger_toggle.isChecked()
-        for card in self.cards:
-            card.chart.set_show_volume(show_volume)
-            card.chart.set_show_bollinger(show_bollinger)
 
     def _update_close_buttons(self) -> None:
         """Every card is closable while another one remains to inherit the view."""

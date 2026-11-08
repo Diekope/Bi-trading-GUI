@@ -202,7 +202,8 @@ class TradeForm(QWidget):
             self.pnl_label.setStyleSheet("")
             return
         sign = "+" if change >= 0 else "−"
-        self.pnl_label.setText(f"{sign}${abs(change):,.2f}")
+        arrow = "▲" if change >= 0 else "▼"
+        self.pnl_label.setText(f"{arrow}{sign}${abs(change):,.2f}")
         colour = UP if change >= 0 else "#ff5c5c"
         self.pnl_label.setStyleSheet(f"color: {colour};")
 

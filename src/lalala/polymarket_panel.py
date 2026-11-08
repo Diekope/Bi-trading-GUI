@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -743,8 +745,28 @@ class PolymarketPanel(Card):
 
         clock.addWidget(self.window_label)
         clock.addStretch(1)
-        clock.addWidget(close_caption)
-        clock.addWidget(self.countdown)
+
+        # "closes in 04:17" over a thin bar that fills as the window runs down.
+        count_box = QVBoxLayout()
+        count_box.setContentsMargins(0, 0, 0, 0)
+        count_box.setSpacing(4)
+        count_line = QHBoxLayout()
+        count_line.setContentsMargins(0, 0, 0, 0)
+        count_line.setSpacing(6)
+        count_line.addStretch(1)
+        count_line.addWidget(close_caption)
+        count_line.addWidget(self.countdown)
+        count_box.addLayout(count_line)
+
+        self.close_progress = QProgressBar()
+        self.close_progress.setObjectName("closeProgress")
+        self.close_progress.setRange(0, 100)
+        self.close_progress.setValue(0)
+        self.close_progress.setTextVisible(False)
+        self.close_progress.setFixedHeight(4)
+        self.close_progress.setFixedWidth(150)
+        count_box.addWidget(self.close_progress)
+        clock.addLayout(count_box)
 
         # -- latency --
         # Above the tiles, on the left: the venue's own round trip, next to
@@ -1090,8 +1112,13 @@ class PolymarketPanel(Card):
     def _tick(self) -> None:
         if self.market is None:
             self.countdown.setText("—")
+            self.close_progress.setValue(0)
             return
         remaining = (self.market.end_ms - time.time() * 1000) / 1000.0
         self.countdown.setText(format_countdown(remaining))
+        span = self.market.end_ms - self.market.start_ms
+        if span > 0:
+            elapsed = (time.time() * 1000 - self.market.start_ms) / span
+            self.close_progress.setValue(int(max(0.0, min(1.0, elapsed)) * 100))
         color = DOWN if remaining <= 30 else AMBER if remaining <= 60 else TEXT
         self.countdown.setStyleSheet(f"color: {color}; background: transparent;")

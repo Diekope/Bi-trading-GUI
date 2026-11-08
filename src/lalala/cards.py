@@ -21,6 +21,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -1035,6 +1036,24 @@ class MarketCard(Card):
         header.addWidget(self.name)
         header.addWidget(self.badge)
         header.addStretch(1)
+
+        # Overlays, in the card as the mock draws them.
+        self.volume_toggle = QCheckBox("Volume")
+        self.volume_toggle.setObjectName("overlayToggle")
+        self.volume_toggle.setToolTip("Volume bars under the candles")
+        self.volume_toggle.setChecked(True)
+        self.volume_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.volume_toggle.toggled.connect(self._apply_overlays)
+        self.bollinger_toggle = QCheckBox("Bollinger")
+        self.bollinger_toggle.setObjectName("overlayToggle")
+        self.bollinger_toggle.setToolTip("20-period, 2σ Bollinger bands")
+        self.bollinger_toggle.setChecked(False)
+        self.bollinger_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.bollinger_toggle.toggled.connect(self._apply_overlays)
+        header.addWidget(self.volume_toggle)
+        header.addWidget(self.bollinger_toggle)
+        header.addSpacing(2)
+
         header.addWidget(self.price)
         header.addWidget(self.add_button)
         header.addWidget(self.close_button)
@@ -1071,6 +1090,11 @@ class MarketCard(Card):
         self.timeframes.setVisible(coin is not None)
 
     # -- state -------------------------------------------------------------
+
+    def _apply_overlays(self, *_args) -> None:
+        """The card's own overlay switches drive its chart."""
+        self.chart.set_show_volume(self.volume_toggle.isChecked())
+        self.chart.set_show_bollinger(self.bollinger_toggle.isChecked())
 
     def _no_markets(self) -> list[Market]:
         return []

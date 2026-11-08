@@ -724,26 +724,23 @@ def test_volume_stays_out_of_the_way_without_volume_data(app: QApplication, wind
     assert on == off
 
 
-def test_checkboxes_apply_to_every_card_and_new_tiles(app: QApplication, window: MainWindow) -> None:
-    window.add_tile()
-    window.volume_toggle.setChecked(False)
-    window.bollinger_toggle.setChecked(True)
-    app.processEvents()
+def test_overlay_checkboxes_live_in_the_card(app: QApplication, window: MainWindow) -> None:
+    card = window.main_card
+    assert card.volume_toggle.objectName() == "overlayToggle"
+    assert card.bollinger_toggle.objectName() == "overlayToggle"
 
-    for card in window.cards:
-        assert card.chart.show_volume is False
-        assert card.chart.show_bollinger is True
+    # Each card drives its own chart.
+    card.volume_toggle.setChecked(False)
+    card.bollinger_toggle.setChecked(True)
+    app.processEvents()
+    assert card.chart.show_volume is False
+    assert card.chart.show_bollinger is True
 
     fresh = window.add_tile()
     assert fresh is not None
+    fresh.volume_toggle.setChecked(False)
+    app.processEvents()
     assert fresh.chart.show_volume is False
-    assert fresh.chart.show_bollinger is True
-
-
-def test_overlay_checkboxes_sit_in_the_top_bar(window: MainWindow) -> None:
-    assert window.volume_toggle.objectName() == "overlayToggle"
-    assert window.bollinger_toggle.objectName() == "overlayToggle"
-    assert window.volume_toggle.parent() is window.latency_label.parent()
 
 
 # -- axis-specific wheel zoom ---------------------------------------------
