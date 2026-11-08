@@ -172,6 +172,11 @@ QLabel#blockLabel {{
 #paletteBlock[group="maths"] QLabel, #formulaChip[group="maths"] QLabel {{
     color: {TEXT};
 }}
+/* A variable's name: a chip like any other, but you type in it. */
+#formulaChip[group="name"] {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+}}
 #formulaChip[slot="true"] {{
     background-color: {CANVAS};
     border: 1px dashed {ACCENT_DIM};
@@ -684,14 +689,10 @@ QPushButton#addCell:hover {{
 QLineEdit#chipNameEdit {{
     background-color: transparent;
     border: none;
-    border-bottom: 1px solid {BORDER};
-    color: {ACCENT};
+    color: {TEXT};
     font-family: "JetBrains Mono", monospace;
-    font-size: 11px;
-    padding: 1px 2px;
-}}
-QLineEdit#chipNameEdit:focus {{
-    border-bottom-color: {ACCENT};
+    font-size: 10px;
+    padding: 0;
 }}
 #conditionPreview {{
     background-color: #101114;

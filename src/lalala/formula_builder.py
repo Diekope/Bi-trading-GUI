@@ -1048,7 +1048,7 @@ class FormulaBuilder(QWidget):
         # The named series sit under LET, which is always shown with its
         # `+ add variable`; the condition sits under BUY WHEN (EXIT WHEN on
         # the exit side).
-        self.variables_heading = QLabel("LET", box)
+        self.variables_heading = QLabel("Variables", box)
         self.variables_heading.setObjectName("formulaSection")
         self.condition_heading = QLabel(self.condition_label, box)
         self.condition_heading.setObjectName("formulaCondition")

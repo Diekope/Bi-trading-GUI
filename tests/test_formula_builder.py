@@ -380,8 +380,8 @@ def test_add_variable_gives_a_name_field(
 def test_the_lines_sit_under_let_and_buy_when(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
-    # The LET subsection is always shown, with its + Add variable.
-    assert builder.variables_heading.text() == "LET"
+    # The Variables subsection is always shown, with its + Add variable.
+    assert builder.variables_heading.text() == "Variables"
     assert builder.variables_heading.objectName() == "formulaSection"
     assert builder.variables_heading.isHidden() is False
     assert builder.condition_heading.text() == "BUY WHEN"
