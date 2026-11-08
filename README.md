@@ -771,7 +771,8 @@ rule is checked over the whole span and the walk opens on the bars it fires on
 (exits stay the params' TP / SL / hold). **SAVE RUN** keeps the run under a
 name — the span, resolution, parameters, strategy and every trade, in
 `~/.config/lalala/runs.json` (`LALALA_RUNS` overrides it) — and **LOAD RUN**
-opens one again: the controls are set back and the walk re-runs.
+opens one again: the controls are set back and the run is **walked straight to
+the end**, so every result and trade is there at once.
 
 The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
 extension wrapped by `lalala.core`). When it is built it runs the walk; when it

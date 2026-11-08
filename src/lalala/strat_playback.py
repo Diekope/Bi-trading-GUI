@@ -762,7 +762,11 @@ class BacktestSession:
         self.benchmark = []
         self.low = self.high = self.capital
         stride = max(1, self.strategy.stride)
-        for _ in range(max(0, target) // stride):
+        target = max(0, target)
+        steps = target // stride
+        if target and steps == 0:
+            steps = 1  # never land on bar zero by accident
+        for _ in range(steps):
             if self.strategy.done:
                 break
             self.strategy.step()
@@ -1189,8 +1193,11 @@ class PlaybackTile(Card):
         # little past its exit, about half a screen of candles.
         if self.session is not None:
             room = self.player.visible_count(self.player.width())
+            stride = max(1, self.session.strategy.stride)
             out = int(trade.get("out_index", 0))
-            target = min(self.session.total, out + max(1, room // 2))
+            # The walk lands on a stride boundary, so aim a stride past the
+            # middle to be sure the trade stays inside the window.
+            target = min(self.session.total, out + room // 2 + stride)
             self.session.seek(target)
             self.playback = self.session.strategy
             self.player.playback = self.playback
@@ -1261,6 +1268,26 @@ class PlaybackTile(Card):
             self.pause()
         else:
             self.play()
+
+    def finish(self) -> None:
+        """Walk straight to the end, so every result is there to look at."""
+        if self.session is None:
+            return
+        self.pause()
+        while not self.playback.done:
+            self.session.advance()
+        self._elapsed = 0
+        self.player.set_offset(0.0)
+        self.player.reset_range()
+        self._refresh_metrics()
+        self._refresh_progress()
+        self.player.update()
+        self.run_button.setText("Run")
+        self.note.setText(
+            f"finished — {self.playback.trades:,} trades, "
+            f"{self.playback.win_rate * 100:,.0f}% won, press Run to replay"
+        )
+        self.advanced.emit()
 
     def restart(self, to: int = 0, autoplay: bool = True) -> None:
         """Adopt the controls and start the walk over. The only way it resets.

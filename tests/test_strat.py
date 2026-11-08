@@ -399,6 +399,10 @@ def test_a_run_saves_and_reloads(app: QApplication, window, monkeypatch, tmp_pat
     window.load_run.load_requested.emit("my run")
     app.processEvents()
     assert window.left.session is not None
+    # A loaded run is shown whole: walked to the end, results and all.
+    assert window.left.playback.done is True
+    assert window.left.playing() is False
+    assert window.left.session.strategy.trades > 0
 
 
 def test_the_create_strategy_button_is_a_placeholder(

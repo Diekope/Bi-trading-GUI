@@ -193,6 +193,11 @@ class StratWindow(QMainWindow):
         self._sync_playback()
         self._sync_params()
         self.left.restart()
+        # A loaded run is shown whole: walk it to the end so every result and
+        # trade is there at once.
+        self.left.finish()
+        self.results.set_part(0)
+        self.results.refresh()
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Re-read the saved strategies and runs, so the pickers are current."""
