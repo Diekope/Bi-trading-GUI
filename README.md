@@ -761,9 +761,9 @@ and are clamped on the way in — an unknown `sizing` mode falls back to
 `balance`. Numeric fields take a dot as the decimal mark whatever the system
 locale, and are bounded so a percentage cannot exceed the whole book.
 
-Both the history tile and the parameters tile keep only the height their
-content needs; the strategy tile follows them, and the spare height is left
-empty. The results tile spans the window's full width below.
+The right column's tiles **share its whole height** — the inputs take the most,
+the small tiles the least — so they always fill it and never scroll. The
+results tile spans the window's full width below.
 
 Decided and hard-coded for the run (no switches in the UI): fees and slippage
 are fixed, one position is held at a time, and a trade is refused across a

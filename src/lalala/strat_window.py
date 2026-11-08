@@ -13,10 +13,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QMainWindow,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
@@ -59,19 +57,9 @@ class StratWindow(QMainWindow):
 
         self.left = PlaybackTile(self.splitter)
 
-        # The right side is a narrow column of tiles that scrolls when they do
-        # not all fit, so every tile keeps the height its content needs.
-        self.right_scroll = QScrollArea(self.splitter)
-        self.right_scroll.setObjectName("stratColumnScroll")
-        self.right_scroll.setWidgetResizable(True)
-        self.right_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.right_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.right_scroll.setMinimumWidth(360)
-        self.right_scroll.setMaximumWidth(480)
-
-        self.right = QWidget()
+        # The right side is a narrow column of tiles; they share the height so
+        # they always fill it, with no scrolling.
+        self.right = QWidget(self.splitter)
         self.right.setObjectName("stratColumn")
         column = QVBoxLayout(self.right)
         column.setContentsMargins(0, 0, 0, 0)
@@ -93,7 +81,6 @@ class StratWindow(QMainWindow):
         runs_layout.addWidget(self.save_run, 1)
         runs_layout.addWidget(self.load_run, 1)
         column.addWidget(runs_row)
-        column.addStretch(1)
         for tile in (
             self.download,
             self.params,
@@ -102,12 +89,16 @@ class StratWindow(QMainWindow):
             self.load_run,
         ):
             tile.setSizePolicy(
-                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
             )
-        self.right_scroll.setWidget(self.right)
+        # Share the slack: the inputs get the most, the small tiles the least.
+        for index, weight in enumerate((3, 4, 3, 2)):
+            column.setStretch(index, weight)
+        self.right.setMinimumWidth(360)
+        self.right.setMaximumWidth(480)
 
         self.splitter.addWidget(self.left)
-        self.splitter.addWidget(self.right_scroll)
+        self.splitter.addWidget(self.right)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
         self.splitter.setSizes([700, 460])

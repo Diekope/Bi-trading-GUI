@@ -94,8 +94,7 @@ def test_the_top_row_is_the_run_and_its_inputs(app: QApplication, window) -> Non
     assert window.splitter.count() == 2
     assert window.splitter.orientation() == Qt.Orientation.Horizontal
     assert window.splitter.widget(0) is window.left
-    assert window.splitter.widget(1) is window.right_scroll
-    assert window.right_scroll.widget() is window.right
+    assert window.splitter.widget(1) is window.right
     app.processEvents()
     left, right = window.splitter.sizes()
     assert left > right  # the run takes the slack; the column stays narrow
@@ -114,12 +113,14 @@ def test_the_right_column_stacks_five_tiles(app: QApplication, window) -> None:
         assert isinstance(tile, Card)
 
 
-def test_the_input_tiles_fit_their_content(app: QApplication, window) -> None:
+def test_the_tiles_fill_the_column_without_scrolling(
+    app: QApplication, window
+) -> None:
     app.processEvents()
-    # The inputs keep to the height their content needs…
-    for tile in (window.download, window.params, window.strategy):
-        assert tile.height() <= tile.sizeHint().height() + 12
-    # And the results take the whole bottom row.
+    # The tiles share the whole column, so nothing is left over to scroll.
+    tiles = (window.download, window.params, window.strategy, window.save_run)
+    total = sum(tile.height() for tile in tiles) + 3 * CARD_GAP
+    assert total == pytest.approx(window.right.height(), abs=12)
     assert window.results.height() > window.params.height()
 
 
