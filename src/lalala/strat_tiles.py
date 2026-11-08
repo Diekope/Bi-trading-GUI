@@ -38,11 +38,11 @@ from lalala.panels import Card
 # History starts here: the venues' pre-2017 coverage is thin, so the picker
 # should not imply it is there.
 FIRST_YEAR = 2017
-RESOLUTIONS = ("1m", "5m", "1h")
+RESOLUTIONS = ("1m", "3m", "5m", "15m", "30m", "1h")
 
 
 class ResolutionPicker(QWidget):
-    """Exclusive 1m / 5m / 1h pills."""
+    """Exclusive 1m / 3m / 5m / 15m / 30m / 1h pills."""
 
     changed = Signal(str)
 
@@ -51,7 +51,7 @@ class ResolutionPicker(QWidget):
         self.setObjectName("resolutionPicker")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)

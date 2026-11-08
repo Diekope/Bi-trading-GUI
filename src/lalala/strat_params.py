@@ -27,6 +27,20 @@ from PySide6.QtWidgets import (
 from lalala.panels import Card
 from lalala.settings import SIZING_MODES, Settings
 
+
+class _WideToggle(QCheckBox):
+    """A check box that toggles wherever its (wide) cell is clicked."""
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(
+            event.position().toPoint()
+        ):
+            self.toggle()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 # What the position value means in each mode: caption, bounds, unit.
 SIZING = {
     "balance": ("Position %", 0.0, 100.0),
@@ -97,7 +111,7 @@ class ParamsTile(Card):
         self.sl_field = self._field(defaults.sl, 0.0, 100.0)
         self.cash_field = self._field(defaults.cash, 0.0, 1e12)
 
-        self.dynamic_tp = QCheckBox("Enabled")
+        self.dynamic_tp = _WideToggle("Enabled")
         self.dynamic_tp.setObjectName("paramToggle")
         self.dynamic_tp.setToolTip("Let the take profit trail as price runs")
         self.dynamic_tp.setCursor(Qt.CursorShape.PointingHandCursor)

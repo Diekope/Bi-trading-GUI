@@ -305,9 +305,11 @@ tests/             430 tests: parsing/search/aliases, slug math, candle + book
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns
 `timestamp, open, high, low, close, volume`. Only BTC is fetched, and only at
-1m: a 5m or 1h series can be compacted from it later, so the store never holds
-the same data twice. The history tile reads those files to report which years
-of the selected span are missing (red) or only partly downloaded (amber).
+1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, so the
+store never holds the same data twice. The history tile reads those files to
+report which years of the selected span are missing (red) or only partly
+downloaded (amber), and offers the same set of resolutions — `1m`, `3m`, `5m`,
+`15m`, `30m`, `1h` — to run at.
 
 **Download** (`data/candles`) pulls the missing years from Binance's public
 `klines` endpoint, a thousand bars a page, resuming from the last row already

@@ -59,7 +59,7 @@ COLUMN_SHARES = (0.21, 0.79)
 RULES_SHARE = 0.58
 
 # The bar the strategy reads, one of the compactions the store supports.
-TIMEFRAMES = ("1m", "5m", "15m", "1h")
+TIMEFRAMES = ("1m", "3m", "5m", "15m", "30m", "1h")
 
 
 class LockedHandle(QSplitterHandle):

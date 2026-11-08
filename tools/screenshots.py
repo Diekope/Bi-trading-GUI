@@ -23,6 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _CONFIG = tempfile.mkdtemp(prefix="lalala-shots-")
 os.environ["LALALA_SETTINGS"] = os.path.join(_CONFIG, "settings.json")
 os.environ["LALALA_STRATEGIES"] = os.path.join(_CONFIG, "strategies.json")
+os.environ["LALALA_RUNS"] = os.path.join(_CONFIG, "runs.json")
 
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
@@ -65,7 +66,7 @@ def terminal(app: QApplication) -> None:
 def backtest(app: QApplication) -> None:
     """The backtest window, run over a year of real candles."""
     window = StratWindow()
-    window.resize(1180, 780)
+    window.resize(1180, 940)
     window.show()
     _settle(app)
 

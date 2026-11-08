@@ -103,14 +103,13 @@ def test_the_top_row_is_the_run_and_its_inputs(app: QApplication, window) -> Non
 
 def test_the_right_column_stacks_five_tiles(app: QApplication, window) -> None:
     column = window.right.layout()
-    widgets = [column.itemAt(i).widget() for i in range(5)]
-    assert widgets == [
-        window.download,
-        window.params,
-        window.strategy,
-        window.save_run,
-        window.load_run,
-    ]
+    assert column.itemAt(0).widget() is window.download
+    assert column.itemAt(1).widget() is window.params
+    assert column.itemAt(2).widget() is window.strategy
+    # Save and Load share one row.
+    runs_row = column.itemAt(3).widget()
+    runs = [runs_row.layout().itemAt(i).widget() for i in range(2)]
+    assert runs == [window.save_run, window.load_run]
     for tile in (window.download, window.params, window.strategy, window.results):
         assert isinstance(tile, Card)
 
@@ -146,7 +145,7 @@ def test_the_resolution_picker_is_exclusive(app: QApplication, window) -> None:
     ]
     assert order == list(RESOLUTIONS)
 
-    picker.group.button(2).click()
+    picker.group.button(RESOLUTIONS.index("1h")).click()
     app.processEvents()
     assert picker.current() == "1h"
     assert sum(b.isChecked() for b in picker.group.buttons()) == 1

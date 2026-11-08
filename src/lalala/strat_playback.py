@@ -65,7 +65,7 @@ CHART_BARS = 1500
 MAX_MARKERS = 4000
 
 MAX_READ = 48_000
-FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+FACTOR = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 
 # How fast the price window chases the data. Lower is calmer; the tile is
 # unreadable when the scale snaps on every new extreme.
@@ -1186,26 +1186,12 @@ class PlaybackTile(Card):
         self._reveal_trade(self._pending_trade)
 
     def _reveal_trade(self, trade: dict | None) -> None:
-        if trade is None:
-            self.player.set_trade(None)
-            return
-        # Rewind the walk so the trade sits in the middle of the trail: a
-        # little past its exit, about half a screen of candles.
-        if self.session is not None:
-            room = self.player.visible_count(self.player.width())
-            stride = max(1, self.session.strategy.stride)
-            out = int(trade.get("out_index", 0))
-            # The walk lands on a stride boundary, so aim a stride past the
-            # middle to be sure the trade stays inside the window.
-            target = min(self.session.total, out + room // 2 + stride)
-            self.session.seek(target)
-            self.playback = self.session.strategy
-            self.player.playback = self.playback
-            self._elapsed = 0
-            self.player.reset_range()
-            self._refresh_metrics()
-            self._refresh_progress()
-            self.advanced.emit()
+        """Mark a picked trade on the chart.
+
+        It does **not** move the walk: rewinding to show an old trade would
+        cut the curves and the later trades away, so the pick is only drawn
+        where it already is.
+        """
         self.player.set_trade(trade)
         self.player.update()
 

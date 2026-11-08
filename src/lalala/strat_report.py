@@ -56,7 +56,7 @@ from lalala.theme import (
 )
 
 # Bars per displayed slot, and how much history to keep out of sight.
-FACTOR = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+FACTOR = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 VISIBLE = 1200
 WARMUP = 200
 

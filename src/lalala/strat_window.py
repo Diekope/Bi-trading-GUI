@@ -14,6 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QMainWindow,
     QScrollArea,
     QSizePolicy,
@@ -39,7 +40,7 @@ class StratWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("lalala · backtest + strategy")
         self.setMinimumSize(620, 520)
-        self.resize(1180, 900)
+        self.resize(1180, 940)
 
         canvas = QWidget(self)
         canvas.setObjectName("stratCanvas")
@@ -68,7 +69,7 @@ class StratWindow(QMainWindow):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self.right_scroll.setMinimumWidth(360)
-        self.right_scroll.setMaximumWidth(460)
+        self.right_scroll.setMaximumWidth(480)
 
         self.right = QWidget()
         self.right.setObjectName("stratColumn")
@@ -83,8 +84,15 @@ class StratWindow(QMainWindow):
         column.addWidget(self.download)
         column.addWidget(self.params)
         column.addWidget(self.strategy)
-        column.addWidget(self.save_run)
-        column.addWidget(self.load_run)
+        # Save and Load side by side, so both stay in view.
+        runs_row = QWidget(self.right)
+        runs_row.setObjectName("runsRow")
+        runs_layout = QHBoxLayout(runs_row)
+        runs_layout.setContentsMargins(0, 0, 0, 0)
+        runs_layout.setSpacing(CARD_GAP)
+        runs_layout.addWidget(self.save_run, 1)
+        runs_layout.addWidget(self.load_run, 1)
+        column.addWidget(runs_row)
         column.addStretch(1)
         for tile in (
             self.download,
@@ -102,7 +110,7 @@ class StratWindow(QMainWindow):
         self.splitter.addWidget(self.right_scroll)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
-        self.splitter.setSizes([720, 420])
+        self.splitter.setSizes([700, 460])
 
         # Bottom row: the results, full width under both halves.
         self.results = ResultsTile(canvas)
@@ -115,7 +123,7 @@ class StratWindow(QMainWindow):
         self.outer.addWidget(self.results)
         self.outer.setStretchFactor(0, 1)
         self.outer.setStretchFactor(1, 1)
-        self.outer.setSizes([540, 360])
+        self.outer.setSizes([560, 400])
 
         layout.addWidget(self.outer, 1)
         self.setCentralWidget(canvas)
