@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.cards import mono_font
+from lalala.autocomplete import attach_completer, vocabulary
 from lalala.formula import (
     ENTRY_FIELDS,
     EXIT_FIELDS,
@@ -961,6 +962,9 @@ class FormulaBuilder(QWidget):
             "type a value; Enter adds it, or fills the armed slot"
         )
         self.number_edit.returnPressed.connect(self.add_number)
+        attach_completer(
+            self.number_edit, vocabulary(self.fields, self.functions)
+        )
 
         self.number_add = QPushButton("+  Add", parent)
         self.number_add.setObjectName("numberAdd")

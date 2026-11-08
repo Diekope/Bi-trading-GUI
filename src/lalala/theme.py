@@ -651,34 +651,43 @@ QLabel#conditionStatus[state="ok"] {{
 QLabel#conditionStatus[state="error"] {{
     color: {DOWN};
 }}
-QLabel#railLabel {{
-    color: {TEXT_MUTED};
-    font-size: 10px;
-}}
 QLabel#railNote {{
     color: {TEXT_FAINT};
     font-size: 9px;
 }}
-QCheckBox#signalOption {{
-    color: {TEXT_MUTED};
+QPushButton#variablePick {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    color: {TEXT};
+    font-family: "JetBrains Mono", monospace;
     font-size: 10px;
-    spacing: 5px;
+    padding: 3px 6px;
+    text-align: left;
 }}
-QCheckBox#signalOption::indicator {{
-    width: 10px;
-    height: 10px;
-    border: 1px solid #3a3b40;
-    border-radius: 3px;
-    background: #0e0e11;
-}}
-QCheckBox#signalOption::indicator:checked {{
-    background: {ACCENT};
-    border-color: {ACCENT};
+QPushButton#variablePick:hover {{
+    background-color: {PANEL_ALT};
+    color: {ACCENT};
 }}
 QComboBox:disabled {{
     background-color: #121216;
     border-color: #1c1c20;
     color: #3a3a40;
+}}
+QListView#completionPopup {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    color: {TEXT};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    outline: none;
+}}
+QListView#completionPopup::item {{
+    padding: 3px 8px;
+}}
+QListView#completionPopup::item:selected {{
+    background-color: {ACCENT};
+    color: {CANVAS};
 }}
 
 /* The little confirm prompt on top of the window. */

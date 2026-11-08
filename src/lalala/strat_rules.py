@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.cards import mono_font
+from lalala.autocomplete import TextEditCompleter, vocabulary
 from lalala.formula import (
     ENTRY_FIELDS,
     EXIT_FIELDS,
@@ -266,6 +267,9 @@ class RulesTile(Card):
         )
         self.code_edit.textChanged.connect(self._code_edited)
         code_layout.addWidget(self.code_edit, 1)
+        self.code_completer = TextEditCompleter(
+            self.code_edit, vocabulary(self.fields, self.functions)
+        )
 
         self.code_error = QLabel("", code_card)
         self.code_error.setObjectName("formulaError")

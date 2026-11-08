@@ -264,6 +264,7 @@ src/lalala/
   strat_builder.py the builder window: strategy, entry and exit rules
   strat_rules.py   one rules tile: Rules/Formula/Code over one formula
   strat_conditions.py  the Rules tab: conditions in groups, read from a formula
+  autocomplete.py  completion for the code editor and the formula slots
   formula.py       the entry/exit formula language: parse and check (no Qt)
   formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
@@ -403,9 +404,10 @@ with AND. `+ Add condition` adds a row, `+ Add group` another group, and `×`
 removes one. The rule as a formula is pinned at the bottom left, with whether
 the rows make a valid rule and what the newest bar said.
 
-The right rail is the mock's **Signal options** — side, confirmation bars,
-cooldown, maximum entries, one position — shown greyed with a note: none of it
-is part of the backtest yet.
+The right rail is a **Variables** column: every field and indicator the rule can
+use, one click from the operand box that has the cursor — pick a name and it
+drops in where you are typing. (The mock put signal options there — side,
+confirmation bars, cooldown — but the backtest models none of them.)
 
 `Rules` is another way to write the same formula: it reads any condition that
 is a flat AND / OR of comparisons into rows, keeps `name = …` lines verbatim
@@ -413,7 +415,11 @@ above them, and keeps a condition it cannot break up as one raw expression, so
 switching tabs never rewrites the rule. `Formula` is the drag-and-drop builder
 and `Code` the same formula as text.
 
-![The builder on the Rules tab: the grouped condition editor with its signal rail, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
+![The builder on the Rules tab: the grouped condition editor with its variables rail, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
+
+Typing a rule **autofills**: the `Code` editor and the `Formula` tab's value box
+offer the fields, the indicators and the functions — `and or not` too — as you
+type, and `Tab` / `Enter` takes the suggestion.
 
 The `Formula` and `Code` panels have a natural size of their own and **scroll**
 inside the tile rather than making it grow, so a narrow window keeps the rules

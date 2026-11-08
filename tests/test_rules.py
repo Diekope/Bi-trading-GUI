@@ -261,18 +261,41 @@ def test_a_condition_the_rows_cannot_hold_is_kept_whole(
     tile.close()
 
 
-def test_the_signal_rail_is_shown_but_disabled(app: QApplication) -> None:
+def test_the_variables_rail_lists_what_a_rule_can_use(
+    app: QApplication,
+) -> None:
     tile = RulesTile("ENTRY RULES")
     tile.show()
     app.processEvents()
 
     page = tile.conditions
-    assert page.side_combo.currentText() == "YES"
-    assert not page.side_combo.isEnabled()
-    assert not page.confirmation_edit.isEnabled()
-    assert not page.cooldown_edit.isEnabled()
-    assert not page.entries_edit.isEnabled()
-    assert not page.together.isEnabled()
+    # The fields and the indicators are there, each a button.
+    assert "close" in page.variable_buttons
+    assert "bollinger_lower(close, 20, 2)" in page.variable_buttons
+    tile.close()
+
+
+def test_clicking_a_variable_drops_it_into_the_active_operand(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    # Put the cursor in the value box, then pick a variable.
+    row.right.setFocus()
+    app.processEvents()
+    page.insert_variable("rsi(close, 14)")
+    app.processEvents()
+    assert row.right.currentText() == "rsi(close, 14)"
+
+    # Without a focused box it falls back to the last row's left operand.
+    page.active_operand = None
+    page.insert_variable("volume")
+    app.processEvents()
+    assert row.left.currentText() == "volume"
     tile.close()
 
 

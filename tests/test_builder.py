@@ -514,9 +514,14 @@ def test_each_rule_tab_starts_with_conditions(
         assert len(page.groups) == 1
         assert page.groups[0].caption.text() == "GROUP 1"
         assert len(page.groups[0].rows) == 1
-        # The signal rail is there, disabled.
-        assert not page.side_combo.isEnabled()
-        assert not page.together.isEnabled()
+        # The variables rail offers what the rule can use.
+        assert page.variable_buttons
+
+    assert "close" in builder.entry.conditions.variable_buttons
+    assert "sma(close, 20)" in builder.entry.conditions.variable_buttons
+    # The exit rule reads the trade, not the bar.
+    assert "pnl" in builder.exit.conditions.variable_buttons
+    assert "close" not in builder.exit.conditions.variable_buttons
 
 
 def test_the_condition_rows_fill_the_rule(

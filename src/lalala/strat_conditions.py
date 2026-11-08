@@ -10,21 +10,20 @@ tabs. It reads any formula whose condition is a flat AND / OR of comparisons,
 keeping `name = …` lines verbatim above it. A condition it cannot break into
 rows is kept as one raw expression, so switching tabs never rewrites the rule.
 
-The right rail mirrors the mock's **Signal options**, but those controls are
-disabled: confirmation bars, cooldown and maximum entries are not part of the
-backtest yet.
+The right rail is a **Variables** column: the fields and the indicators, each a
+click away from the operand box that has the cursor. (The mock put signal
+options there — side, confirmation, cooldown — but the backtest models none of
+them.)
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -159,6 +158,7 @@ class ConditionRow(QFrame):
 
     changed = Signal()
     removed = Signal(object)
+    activated = Signal(object)
 
     def __init__(self, choices: list, parent=None) -> None:
         super().__init__(parent)
@@ -189,9 +189,26 @@ class ConditionRow(QFrame):
         row.addWidget(self.right, 3)
         row.addWidget(self.remove, 0)
 
+        # Tell the page which operand box has the cursor, so the variables
+        # rail knows where an inserted name should land. Focus may land on the
+        # combo itself or on its line edit, depending on the platform.
+        for combo in (self.left, self.right):
+            combo.installEventFilter(self)
+            line = combo.lineEdit()
+            if line is not None:
+                line.installEventFilter(self)
+
         self.left.editTextChanged.connect(self._touched)
         self.right.editTextChanged.connect(self._touched)
         self.op.currentIndexChanged.connect(self._touched)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.FocusIn:
+            for combo in (self.left, self.right):
+                if obj is combo or obj is combo.lineEdit():
+                    self.activated.emit(combo)
+                    break
+        return super().eventFilter(obj, event)
 
     def _combo(self, choices: list, placeholder: str) -> QComboBox:
         combo = QComboBox(self)
@@ -237,6 +254,7 @@ class ConditionGroup(QFrame):
 
     changed = Signal()
     removed = Signal(object)
+    activated = Signal(object)
 
     def __init__(self, choices: list, parent=None) -> None:
         super().__init__(parent)
@@ -298,6 +316,7 @@ class ConditionGroup(QFrame):
             )
         row.changed.connect(self.changed)
         row.removed.connect(self.remove_row)
+        row.activated.connect(self.activated)
         self.rows_box.addWidget(row)
         self.rows.append(row)
         return row
@@ -325,7 +344,7 @@ class ConditionGroup(QFrame):
 
 
 class RulesPage(QWidget):
-    """The condition groups, the formula they make, and the signal rail."""
+    """The condition groups, the formula they make, and the variables rail."""
 
     changed = Signal()
 
@@ -404,8 +423,10 @@ class RulesPage(QWidget):
 
         root.addWidget(card, 1)
 
-        # Right: the mock's signal rail, shown disabled — the backtest does
-        # not model any of it yet.
+        # Right: the variables. The mock had signal options here, but the
+        # backtest models none of them, so the rail holds what the rule can
+        # actually use: click a name to drop it into the operand box that has
+        # the cursor.
         rail = QFrame(self)
         rail.setObjectName("formulaCard")
         rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -414,65 +435,64 @@ class RulesPage(QWidget):
         rail_layout.setContentsMargins(12, 10, 12, 10)
         rail_layout.setSpacing(8)
 
-        rail_title = QLabel("SIGNAL OPTIONS", rail)
+        rail_title = QLabel("VARIABLES", rail)
         rail_title.setObjectName("panelTitle")
         rail_layout.addWidget(rail_title)
 
-        side = QComboBox(rail)
-        side.addItems(("YES", "NO", "Either, from the signal"))
-        side.setEnabled(False)
-        self.side_combo = side
-        self._rail_field(rail_layout, "Side to buy", side, rail)
+        hint = QLabel("click one to drop it where the cursor is", rail)
+        hint.setObjectName("railNote")
+        hint.setWordWrap(True)
+        rail_layout.addWidget(hint)
 
-        bars = QLineEdit("1", rail)
-        bars.setObjectName("numberEdit")
-        bars.setAlignment(Qt.AlignmentFlag.AlignRight)
-        bars.setEnabled(False)
-        self.confirmation_edit = bars
-        self._rail_field(rail_layout, "Confirmation (bars)", bars, rail)
-
-        cooldown = QLineEdit("6", rail)
-        cooldown.setObjectName("numberEdit")
-        cooldown.setAlignment(Qt.AlignmentFlag.AlignRight)
-        cooldown.setEnabled(False)
-        self.cooldown_edit = cooldown
-        self._rail_field(rail_layout, "Cooldown after exit (h)", cooldown, rail)
-
-        entries = QLineEdit("2", rail)
-        entries.setObjectName("numberEdit")
-        entries.setAlignment(Qt.AlignmentFlag.AlignRight)
-        entries.setEnabled(False)
-        self.entries_edit = entries
-        self._rail_field(rail_layout, "Max entries per market", entries, rail)
-
-        together = QCheckBox("One position at a time", rail)
-        together.setObjectName("signalOption")
-        together.setChecked(True)
-        together.setEnabled(False)
-        self.together = together
-        rail_layout.addWidget(together)
-
-        note = QLabel(
-            "signal options are not part of the backtest yet", rail
-        )
-        note.setObjectName("railNote")
-        note.setWordWrap(True)
-        rail_layout.addWidget(note)
-        rail_layout.addStretch(1)
+        picker_scroll = QScrollArea(rail)
+        picker_scroll.setObjectName("pageScroll")
+        picker_scroll.setWidgetResizable(True)
+        picker_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        picker_inner = QWidget()
+        picker_inner.setObjectName("conditionsInner")
+        picker_layout = QVBoxLayout(picker_inner)
+        picker_layout.setContentsMargins(0, 0, 0, 0)
+        picker_layout.setSpacing(2)
+        self.variable_buttons: dict[str, QPushButton] = {}
+        for name in self.choices:
+            button = QPushButton(name, picker_inner)
+            button.setObjectName("variablePick")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(f"insert {name}")
+            button.clicked.connect(
+                lambda _checked=False, text=name: self.insert_variable(text)
+            )
+            picker_layout.addWidget(button)
+            self.variable_buttons[name] = button
+        picker_layout.addStretch(1)
+        picker_scroll.setWidget(picker_inner)
+        rail_layout.addWidget(picker_scroll, 1)
 
         root.addWidget(rail, 0)
+
+        self.active_operand: QComboBox | None = None
 
         self.add_group()
         self._refresh_preview()
 
-    # -- the rail ----------------------------------------------------------
+    # -- the variables rail ------------------------------------------------
 
-    @staticmethod
-    def _rail_field(layout, caption: str, widget: QWidget, parent: QWidget) -> None:
-        label = QLabel(caption, parent)
-        label.setObjectName("railLabel")
-        layout.addWidget(label)
-        layout.addWidget(widget)
+    def _operand_activated(self, combo) -> None:
+        self.active_operand = combo
+
+    def insert_variable(self, name: str) -> None:
+        """Drop `name` into the operand box that last had the cursor."""
+        combo = self.active_operand
+        if combo is None and self.groups and self.groups[-1].rows:
+            combo = self.groups[-1].rows[-1].left
+        if combo is None:
+            return
+        line = combo.lineEdit()
+        if line is not None:
+            line.insert(name)
+            combo.setFocus()
+        else:
+            combo.setCurrentText(name)
 
     # -- the groups --------------------------------------------------------
 
@@ -481,6 +501,7 @@ class RulesPage(QWidget):
         group.set_logic(logic)
         group.changed.connect(self._group_changed)
         group.removed.connect(self.remove_group)
+        group.activated.connect(self._operand_activated)
         for parts in rows or [None]:
             group.add_row(parts)
         self.groups_box.insertWidget(len(self.groups), group)
