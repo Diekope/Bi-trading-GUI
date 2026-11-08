@@ -997,11 +997,11 @@ class FormulaBuilder(QWidget):
         layout.addWidget(title)
 
         # The lines sit under two headings inside the scroll area: the named
-        # series under LET, the condition under BUY WHEN (EXIT WHEN on the
-        # exit side). With no variables, the LET heading is hidden.
+        # The named series sit under LET, which is always shown with its
+        # `+ add variable`; the condition sits under BUY WHEN (EXIT WHEN on
+        # the exit side).
         self.variables_heading = QLabel("LET", box)
         self.variables_heading.setObjectName("formulaSection")
-        self.variables_heading.hide()
         self.condition_heading = QLabel(self.condition_label, box)
         self.condition_heading.setObjectName("formulaCondition")
 
@@ -1015,6 +1015,14 @@ class FormulaBuilder(QWidget):
         self.strip_layout.setSpacing(4)
         self.strip_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.strip_area)
+
+        self.add_variable_button = QPushButton("+  Add variable", box)
+        self.add_variable_button.setObjectName("addVariable")
+        self.add_variable_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_variable_button.setToolTip(
+            "name a series above the condition"
+        )
+        self.add_variable_button.clicked.connect(lambda: self.add_variable())
 
         self.add_line_button = QPushButton("+  add a line", box)
         self.add_line_button.setObjectName("addLine")
@@ -1503,14 +1511,20 @@ class FormulaBuilder(QWidget):
             if widget is not None:
                 widget.setParent(self.strip_inner)
 
-        # No variables defined: no LET subsection, only the condition.
-        self.variables_heading.setVisible(len(self.strips) > 1)
+        # LET is always shown, with its `+ Add variable`; the condition sits
+        # under the BUY WHEN / EXIT WHEN heading, last.
         self.strip_layout.addWidget(self.variables_heading)
         for strip in self.strips[:-1]:
             self.strip_layout.addWidget(strip)
+        self.strip_layout.addWidget(self.add_variable_button)
         self.strip_layout.addWidget(self.condition_heading)
         if self.strips:
             self.strip_layout.addWidget(self.strips[-1])
+
+    def add_variable(self) -> ChipStrip:
+        """Add a named series just above the condition."""
+        index = max(0, len(self.strips) - 1)
+        return self.add_strip(at=index)
 
     def _refresh(self) -> None:
         self._refresh_warning()
@@ -1527,6 +1541,7 @@ class FormulaBuilder(QWidget):
         # Show the start of the rule, not its tail.
         self.preview_label.setCursorPosition(0)
         self.add_line_button.setEnabled(len(self.strips) < 6)
+        self.add_variable_button.setEnabled(len(self.strips) < 6)
 
         if any(strip.has_empty_slots() for strip in self.strips):
             self._parsed = None

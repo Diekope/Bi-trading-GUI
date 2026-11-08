@@ -359,24 +359,31 @@ def test_a_series_line_then_a_condition(
 def test_the_lines_sit_under_let_and_buy_when(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
-    # Nothing to name yet: only the condition subsection is shown.
+    # The LET subsection is always shown, with its + Add variable.
     assert builder.variables_heading.text() == "LET"
     assert builder.variables_heading.objectName() == "formulaSection"
-    assert builder.variables_heading.isHidden() is True
+    assert builder.variables_heading.isHidden() is False
     assert builder.condition_heading.text() == "BUY WHEN"
     assert builder.condition_heading.objectName() == "formulaCondition"
-    assert builder.condition_heading.isVisible() is True
 
-    first = builder.strips[0]
-    _drop(builder, first, ("mid", "="))
-    _drop_call(builder, first, "Indicators", "SMA")
-    second = builder.add_strip()
-    _drop(builder, second, ("close", "<", "mid"))
+    order = [
+        widget.objectName()
+        for widget in (
+            builder.strip_layout.itemAt(i).widget()
+            for i in range(builder.strip_layout.count())
+        )
+    ]
+    # LET, its add button, then the condition under BUY WHEN.
+    assert order == [
+        "formulaSection",
+        "addVariable",
+        "formulaCondition",
+        "chipStrip",
+    ]
+
+    # Add a variable: it lands above the condition, still under LET.
+    builder.add_variable()
     app.processEvents()
-
-    # With a variable defined, the LET subsection appears above it, and the
-    # condition keeps its own heading under the variables.
-    assert builder.variables_heading.isVisible() is True
     order = [
         widget.objectName()
         for widget in (
@@ -387,12 +394,12 @@ def test_the_lines_sit_under_let_and_buy_when(
     assert order == [
         "formulaSection",
         "chipStrip",
+        "addVariable",
         "formulaCondition",
         "chipStrip",
     ]
     # The strips do not repeat the headings.
-    assert first.caption.isHidden() is True
-    assert second.caption.isHidden() is True
+    assert all(strip.caption.isHidden() for strip in builder.strips)
 
 
 def test_the_condition_heading_can_read_exit_when(app: QApplication) -> None:

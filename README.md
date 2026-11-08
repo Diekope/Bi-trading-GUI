@@ -450,9 +450,10 @@ The **Formula** takes the slack in the middle: the lines sit directly on the
 card — no scrollbox of their own, so all of them show at once and the page
 around the builder moves if a long rule needs more room — and the formula as
 text is one small read-only line that scrolls sideways. The lines are grouped
-into subsections: named series sit under **`LET`**, which only appears once
-there is at least one variable, and the condition sits under **`BUY WHEN`** on
-the entry side and **`EXIT WHEN`** on the exit side. The **Selected block** is
+into subsections: named series sit under **`LET`**, which is always shown with
+its **`+ Add variable`** button — that adds a named line above the condition —
+and the condition sits under **`BUY WHEN`** on the entry side and **`EXIT
+WHEN`** on the exit side. The **Selected block** is
 the right rail (a little under 250 px), pushed against the edge and scrolling
 in place: its name, source and live values stay readable in a short tile.
 Clicking a chip selects it: the card shows its name, its source and its window,
