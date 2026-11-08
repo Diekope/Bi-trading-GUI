@@ -403,10 +403,13 @@ class PaletteBlock(QFrame):
 class Chip(QFrame):
     """One token on a line. A `None` token is an empty slot to be filled."""
 
-    def __init__(self, token, builder: "FormulaBuilder", parent=None) -> None:
+    def __init__(
+        self, token, builder: "FormulaBuilder", parent=None, fixed: bool = False
+    ) -> None:
         super().__init__(parent)
         self.token = token
         self.builder = builder
+        self.fixed = fixed
         self.strip = None
         self._press: QPoint | None = None
         self.setObjectName("formulaChip")
@@ -462,18 +465,27 @@ class Chip(QFrame):
         self.label.setText("▢" if slot else str(self.token))
         self.setProperty("slot", slot)
         self.setProperty("group", self.group())
-        self.handle.setVisible(not slot)
-        self.remove_button.setVisible(not slot)
+        self.setProperty("fixed", self.fixed)
+        self.handle.setVisible(not slot and not self.fixed)
+        self.remove_button.setVisible(not slot and not self.fixed)
         self.setAcceptDrops(slot)
         self.setCursor(
-            Qt.CursorShape.PointingHandCursor
-            if slot
-            else Qt.CursorShape.OpenHandCursor
+            Qt.CursorShape.ArrowCursor
+            if self.fixed
+            else (
+                Qt.CursorShape.PointingHandCursor
+                if slot
+                else Qt.CursorShape.OpenHandCursor
+            )
         )
         self.setToolTip(
-            "empty slot — drop a number in, or click it and type one"
-            if slot
-            else "drag by the handle · × takes it off"
+            ""
+            if self.fixed
+            else (
+                "empty slot — drop a number in, or click it and type one"
+                if slot
+                else "drag by the handle · × takes it off"
+            )
         )
         self._repolish()
 
@@ -490,7 +502,7 @@ class Chip(QFrame):
             self._press = event.position().toPoint()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if self._press is None or self.is_slot():
+        if self._press is None or self.is_slot() or self.fixed:
             return
         moved = (event.position().toPoint() - self._press).manhattanLength()
         if moved < QApplication.startDragDistance():
@@ -767,8 +779,8 @@ class ChipStrip(QFrame):
     def set_caption(self, text: str) -> None:
         self.caption.setText(text)
 
-    def add_chip(self, token, index: int | None = None) -> Chip:
-        chip = Chip(token, self.builder, self.zone)
+    def add_chip(self, token, index: int | None = None, fixed: bool = False) -> Chip:
+        chip = Chip(token, self.builder, self.zone, fixed=fixed)
         return self._place(chip, index)
 
     def add_name_chip(self, token="", index: int | None = None) -> NameChip:
@@ -1553,6 +1565,9 @@ class FormulaBuilder(QWidget):
                     and plan[1] == ("token", "=")
                 ):
                     strip.add_name_chip(payload)
+                elif kind == "token" and payload == "=":
+                    # The assignment's `=` is a fixture, not a token to move.
+                    strip.add_chip("=", fixed=True)
                 else:
                     strip.add_chip(payload)
         self._refresh()
@@ -1577,16 +1592,16 @@ class FormulaBuilder(QWidget):
             self.strip_layout.addWidget(self.strips[-1])
 
     def add_variable(self) -> ChipStrip:
-        """Add a named series above the condition: `name = ▢`.
+        """Add a named series above the condition: `name =`.
 
-        The name field takes the cursor, so it is obvious where to type; the
-        expression then goes in the empty slot after the `=`.
+        The line is just the name field and the fixed `=`: nothing else to
+        fill. The name takes the cursor, and the series goes on the line by
+        dragging a block onto it.
         """
         index = max(0, len(self.strips) - 1)
         strip = self.add_strip(at=index)
         name = strip.add_name_chip("")
-        strip.add_chip("=")
-        strip.add_chip(None)
+        strip.add_chip("=", fixed=True)
         self._refresh()
         name.focus_name()
         return strip

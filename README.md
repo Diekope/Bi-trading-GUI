@@ -452,10 +452,10 @@ around the builder moves if a long rule needs more room — and the formula as
 text is one small read-only line that scrolls sideways. The lines are grouped
 into subsections: named series sit under **`Variables`**, which is always shown
 with its **`+ Add variable`** button — that adds a named line above the
-condition. That line starts with a small **name field**, the one token you type
-by hand, styled like the chips around it, then `=`, then an empty slot to drop
-the series into. The condition sits under **`BUY WHEN`** on the entry side and
-**`EXIT WHEN`** on the exit side. The **Selected block** is
+condition. That line is just the small **name field**, the one token you type
+by hand (styled like the chips around it), and a fixed `=`; nothing else. Drag
+a block onto the line to give it a value. The condition sits under **`BUY
+WHEN`** on the entry side and **`EXIT WHEN`** on the exit side. The **Selected block** is
 the right rail (a little under 250 px), pushed against the edge and scrolling
 in place: its name, source and live values stay readable in a short tile.
 Clicking a chip selects it: the card shows its name, its source and its window,

@@ -364,17 +364,19 @@ def test_add_variable_gives_a_name_field(
     app.processEvents()
 
     chips = strip.chips()
-    # A line starts with the editable name, then `=`, then an empty slot.
+    # Just the editable name and the fixed `=`: nothing else to fill.
     assert isinstance(chips[0], NameChip)
     assert chips[0].edit.placeholderText() == "name"
     assert chips[0].edit.hasFocus()
-    assert [chip.token for chip in chips[1:]] == ["=", None]
+    assert [chip.token for chip in chips[1:]] == ["="]
+    assert chips[1].fixed is True
+    assert chips[1].remove_button.isVisible() is False
+    assert strip.has_empty_slots() is False
 
     # Typing the name makes it the line's first token.
     chips[0].edit.setText("band")
     app.processEvents()
     assert strip.tokens()[0] == "band"
-    assert strip.has_empty_slots() is True
 
 
 def test_the_lines_sit_under_let_and_buy_when(

@@ -122,9 +122,9 @@ QLabel#dragHandle {{
     font-size: 10px;
 }}
 
-/* A palette block and a chip: one pill, coloured by group. */
+/* A palette block and a chip: one tile, coloured by group. */
 #paletteBlock, #formulaChip {{
-    border-radius: 11px;
+    border-radius: 6px;
 }}
 #paletteBlock:hover {{
     border-width: 1px;
@@ -186,6 +186,14 @@ QLabel#blockLabel {{
 }}
 #formulaChip[armed="true"] {{
     border: 1px solid {ACCENT};
+}}
+/* The fixed `=` of a named series: text, not a tile to move. */
+#formulaChip[fixed="true"] {{
+    background-color: transparent;
+    border: none;
+}}
+#formulaChip[fixed="true"] QLabel {{
+    color: {TEXT_MUTED};
 }}
 /* A palette block nothing here carries: named, but dashed and faint. */
 #paletteBlock[missing="true"] {{
