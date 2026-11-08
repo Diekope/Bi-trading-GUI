@@ -617,6 +617,9 @@ class ConditionGroup(QFrame):
         self.rows_box.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
+        if not self.rows:
+            # A group always keeps one cell to fill.
+            self.add_row()
         self._update_removes()
         self.changed.emit()
 
@@ -898,6 +901,13 @@ class RulesPage(QWidget):
     def _operand_activated(self, combo) -> None:
         self.active_operand = combo
 
+    def focus_first(self) -> None:
+        """Put the cursor in the first cell, so a fresh rule is ready to fill."""
+        if self.groups and self.groups[0].rows:
+            self.groups[0].rows[0].left.setFocus()
+        elif self.assignment_rows:
+            self.assignment_rows[-1].value.setFocus()
+
     def insert_variable(self, name: str) -> None:
         """Put `name` in the operand box that last had the cursor.
 
@@ -948,7 +958,7 @@ class RulesPage(QWidget):
         group.changed.connect(self._group_changed)
         group.removed.connect(self.remove_group)
         group.activated.connect(self._operand_activated)
-        for parts in rows or []:
+        for parts in rows or [None]:
             group.add_row(parts)
         self.groups_box.insertWidget(len(self.groups), group)
         self.groups.append(group)
@@ -1050,7 +1060,7 @@ class RulesPage(QWidget):
                     formula = parse(source, self.fields, self.functions)
                 except FormulaError:
                     raw = self.add_group()
-                    raw.add_row().set_parts(source, "<", "", raw=True)
+                    raw.rows[0].set_parts(source, "<", "", raw=True)
                 else:
                     for item in formula.assignments:
                         self.add_assignment(

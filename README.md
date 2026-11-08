@@ -399,15 +399,16 @@ Each side has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
 `Rules`, the condition editor. A **LET** section on top names series
 (`band = bollinger_lower(close, 20, 2)`): `+ Add variable` adds one, and the
 name it defines joins the Variables rail below. Then come the conditions,
-gathered in dashed **groups**. A group starts **empty** — just a little `+` —
-and no empty cells are ever shown. The `+` opens three things to add: a
-**Condition** (an operand, an operator and a value), a **Math** operator
-(`* + - / …`) or a **Value** (`2`, `band`). That is how
-`volume > sma(volume, 50) * 2` is one condition plus a math cell and a value
-cell. Each group joins its terms with **All (AND)** or **Any (OR)**, and the
-groups themselves are joined with AND. The rule as a formula is pinned at the
-bottom left, with whether the rows make a valid rule and what the newest bar
-said.
+gathered in dashed **groups**. A group starts with **one cell, active by
+default** — the cursor is already in it, ready to fill. The little `+` under
+the cells opens three things to add: a **Condition** (an operand, an operator
+and a value), a **Math** operator (`* + - / …`) or a **Value** (`2`, `band`).
+That is how `volume > sma(volume, 50) * 2` is one condition plus a math cell
+and a value cell. Each group joins its terms with **All (AND)** or **Any
+(OR)**, and the groups themselves are joined with AND — so several conditions
+collect together in the group's dashed box. The rule as a formula is pinned at
+the bottom left, with whether the rows make a valid rule and what the newest
+bar said.
 
 The **operands and the operator are picked, not typed**. The operator has its
 own little list; the operands and values have **no dropdown at all** — a click

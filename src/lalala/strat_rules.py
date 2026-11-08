@@ -469,7 +469,9 @@ class RulesTile(Card):
             return
         self.pages.setCurrentIndex(index)
         mode = RULES_MODES[index][0]
-        if mode == "formula":
+        if mode == "rules":
+            self.conditions.focus_first()
+        elif mode == "formula":
             self.formula.number_edit.setFocus()
         elif mode == "code":
             self._sync_code()
@@ -479,6 +481,12 @@ class RulesTile(Card):
     def _pages_changed(self) -> None:
         self.pages.updateGeometry()
         self.updateGeometry()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        # A fresh rule is ready to fill: the first cell takes the cursor.
+        if self.pages.currentIndex() == 0:
+            self.conditions.focus_first()
 
     # -- the formula -------------------------------------------------------
 

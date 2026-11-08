@@ -181,19 +181,16 @@ def test_the_rules_tab_reads_a_formula_into_groups(app: QApplication) -> None:
     tile.close()
 
 
-def test_a_fresh_rule_shows_only_the_little_add(
-    app: QApplication,
-) -> None:
+def test_a_fresh_rule_has_one_active_cell(app: QApplication) -> None:
     tile = RulesTile("ENTRY RULES")
     tile.show()
     app.processEvents()
 
     page = tile.conditions
     assert len(page.groups) == 1
-    # No empty cells: just the little + that adds one.
-    assert page.groups[0].rows == []
-    assert page.groups[0].add_cell_button.isVisible()
-    assert tile.text() == ""
+    # One cell, ready to fill, and the cursor is already in it.
+    assert len(page.groups[0].rows) == 1
+    assert page.groups[0].rows[0].left.hasFocus()
     tile.close()
 
 
@@ -202,7 +199,7 @@ def test_the_operands_are_picked_not_typed(app: QApplication) -> None:
     tile.show()
     app.processEvents()
 
-    row = tile.conditions.groups[0].add_row()
+    row = tile.conditions.groups[0].rows[0]
     # The operand and the operator are lists; only the value takes text.
     assert not row.left.isEditable()
     assert not row.op.isEditable()
@@ -225,7 +222,7 @@ def test_the_cross_shows_only_when_a_cell_can_be_removed(
     page = tile.conditions
     group = page.groups[0]
     # One cell and one group: nothing can be deleted, so no × anywhere.
-    first = group.add_row()
+    first = group.rows[0]
     app.processEvents()
     assert not first.remove.isVisible()
     assert not group.remove.isVisible()
@@ -249,7 +246,7 @@ def test_picking_a_variable_after_a_rebuild_does_not_crash(
     tile.show()
     app.processEvents()
 
-    row = tile.conditions.groups[0].add_row()
+    row = tile.conditions.groups[0].rows[0]
     row.left.setFocus()
     app.processEvents()
     # A rebuild deletes the box that had the cursor.
@@ -268,7 +265,7 @@ def test_the_operand_box_has_no_dropdown(app: QApplication) -> None:
     tile.show()
     app.processEvents()
 
-    row = tile.conditions.groups[0].add_row()
+    row = tile.conditions.groups[0].rows[0]
     row.left.showPopup()
     # The list never opens: the Variables rail is how a name is picked.
     assert not row.left.view().isVisible()
@@ -283,7 +280,7 @@ def test_math_and_value_cells_extend_a_condition(
     app.processEvents()
 
     page = tile.conditions
-    row = page.groups[0].add_row()
+    row = page.groups[0].rows[0]
     row.left.setCurrentText("volume")
     row.op.setCurrentText(">")
     row.right.setCurrentText("sma(volume, 50)")
@@ -336,7 +333,7 @@ def test_add_condition_and_group_change_the_formula(app: QApplication) -> None:
     assert tile.text() == "(close > open and volume > 0)"
 
     group = page.add_group()
-    second_row = group.add_row()
+    second_row = group.rows[0]
     second_row.left.setCurrentText("rsi(close, 14)")
     second_row.op.setCurrentText("<")
     second_row.right.setCurrentText("30")
@@ -406,7 +403,7 @@ def test_clicking_a_variable_drops_it_into_the_active_operand(
     app.processEvents()
 
     page = tile.conditions
-    row = page.groups[0].add_row()
+    row = page.groups[0].rows[0]
     # Put the cursor in the value box, then pick a variable.
     row.right.setFocus()
     app.processEvents()
@@ -429,7 +426,7 @@ def test_picking_a_variable_replaces_what_is_there(
     tile.show()
     app.processEvents()
 
-    row = tile.conditions.groups[0].add_row()
+    row = tile.conditions.groups[0].rows[0]
     row.left.setCurrentText("volume")
     row.left.setFocus()
     app.processEvents()
@@ -454,7 +451,7 @@ def test_a_variable_can_be_created_and_used(app: QApplication) -> None:
     # It joins the rail, so it can be dropped into a condition.
     assert "band" in page.variable_buttons
 
-    row = page.groups[0].add_row()
+    row = page.groups[0].rows[0]
     row.left.setCurrentText("close")
     row.right.setCurrentText("band")
     app.processEvents()
