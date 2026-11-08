@@ -173,7 +173,7 @@ QLabel#blockLabel {{
     color: {TEXT};
 }}
 /* A variable's name: a chip like any other, but you type in it. */
-#formulaChip[group="name"] {{
+#paletteBlock[group="name"], #formulaChip[group="name"] {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
 }}

@@ -451,7 +451,7 @@ def test_the_exit_tile_reads_the_trade_and_takes_no_indicators(
     assert "Indicators" in entry_groups
     assert "Indicators" not in exit_groups
     assert exit_groups == ["Trade", "Maths", "Logic"]
-    assert list(builder.exit.formula.blocks) == exit_groups
+    assert list(builder.exit.formula.blocks) == ["Variables"] + exit_groups
 
     labels = [block.item.label for block in builder.exit.formula.blocks["Trade"]]
     assert labels == ["price", "entry", "PNL", "TP", "SL", "bars"]

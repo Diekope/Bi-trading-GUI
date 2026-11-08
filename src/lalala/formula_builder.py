@@ -967,12 +967,65 @@ class FormulaBuilder(QWidget):
         column = QVBoxLayout(inner)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
+        # The names the rule defines, above the built-in kinds, so they can be
+        # dragged into the condition like any other block.
+        column.addWidget(self._variables_group(inner))
         for group, items in self.palette:
             column.addWidget(self._block_group(inner, group, items))
         column.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
         return box
+
+    def _variables_group(self, parent: QWidget) -> QWidget:
+        """The Variables group: the names this rule defines, filled later."""
+        frame = QFrame(parent)
+        frame.setObjectName("blockGroup")
+        frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(6, 5, 6, 6)
+        layout.setSpacing(4)
+        caption = QLabel("VARIABLES", frame)
+        caption.setObjectName("paletteTitle")
+        layout.addWidget(caption)
+        self.variables_holder = FlowHolder(frame, spacing=3)
+        layout.addWidget(self.variables_holder)
+        self.blocks["Variables"] = []
+        frame.setVisible(False)  # shown once something is named
+        self.variables_frame = frame
+        return frame
+
+    def _refresh_variables_blocks(self) -> None:
+        """Repopulate the Variables group with the rule's own names."""
+        holder = getattr(self, "variables_holder", None)
+        if holder is None:
+            return
+        for block in self.blocks.get("Variables", []):
+            holder.flow.removeWidget(block)
+            block.setParent(None)
+            block.deleteLater()
+        self.blocks["Variables"] = []
+        names = self.defined_names()
+        for name in names:
+            item = Item(name, (name,), "a name the rule defines")
+            block = PaletteBlock(item, holder)
+            block.setProperty("group", "name")
+            block.style().unpolish(block)
+            block.style().polish(block)
+            holder.flow.addWidget(block)
+            self.blocks["Variables"].append(block)
+        self.variables_frame.setVisible(bool(names))
+
+    def defined_names(self) -> list:
+        """The names the rule's variable lines define, in order."""
+        names: list[str] = []
+        for strip in self.strips:
+            for chip in strip.chips():
+                if isinstance(chip, NameChip):
+                    name = chip.token.strip()
+                    if name and name not in names:
+                        names.append(name)
+        return names
 
     def _block_group(self, parent: QWidget, title: str, items: tuple) -> QWidget:
         """One dashed group: its caption, then its blocks, wrapping."""
@@ -1608,6 +1661,7 @@ class FormulaBuilder(QWidget):
 
     def _refresh(self) -> None:
         self._refresh_warning()
+        self._refresh_variables_blocks()
         # The strips carry no caption of their own: the headings above them
         # say LET and BUY WHEN / EXIT WHEN.
         for strip in self.strips:

@@ -97,9 +97,18 @@ def test_the_palette_is_rows_of_blocks_and_a_number_box(
         "Maths",
         "Logic",
     ]
-    # One row per group, each a horizontal run of blocks.
-    assert list(builder.blocks) == ["Data", "Indicators", "Maths", "Logic"]
+    # One row per group, each a horizontal run of blocks. Variables comes
+    # first, for the names the rule defines.
+    assert list(builder.blocks) == [
+        "Variables",
+        "Data",
+        "Indicators",
+        "Maths",
+        "Logic",
+    ]
     for title, blocks in builder.blocks.items():
+        if title == "Variables":
+            continue  # empty until a name is defined
         assert blocks, f"{title} has something to drag"
         for block in blocks:
             assert isinstance(block, PaletteBlock)
@@ -379,6 +388,25 @@ def test_add_variable_gives_a_name_field(
     assert strip.tokens()[0] == "band"
 
 
+def test_defined_names_join_the_variables_category(
+    app: QApplication, builder: FormulaBuilder
+) -> None:
+    # Nothing named: the group is not shown.
+    assert builder.variables_frame.isVisible() is False
+    assert builder.blocks["Variables"] == []
+    assert list(builder.blocks)[0] == "Variables"
+
+    builder.set_formula("z = zscore(close, 20)\nedge = volume - close\nz < 2 and edge > 0.08")
+    app.processEvents()
+
+    assert builder.defined_names() == ["z", "edge"]
+    assert [block.item.label for block in builder.blocks["Variables"]] == [
+        "z",
+        "edge",
+    ]
+    assert builder.variables_frame.isVisible() is True
+
+
 def test_the_lines_sit_under_let_and_buy_when(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
@@ -611,8 +639,10 @@ def test_every_group_is_its_own_dashed_box(app: QApplication) -> None:
         for frame in builder.findChildren(QFrame)
         if frame.objectName() == "blockGroup"
     ]
-    assert len(groups) == len(PALETTES)
+    assert len(groups) == len(PALETTES) + 1  # the four kinds, plus Variables
     for frame in groups:
+        if frame is builder.variables_frame:
+            continue  # empty and hidden until something is named
         assert frame.findChildren(PaletteBlock)
     builder.close()
 

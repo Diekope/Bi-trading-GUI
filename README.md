@@ -446,6 +446,9 @@ The `Formula` tab is three columns, as in the mock. **Blocks** is the small
 left rail (200 px, fixed) — a search box over one dashed group per kind
 (`Data`, `Indicators`, `Maths`, `Logic` — boxes, not different colours, so the
 list reads as one surface), with **no scrollbar**: the wheel walks the list.
+A **`Variables`** group sits above them, listing the names the rule defines, so
+a named series can be dragged into the condition like any other block; it is
+hidden until something is named.
 The **Formula** takes the slack in the middle: the lines sit directly on the
 card — no scrollbox of their own, so all of them show at once and the page
 around the builder moves if a long rule needs more room — and the formula as
