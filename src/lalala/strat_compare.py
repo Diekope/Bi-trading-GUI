@@ -5,28 +5,33 @@ Inspired by the compare mock. Two things:
 - the three curves — strategy, a random-buy version and buy and hold — with a
   table of the same figures side by side;
 - a **walk-forward** count over four folds, and a **TP × SL sweep** drawn as a
-  heat-map grid, with a legend and a handle to promote a cell to a compared run.
+  heat-map grid with a legend, so a setting can be read at a glance.
 
-Everything is computed from the same tail of candles the report reads, by
-slicing it and running `lalala.formula_eval.backtest` on each part. It is a
+A saved strategy can be added to the comparison from the `+ Add` chip: it is
+re-parsed from its stored text and run over the same bars, then it gets its own
+chip, curve and table column.
+
+Everything is computed from the same tail of candles the report reads. It is a
 read, not a promise: nothing is wired back to the run.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from lalala.cards import mono_font
+from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FormulaError, parse
 from lalala.formula_eval import (
     backtest,
     curve_drawdown,
@@ -34,6 +39,7 @@ from lalala.formula_eval import (
     curve_sharpe,
 )
 from lalala.strat_report import CurveChart
+from lalala.strategies import load as load_strategies
 from lalala.theme import ACCENT, BAND, TEXT_FAINT, TEXT_MUTED
 
 # The TP / SL grid the sweep walks, and the columns of the compare table.
@@ -132,12 +138,6 @@ class TagChip(QFrame):
         self._label = label
         self._text.setText(label)
 
-    def set_active(self, active: bool) -> None:
-        self.setProperty("active", active)
-        style = self.style()
-        style.unpolish(self)
-        style.polish(self)
-
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
@@ -145,9 +145,8 @@ class TagChip(QFrame):
 
 
 class SweepHeatmap(QWidget):
-    """The TP × SL sweep as a grid of coloured cells, labelled and clickable."""
+    """The TP × SL sweep as a grid of coloured cells, labelled and hoverable."""
 
-    cell_clicked = Signal(int, int)
     cell_hovered = Signal(object)
 
     def __init__(self, parent=None) -> None:
@@ -230,11 +229,6 @@ class SweepHeatmap(QWidget):
         if cell != self.hovered:
             self.hovered = cell
             self.update()
-            self.setCursor(
-                Qt.CursorShape.PointingHandCursor
-                if cell
-                else Qt.CursorShape.ArrowCursor
-            )
             if cell:
                 row, column = cell
                 self.cell_hovered.emit(
@@ -250,13 +244,6 @@ class SweepHeatmap(QWidget):
             self.update()
             self.cell_hovered.emit(None)
         super().leaveEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            cell = self._cell_at(event.position().x(), event.position().y())
-            if cell:
-                self.cell_clicked.emit(*cell)
-        super().mouseReleaseEvent(event)
 
 
 class SweepLegend(QWidget):
@@ -302,7 +289,6 @@ class ComparePage(QWidget):
         self.tp = 2.0
         self.sl = 1.0
         self.runs: list[dict] = []
-        self.pick_mode = False
         self._dirty = True
 
         layout = QVBoxLayout(self)
@@ -321,8 +307,8 @@ class ComparePage(QWidget):
         for chip in self.tags:
             self.tag_row.addWidget(chip)
         self.add_chip = TagChip("+ Add", None, self)
-        self.add_chip.setToolTip("Add a run from the TP × SL sweep")
-        self.add_chip.clicked.connect(self.toggle_pick_mode)
+        self.add_chip.setToolTip("Add a saved strategy to the compare")
+        self.add_chip.clicked.connect(self.open_add_menu)
         self.tag_row.addWidget(self.add_chip)
         self.tag_row.addStretch(1)
         layout.addLayout(self.tag_row)
@@ -367,7 +353,6 @@ class ComparePage(QWidget):
         rail_layout.addWidget(self.sweep_hint)
 
         self.heatmap = SweepHeatmap(rail)
-        self.heatmap.cell_clicked.connect(self._cell_clicked)
         self.heatmap.cell_hovered.connect(self._cell_hovered)
         rail_layout.addWidget(self.heatmap)
 
@@ -376,48 +361,81 @@ class ComparePage(QWidget):
         rail_layout.addStretch(1)
         body.addWidget(rail, 0)
 
-    # -- the chips and the pick mode ---------------------------------------
+    # -- the chips and the saved strategies --------------------------------
 
-    def toggle_pick_mode(self) -> None:
-        """Arm or disarm the sweep: a click adds that cell as a run."""
-        self.pick_mode = not self.pick_mode
-        self.add_chip.set_active(self.pick_mode)
-        self.sweep_hint.setText(
-            "Click a cell to add it"
-            if self.pick_mode
-            else "SL down · TP across"
+    def open_add_menu(self) -> None:
+        """Show the saved strategies under `+ Add`; pick one to compare it."""
+        menu = self._build_add_menu()
+        menu.exec(
+            self.add_chip.mapToGlobal(
+                QPoint(0, self.add_chip.height() + 2)
+            )
         )
+
+    def _build_add_menu(self) -> QMenu:
+        menu = QMenu(self)
+        saved = load_strategies()
+        if not saved:
+            empty = menu.addAction("No saved strategies yet")
+            empty.setEnabled(False)
+        else:
+            for strategy in saved:
+                taken = any(run["label"] == strategy.name for run in self.runs)
+                label = (
+                    f"{strategy.name} · added"
+                    if taken
+                    else f"{strategy.name} · {strategy.timeframe}"
+                )
+                action = menu.addAction(label)
+                if taken:
+                    action.setEnabled(False)
+                    continue
+                try:
+                    self._rules_of(strategy)
+                except (FormulaError, ValueError):
+                    action.setText(f"{strategy.name} · invalid rule")
+                    action.setEnabled(False)
+                    continue
+                action.triggered.connect(
+                    lambda _checked=False, strategy=strategy:
+                    self.add_strategy(strategy)
+                )
+        return menu
+
+    @staticmethod
+    def _rules_of(strategy):
+        """A saved strategy's two rules, parsed the way the builder parses."""
+        entry = parse(strategy.entry)
+        exit_ = parse(strategy.exit, EXIT_FIELDS, EXIT_FUNCTIONS)
+        return entry, exit_
 
     def _cell_hovered(self, cell) -> None:
         if cell is None:
-            self.sweep_hint.setText(
-                "Click a cell to add it"
-                if self.pick_mode
-                else "SL down · TP across"
-            )
+            self.sweep_hint.setText("SL down · TP across")
             return
         tp, sl, value = cell
         self.sweep_hint.setText(
             f"TP {tp:g} / SL {sl:g} · {value * 100:+,.2f}%"
         )
 
-    def _cell_clicked(self, row: int, column: int) -> None:
-        if not self.pick_mode:
-            return
-        self.add_run(SWEEP_TPS[column], SWEEP_SLS[row])
-
-    def add_run(self, tp: float, sl: float) -> None:
-        """Compare the rule at one more TP / SL pair, from the same bars."""
+    def add_strategy(self, strategy) -> None:
+        """Compare a saved strategy over the same bars, with the same TP / SL."""
         if not self._ready():
             return
-        if any(run["tp"] == tp and run["sl"] == sl for run in self.runs):
+        if any(run["label"] == strategy.name for run in self.runs):
             return
-        report = backtest(self.bars, self.entry, self.exit, tp=tp, sl=sl)
+        try:
+            entry, exit_ = self._rules_of(strategy)
+        except (FormulaError, ValueError):
+            return
+        report = backtest(
+            self.bars, entry, exit_, tp=self.tp, sl=self.sl
+        )
         colour = RUN_COLOURS[len(self.runs) % len(RUN_COLOURS)]
-        label = f"TP {tp:g} / SL {sl:g}"
+        label = strategy.name
         self.runs.append(
-            {"label": label, "colour": colour, "tp": tp, "sl": sl,
-             "report": report}
+            {"label": label, "colour": colour, "report": report,
+             "strategy": strategy}
         )
 
         chip = TagChip(label, colour, self)
@@ -426,9 +444,6 @@ class ComparePage(QWidget):
         self.tag_row.insertWidget(self.tag_row.indexOf(self.add_chip), chip)
         self.extra_chips.append(chip)
 
-        self.pick_mode = False
-        self.add_chip.set_active(False)
-        self.sweep_hint.setText("SL down · TP across")
         self._rebuild_table()
         self._fill_table(self.report)
         self.chart.set_extra(
@@ -518,8 +533,6 @@ class ComparePage(QWidget):
             chip.setParent(None)
             chip.deleteLater()
         self.runs.clear()
-        self.pick_mode = False
-        self.add_chip.set_active(False)
         self.sweep_hint.setText("SL down · TP across")
         self._rebuild_table()
         self.chart.set_extra([])

@@ -555,9 +555,13 @@ per reason, most-appearing first.
 - a **walk-forward** count over four folds (`1 / 4 positive`);
 - a **TP × SL sweep** as a 5 × 5 heat-map, each cell the return of the run at
   that take-profit and stop-loss, red through green. A small key under the grid
-  names the colour bands; hovering a cell reads `TP 3 / SL 1 · +2.14%`;
-  `+ Add` arms the grid, and clicking a cell then puts that run in the compare
-  — its own chip, curve and table column. Clicking the chip takes it back out.
+  names the colour bands, and hovering a cell reads `TP 3 / SL 1 · +2.14%`.
+
+`+ Add` lists the saved strategies; picking one re-parses its stored entry and
+exit rules, runs it over the same bars with the same TP / SL, and gives it its
+own chip, curve and table column. Clicking that chip takes it back out, and a
+new rule clears the added strategies. Names that are already added, or whose
+rules no longer parse, are shown greyed out.
 
 The sweep is a parameter search: it re-runs the whole span for each of the 25
 take-profit / stop-loss pairs and colours the result, so a rule that only works

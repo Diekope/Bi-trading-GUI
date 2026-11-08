@@ -124,7 +124,12 @@ def builder(app: QApplication) -> None:
     _save(window.report, "part-report.png")
     window.report.set_view("compare")
     _settle(app)
-    window.report.compare.add_run(3.0, 0.5)
+    window.report.compare.add_strategy(
+        next(
+            item for item in strategies.load()
+            if item.name == "Late favorite"
+        )
+    )
     _settle(app)
     _save(window.report, "part-report-compare.png")
     window.report.set_view("overview")

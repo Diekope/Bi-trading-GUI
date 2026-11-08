@@ -548,10 +548,6 @@ QPushButton#deleteStrategy[armed="true"]:hover {{
 #compareTag:hover {{
     border-color: {ACCENT_DIM};
 }}
-#compareTag[active="true"] {{
-    border-color: {ACCENT};
-    background-color: {ACCENT_BG};
-}}
 #compareTagText {{
     color: {TEXT};
     font-size: 11px;
@@ -563,6 +559,29 @@ QPushButton#deleteStrategy[armed="true"]:hover {{
 QLabel#sweepHint {{
     color: {TEXT_FAINT};
     font-size: 9px;
+}}
+QMenu {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    padding: 4px;
+}}
+QMenu::item {{
+    color: {TEXT};
+    font-size: 11px;
+    padding: 6px 18px 6px 12px;
+    border-radius: 4px;
+}}
+QMenu::item:selected {{
+    background-color: {ACCENT_BG};
+    color: {TEXT};
+}}
+QMenu::item:disabled {{
+    color: {TEXT_FAINT};
+}}
+QMenu::separator {{
+    height: 1px;
+    background-color: {BORDER};
+    margin: 4px 6px;
 }}
 QLabel#tableHead {{
     color: {TEXT_MUTED};

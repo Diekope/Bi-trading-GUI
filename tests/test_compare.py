@@ -20,6 +20,7 @@ from lalala.strat_compare import (  # noqa: E402
     walk_forward,
 )
 from lalala.strat_report import load_bars  # noqa: E402
+from lalala.strategies import SavedStrategy  # noqa: E402
 from lalala.theme import apply_dark_theme  # noqa: E402
 
 
@@ -110,13 +111,16 @@ def test_the_page_shows_the_runs_the_table_and_the_sweep(
     page.close()
 
 
-def test_adding_a_sweep_cell_puts_it_in_the_compare(
+def test_adding_a_saved_strategy_puts_it_in_the_compare(
     app: QApplication,
 ) -> None:
     _write_year(2021, 600)
     bars, _ = load_bars("1m")
     entry, exit_ = _rules()
     report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
+    saved = SavedStrategy(
+        "Older draft", "1m", "close > sma(close, 10)", "pnl >= tp"
+    )
 
     page = ComparePage()
     page.resize(820, 320)
@@ -124,21 +128,12 @@ def test_adding_a_sweep_cell_puts_it_in_the_compare(
     page.configure(bars, entry, exit_, report, 2.0, 1.0)
     app.processEvents()
 
-    # A cell does nothing until "+ Add" arms the sweep.
-    page._cell_clicked(1, 2)
-    assert page.runs == []
-
-    page.toggle_pick_mode()
-    assert page.pick_mode is True
-    assert "Click a cell" in page.sweep_hint.text()
-
-    page._cell_clicked(1, 2)  # SL 1.0, TP 2.0
+    page.add_strategy(saved)
     app.processEvents()
 
-    assert page.pick_mode is False
     assert len(page.runs) == 1
-    assert page.runs[0]["label"] == "TP 2 / SL 1"
-    assert [chip.name() for chip in page.extra_chips] == ["TP 2 / SL 1"]
+    assert page.runs[0]["label"] == "Older draft"
+    assert [chip.name() for chip in page.extra_chips] == ["Older draft"]
     # The table grew a column and the chart knows the extra curve.
     assert (1, 4) in page._cells
     assert page._cells[(1, 4)].text().endswith("%")
@@ -146,9 +141,8 @@ def test_adding_a_sweep_cell_puts_it_in_the_compare(
         (page.runs[0]["colour"], page.runs[0]["report"].strategy)
     ]
 
-    # The same cell twice is not added again.
-    page.toggle_pick_mode()
-    page._cell_clicked(1, 2)
+    # The same strategy twice is not added again.
+    page.add_strategy(saved)
     assert len(page.runs) == 1
 
     # Clicking its chip takes it back out.
@@ -161,7 +155,7 @@ def test_adding_a_sweep_cell_puts_it_in_the_compare(
     page.close()
 
 
-def test_a_new_rule_clears_the_added_runs(app: QApplication) -> None:
+def test_a_strategy_that_does_not_parse_is_ignored(app: QApplication) -> None:
     _write_year(2021, 600)
     bars, _ = load_bars("1m")
     entry, exit_ = _rules()
@@ -171,8 +165,28 @@ def test_a_new_rule_clears_the_added_runs(app: QApplication) -> None:
     page.resize(820, 320)
     page.show()
     page.configure(bars, entry, exit_, report, 2.0, 1.0)
-    page.toggle_pick_mode()
-    page._cell_clicked(0, 0)
+    page.add_strategy(SavedStrategy("Broken", "1m", "clsoe < 1", "pnl >= tp"))
+    app.processEvents()
+
+    assert page.runs == []
+    assert page.extra_chips == []
+    page.close()
+
+
+def test_a_new_rule_clears_the_added_strategies(app: QApplication) -> None:
+    _write_year(2021, 600)
+    bars, _ = load_bars("1m")
+    entry, exit_ = _rules()
+    report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
+    saved = SavedStrategy(
+        "Older draft", "1m", "close > sma(close, 10)", "pnl >= tp"
+    )
+
+    page = ComparePage()
+    page.resize(820, 320)
+    page.show()
+    page.configure(bars, entry, exit_, report, 2.0, 1.0)
+    page.add_strategy(saved)
     app.processEvents()
     assert len(page.runs) == 1
 
@@ -182,6 +196,48 @@ def test_a_new_rule_clears_the_added_runs(app: QApplication) -> None:
     assert page.runs == []
     assert page.extra_chips == []
     assert (1, 4) not in page._cells
+    page.close()
+
+
+def test_the_add_menu_lists_saved_strategies(
+    app: QApplication, tmp_path, monkeypatch
+) -> None:
+    _write_year(2021, 600)
+    bars, _ = load_bars("1m")
+    entry, exit_ = _rules()
+    report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
+
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "saved.json"))
+    from lalala import strategies
+
+    strategies.save(
+        SavedStrategy("Keep", "5m", "close > sma(close, 10)", "pnl >= tp")
+    )
+    strategies.save(
+        SavedStrategy("Broken", "1m", "clsoe < 1", "pnl >= tp")
+    )
+
+    page = ComparePage()
+    page.resize(820, 320)
+    page.show()
+    page.configure(bars, entry, exit_, report, 2.0, 1.0)
+    app.processEvents()
+
+    menu = page._build_add_menu()
+    actions = {action.text(): action for action in menu.actions()}
+    assert "Keep · 5m" in actions
+    assert actions["Keep · 5m"].isEnabled()
+    assert "Broken · invalid rule" in actions
+    assert not actions["Broken · invalid rule"].isEnabled()
+
+    actions["Keep · 5m"].trigger()
+    app.processEvents()
+    assert [run["label"] for run in page.runs] == ["Keep"]
+
+    # Once added, the entry is shown greyed out.
+    menu = page._build_add_menu()
+    texts = [action.text() for action in menu.actions()]
+    assert "Keep · added" in texts
     page.close()
 
 
