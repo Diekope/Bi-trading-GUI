@@ -501,57 +501,58 @@ def test_the_entry_tile_still_reads_the_bar(
     assert "unknown name 'pnl'" in builder.entry_formula_error()
 
 
-def test_each_tile_offers_presets_before_the_formulas(
+def test_each_rule_tab_starts_with_conditions(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    from lalala.strat_rules import ENTRY_PRESETS, EXIT_PRESETS
-
-    labels = [button.text() for button in builder.entry.preset_buttons]
-    assert labels == [preset.label for preset in ENTRY_PRESETS]
-    assert labels == [
-        "Bollinger reversion", "SMA above", "Breakout", "RSI dip",
-        "Volume spike", "Dip + volume",
-    ]
-    assert [b.text() for b in builder.exit.preset_buttons] == [
-        preset.label for preset in EXIT_PRESETS
-    ]
-
-    # The presets have a page of their own, first of the three.
+    # The first page of both rules is the grouped condition editor.
     assert builder.entry_pages.count() == 3
-    assert builder.entry_pages.widget(0).isAncestorOf(
-        builder.entry.preset_buttons[0]
-    )
-    assert builder.exit.pages.count() == 3
-    assert builder.exit.pages.widget(0).isAncestorOf(
-        builder.exit.preset_buttons[0]
-    )
+    assert builder.entry_pages.widget(0) is builder.entry.conditions
+    assert builder.exit.pages.widget(0) is builder.exit.conditions
+
+    for tile in (builder.entry, builder.exit):
+        page = tile.conditions
+        assert len(page.groups) == 1
+        assert page.groups[0].caption.text() == "GROUP 1"
+        assert len(page.groups[0].rows) == 1
+        # The signal rail is there, disabled.
+        assert not page.side_combo.isEnabled()
+        assert not page.together.isEnabled()
 
 
-def test_clicking_a_preset_fills_the_tile(
+def test_the_condition_rows_fill_the_rule(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    builder.entry.preset_buttons[0].click()  # Bollinger reversion
+    page = builder.entry.conditions
+    row = page.groups[0].rows[0]
+    row.left.setCurrentText("close")
+    row.op.setCurrentText("<")
+    row.right.setCurrentText("bollinger_lower(close, 20, 2)")
     app.processEvents()
+
     assert builder.entry_formula() == "close < bollinger_lower(close, 20, 2)"
     assert builder.entry_formula_error() == ""
     assert builder.entry_formula_parsed() is not None
-    # Picking a preset goes straight to where the rule can be edited.
-    assert builder.entry_mode() == "formula"
-    assert builder.entry_pages.currentIndex() == 1
 
-    # The multi-line preset comes through whole.
-    builder.entry.preset_buttons[5].click()  # Dip + volume
+    # A second group joins with AND, and its rows can be OR.
+    group = page.add_group(logic="or")
+    group.rows[0].left.setCurrentText("volume")
+    group.rows[0].op.setCurrentText(">")
+    group.rows[0].right.setCurrentText("0")
     app.processEvents()
-    assert builder.entry_formula().startswith("band = bollinger_lower")
-    assert builder.entry_formula_error() == ""
+    assert builder.entry_formula() == (
+        "close < bollinger_lower(close, 20, 2) and volume > 0"
+    )
 
-    # The exit tile has its own presets, in the trade's words.
-    builder.exit.preset_buttons[2].click()  # TP or SL
+    # The exit tile has its own conditions, in the trade's words.
+    exit_row = builder.exit.conditions.groups[0].rows[0]
+    exit_row.left.setCurrentText("pnl")
+    exit_row.op.setCurrentText(">=")
+    exit_row.right.setCurrentText("tp")
     app.processEvents()
-    assert builder.exit_formula() == "pnl >= tp or pnl <= 0 - sl"
+    assert builder.exit_formula() == "pnl >= tp"
     assert builder.exit_formula_error() == ""
     # The entry formula is untouched.
-    assert builder.entry_formula().startswith("band = bollinger_lower")
+    assert builder.entry_formula().startswith("close < bollinger_lower")
 
 
 def test_the_report_follows_the_rules(
@@ -901,7 +902,7 @@ def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
     builder.resize(1000, 800)
     app.processEvents()
     builder.timeframe.setCurrentText("1h")
-    builder.entry.preset_buttons[0].click()
+    builder.set_entry_formula("band = bollinger_lower(close, 20, 2)\nclose < band")
     app.processEvents()
 
     formula = builder.entry.formula

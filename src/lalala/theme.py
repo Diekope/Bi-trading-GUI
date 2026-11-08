@@ -113,34 +113,6 @@ QLabel#paletteTitle {{
     font-weight: bold;
 }}
 
-/* A ready-made rule as a card: a title, a line about it, and a badge. */
-#presetCard {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
-    border-radius: 8px;
-}}
-#presetCard:hover {{
-    border-color: {ACCENT_DIM};
-}}
-QLabel#presetTitle {{
-    color: {TEXT};
-    font-size: 10px;
-    font-weight: bold;
-}}
-QLabel#presetNote {{
-    color: {TEXT_MUTED};
-    font-size: 9px;
-}}
-QLabel#presetBadge {{
-    background-color: #12251a;
-    border: 1px solid #1f4530;
-    border-radius: 8px;
-    color: {UP};
-    font-size: 9px;
-    font-weight: bold;
-    padding: 1px 7px;
-}}
-
 #paletteRule {{
     background-color: {BORDER};
     border: none;
@@ -607,6 +579,106 @@ QLabel#tableCell[tone="down"] {{
 }}
 QLabel#tableCell[tone="muted"] {{
     color: {TEXT_MUTED};
+}}
+
+/* -- the Rules tab: condition groups ---------------------------------- */
+#conditionsInner, #conditionRow {{
+    background-color: transparent;
+}}
+#conditionGroup {{
+    background-color: #141519;
+    border: 1px dashed {BORDER};
+    border-radius: 8px;
+}}
+QLabel#groupCaption {{
+    color: {ACCENT};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QComboBox#conditionOperand, QComboBox#conditionOp, QComboBox#groupLogic {{
+    background-color: {PANEL};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+    min-height: 20px;
+}}
+QPushButton#removeCondition {{
+    background-color: transparent;
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    padding: 0;
+}}
+QPushButton#removeCondition:hover {{
+    border-color: {DOWN};
+    color: {DOWN};
+}}
+QPushButton#addCondition, QPushButton#addGroup {{
+    background-color: transparent;
+    border: none;
+    color: {ACCENT};
+    font-size: 10px;
+    padding: 3px 2px;
+    text-align: left;
+}}
+QPushButton#addGroup {{
+    color: {TEXT_MUTED};
+}}
+QPushButton#addCondition:hover, QPushButton#addGroup:hover {{
+    color: {TEXT};
+}}
+#conditionPreview {{
+    background-color: #101114;
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+}}
+QLabel#conditionText {{
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: {TEXT};
+}}
+QLabel#conditionStatus {{
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    color: {TEXT_FAINT};
+}}
+QLabel#conditionStatus[state="ok"] {{
+    color: {UP};
+}}
+QLabel#conditionStatus[state="error"] {{
+    color: {DOWN};
+}}
+QLabel#railLabel {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+}}
+QLabel#railNote {{
+    color: {TEXT_FAINT};
+    font-size: 9px;
+}}
+QCheckBox#signalOption {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    spacing: 5px;
+}}
+QCheckBox#signalOption::indicator {{
+    width: 10px;
+    height: 10px;
+    border: 1px solid #3a3b40;
+    border-radius: 3px;
+    background: #0e0e11;
+}}
+QCheckBox#signalOption::indicator:checked {{
+    background: {ACCENT};
+    border-color: {ACCENT};
+}}
+QComboBox:disabled {{
+    background-color: #121216;
+    border-color: #1c1c20;
+    color: #3a3a40;
 }}
 
 /* The little confirm prompt on top of the window. */

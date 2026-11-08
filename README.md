@@ -262,7 +262,8 @@ src/lalala/
   strat_params.py  the backtest tile: a gallery of run inputs
   strat_strategy.py the strategy tile: which entry rule to run
   strat_builder.py the builder window: strategy, entry and exit rules
-  strat_rules.py   one rules tile: Presets/Formulas/Code over one formula
+  strat_rules.py   one rules tile: Rules/Formula/Code over one formula
+  strat_conditions.py  the Rules tab: conditions in groups, read from a formula
   formula.py       the entry/exit formula language: parse and check (no Qt)
   formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
@@ -394,12 +395,25 @@ the side on show and follow it when you switch. That way either rule gets the
 full width of the tile instead of the two squeezing into it.
 
 Each side has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
-`Rules`, where ready-made rules are shown as a **gallery**: cards four to a row
-at most, left-aligned, each with a line about the rule. Picking one loads it and
-jumps straight to `Formula`, ready to edit. `Formula` is the drag-and-drop
-builder and `Code` the same formula as text.
+`Rules`, the condition editor: comparisons gathered in dashed **groups**. Each
+row is an operand, an operator and a value (the operand boxes offer the bar's
+words and the indicators, and anything else can be typed); each group joins its
+rows with **All (AND)** or **Any (OR)**, and the groups themselves are joined
+with AND. `+ Add condition` adds a row, `+ Add group` another group, and `×`
+removes one. The rule as a formula is pinned at the bottom left, with whether
+the rows make a valid rule and what the newest bar said.
 
-![The builder on the Rules tab: the presets gallery, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
+The right rail is the mock's **Signal options** — side, confirmation bars,
+cooldown, maximum entries, one position — shown greyed with a note: none of it
+is part of the backtest yet.
+
+`Rules` is another way to write the same formula: it reads any condition that
+is a flat AND / OR of comparisons into rows, keeps `name = …` lines verbatim
+above them, and keeps a condition it cannot break up as one raw expression, so
+switching tabs never rewrites the rule. `Formula` is the drag-and-drop builder
+and `Code` the same formula as text.
+
+![The builder on the Rules tab: the grouped condition editor with its signal rail, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
 
 The `Formula` and `Code` panels have a natural size of their own and **scroll**
 inside the tile rather than making it grow, so a narrow window keeps the rules
@@ -448,11 +462,6 @@ The palette carries the **market words** the mock shows — `model_p`, `spread`,
 validate so a rule can name them, they evaluate to nothing, and the tile says so
 under the rule (`⚠ spread: no history in a backtest`). The indicators gained `σ`
 (`stdev`), `zscore`, and maths gained `log`.
-
-| Tile | Presets |
-| --- | --- |
-| `ENTRY RULES` | Bollinger reversion, SMA above, Breakout, RSI dip, Volume spike, Dip + volume |
-| `EXIT RULES` | Take profit, Stop loss, TP or SL, Time stop, Target, stop or time |
 
 The two read **different vocabularies**:
 

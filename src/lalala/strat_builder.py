@@ -49,7 +49,7 @@ from lalala import strategies
 from lalala.strategies import SavedStrategy
 from lalala.strat_report import ReportTile
 from lalala.strat_saved import StrategyListTile
-from lalala.strat_rules import EXIT_PRESETS, RulesSwitcher, RulesTile
+from lalala.strat_rules import RulesSwitcher, RulesTile
 from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme
 
 # The three columns, as a share of the width the tiles share between them.
@@ -203,7 +203,6 @@ class StrategyBuilderWindow(QMainWindow):
             fields=EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
-            presets=EXIT_PRESETS,
             header=False,
             condition_label="EXIT WHEN",
         )

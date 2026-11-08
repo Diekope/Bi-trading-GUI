@@ -13,19 +13,15 @@ leaving the two views out of step.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -49,13 +45,10 @@ from lalala.formula_builder import (
     FormulaBuilder,
 )
 from lalala.panels import Card
+from lalala.strat_conditions import RulesPage
 
-# A rule usually starts from a ready-made one. The presets are shown as a
-# gallery, this many to a row at most.
-PRESETS_PER_ROW = 4
-
-# The three ways a rule can be reached, in the order they appear: start from a
-# ready-made rule, drag one up, or write it as code.
+# The three ways a rule can be reached, in the order they appear: the grouped
+# conditions, the drag-and-drop tiles, or the code.
 RULES_MODES = (
     ("rules", "Rules"),
     ("formula", "Formula"),
@@ -63,89 +56,12 @@ RULES_MODES = (
 )
 
 
-@dataclass(frozen=True)
-class Preset:
-    """A ready-made rule: a name, a line about it, and the formula."""
-
-    label: str
-    text: str
-    note: str = ""
-    badge: str = ""
-
-
-# Whole rules to start from, one set per tile. They are ordinary formulas —
-# picking one just fills the tile, and it can be edited from there.
-ENTRY_PRESETS: tuple = (
-    Preset(
-        "Bollinger reversion",
-        "close < bollinger_lower(close, 20, 2)",
-        "Below the lower band.",
-        "Entry 1",
-    ),
-    Preset(
-        "SMA above",
-        "close > sma(close, 20)",
-        "Above the average.",
-    ),
-    Preset(
-        "Breakout",
-        "close >= highest(high, 20)",
-        "A new 20-bar high.",
-    ),
-    Preset(
-        "RSI dip",
-        "rsi(close, 14) < 30",
-        "An oversold close.",
-    ),
-    Preset(
-        "Volume spike",
-        "volume > 2 * sma(volume, 50)",
-        "Twice the volume.",
-    ),
-    Preset(
-        "Dip + volume",
-        "band = bollinger_lower(close, 20, 2)\n"
-        "close < band and volume > sma(volume, 20)",
-        "A dip, with volume.",
-    ),
-)
-
-EXIT_PRESETS: tuple = (
-    Preset(
-        "Take profit",
-        "pnl >= tp",
-        "Up by the target.",
-    ),
-    Preset(
-        "Stop loss",
-        "pnl <= 0 - sl",
-        "Down by the stop.",
-    ),
-    Preset(
-        "TP or SL",
-        "pnl >= tp or pnl <= 0 - sl",
-        "Target or stop.",
-        "Exit 1",
-    ),
-    Preset(
-        "Time stop",
-        "bars >= 90",
-        "Open too long.",
-    ),
-    Preset(
-        "Target, stop or time",
-        "pnl >= tp or pnl <= 0 - sl or bars >= 90",
-        "Whichever comes first.",
-    ),
-)
-
-
 class PageStack(QStackedWidget):
     """A stack of pages whose size hints follow the page on show.
 
     A plain `QStackedWidget` reports the largest hint over *all* its pages
-    whether or not they are visible, so the tall formula page would inflate
-    the tile's minimum while the presets page was the one on screen.
+    whether or not they are visible, so a tall page would inflate the tile's
+    minimum while a shorter one was the one on screen.
     """
 
     def _current(self):
@@ -163,73 +79,6 @@ class PageStack(QStackedWidget):
     def sizeHint(self):  # noqa: N802
         current = self._current()
         return current.sizeHint() if current is not None else super().sizeHint()
-
-
-class PresetCard(QFrame):
-    """A ready-made rule as a card: a title, a line about it, and a badge.
-
-    Clicking it fills the tile. `text()` and `click()` mirror a button, so a
-    card and a pill are used the same way.
-    """
-
-    clicked = Signal()
-
-    def __init__(self, preset: Preset, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.preset = preset
-        self.setObjectName("presetCard")
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip(preset.text)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
-        )
-        self.setMinimumWidth(110)
-        self.setMinimumHeight(62)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 5, 7, 5)
-        layout.setSpacing(3)
-
-        self.label = QLabel(preset.label, self)
-        self.label.setObjectName("presetTitle")
-        self.label.setWordWrap(True)
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-        )
-        layout.addWidget(self.label)
-
-        if preset.badge:
-            self.badge = QLabel(preset.badge, self)
-            self.badge.setObjectName("presetBadge")
-            self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.badge.setAttribute(
-                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-            )
-            layout.addWidget(self.badge)
-
-        if preset.note:
-            self.note = QLabel(preset.note, self)
-            self.note.setObjectName("presetNote")
-            self.note.setWordWrap(True)
-            self.note.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.note.setAttribute(
-                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-            )
-            layout.addWidget(self.note)
-
-    def text(self) -> str:
-        return self.preset.label
-
-    def click(self) -> None:
-        self.clicked.emit()
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(
-            event.position().toPoint()
-        ):
-            self.clicked.emit()
 
 
 class VariableRow(QFrame):
@@ -284,7 +133,6 @@ class RulesTile(Card):
         fields: tuple = ENTRY_FIELDS,
         functions: dict | None = None,
         placeholder: str = "mid = sma(close, 20)\nclose < mid",
-        presets: tuple | None = None,
         header: bool = True,
         condition_label: str = "BUY WHEN",
     ) -> None:
@@ -293,7 +141,6 @@ class RulesTile(Card):
         self.fields = tuple(fields)
         self.functions = FUNCTIONS if functions is None else functions
         self.placeholder = placeholder
-        self.presets = ENTRY_PRESETS if presets is None else presets
         self.condition_label = condition_label
 
         header_row = QHBoxLayout()
@@ -328,11 +175,17 @@ class RulesTile(Card):
             for button in self.mode_buttons.values():
                 button.hide()
 
-        # One page per mode: ready-made rules, the tiles, and the code. All
-        # three reach the same formula.
+        # One page per mode: the grouped conditions, the tiles, and the code.
+        # All three reach the same formula.
         self.pages = PageStack(self)
         self.pages.setObjectName("entryPages")
-        self.pages.addWidget(self._presets_page())
+        self.conditions = RulesPage(
+            fields=self.fields,
+            functions=self.functions,
+            condition_label=self.condition_label,
+        )
+        self.conditions.changed.connect(self._conditions_changed)
+        self.pages.addWidget(self.conditions)
         self.pages.addWidget(self._formula_page())
         self.pages.addWidget(self._code_page())
         self.body.addWidget(self.pages, 1)
@@ -342,55 +195,9 @@ class RulesTile(Card):
         # The synchronisation guard and the last code that was accepted.
         self._syncing = False
         self._accepted = ""
+        self._last_result = None
 
     # -- the pages ---------------------------------------------------------
-
-    def _presets_page(self) -> QWidget:
-        """The ready-made rules, as a gallery of at most four to a row."""
-        page = QWidget(self)
-        page.setObjectName("entryPage")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        hint = QLabel(
-            "pick a rule to load it into the editor — it is editable from there",
-            page,
-        )
-        hint.setObjectName("hintLabel")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        # A grid, four columns wide. Rows with fewer cards keep their column,
-        # so the run starts at the left edge rather than being centred.
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
-        self.preset_holder = grid
-        self.preset_buttons: list[PresetCard] = []
-        for index, preset in enumerate(self.presets):
-            card = PresetCard(preset, page)
-            card.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-            card.clicked.connect(
-                lambda _checked=False, text=preset.text: self._use_preset(text)
-            )
-            grid.addWidget(card, index // PRESETS_PER_ROW, index % PRESETS_PER_ROW)
-            self.preset_buttons.append(card)
-        for column in range(PRESETS_PER_ROW):
-            grid.setColumnStretch(column, 1)
-        rows = (len(self.presets) + PRESETS_PER_ROW - 1) // PRESETS_PER_ROW
-        grid.setRowStretch(rows, 1)
-        layout.addLayout(grid)
-        layout.addStretch(1)
-        return page
-
-    def _use_preset(self, text: str) -> None:
-        """Load a ready-made rule and go straight to where it can be edited."""
-        self.set_text(text)
-        self.set_mode("formula")
 
     def _scroll_page(self, content: QWidget) -> QWidget:
         """Wrap a page's content so it scrolls instead of growing the tile."""
@@ -634,8 +441,10 @@ class RulesTile(Card):
 
     def set_values(self, values, result=None) -> None:
         """What the rule reads on the newest bar, for both panels."""
+        self._last_result = result
         self.formula.set_values(values, result)
         self._refresh_code_values()
+        self.conditions.set_status(self.error(), result)
 
     # -- mode --------------------------------------------------------------
 
@@ -699,6 +508,34 @@ class RulesTile(Card):
         self.code_edit.setPlainText(text)
 
     def _formula_changed(self) -> None:
+        if self._syncing:
+            return
+        # The Formula and Code tabs are canonical: redraw the rows from them.
+        self.conditions.set_text(self.formula.formula_text())
+        self.conditions.set_status(self.error(), self._last_result)
+        self.changed.emit()
+        self._sync_code()
+
+    def _conditions_changed(self) -> None:
+        """The rows changed: make their formula the one every tab shows."""
+        if self._syncing:
+            return
+        text = self.conditions.text()
+        self._syncing = True
+        refused = ""
+        try:
+            try:
+                self.formula.set_formula(text)
+            except FormulaError as exc:
+                # A character the language cannot read: keep the last good
+                # formula, and let the checker name the problem.
+                refused = str(exc)
+        finally:
+            self._syncing = False
+        if refused:
+            self.conditions.set_status(refused, self._last_result)
+            return
+        self.conditions.set_status(self.error(), self._last_result)
         self.changed.emit()
         self._sync_code()
 
@@ -864,13 +701,8 @@ class RulesSwitcher(Card):
 
 
 __all__ = [
-    "ENTRY_PRESETS",
-    "EXIT_PRESETS",
-    "PRESETS_PER_ROW",
     "RULES_MODES",
     "PageStack",
-    "Preset",
-    "PresetCard",
     "RulesSwitcher",
     "RulesTile",
 ]

@@ -135,7 +135,7 @@ def builder(app: QApplication) -> None:
     window.report.set_view("overview")
     _settle(app)
 
-    # Rules: the presets gallery, first of the three tabs.
+    # Rules: the grouped condition editor, first of the three tabs.
     window.entry_tile.set_mode("rules")
     _settle(app)
     _save(window, "builder-rules.png")

@@ -41,7 +41,7 @@ def test_it_is_titled_with_three_modes(app: QApplication) -> None:
     assert tile.title.objectName() == "tileTitle"
     assert [key for key, _ in RULES_MODES] == ["rules", "formula", "code"]
     assert list(tile.mode_buttons) == ["rules", "formula", "code"]
-    assert tile.mode() == "rules"  # a rule usually starts from a preset
+    assert tile.mode() == "rules"  # a rule starts on the conditions
     assert tile.pages.count() == 3
     tile.close()
 
@@ -156,66 +156,123 @@ def test_two_tiles_do_not_share_a_formula(
     exit_.close()
 
 
-def test_presets_fill_the_tile(app: QApplication) -> None:
-    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
-    from lalala.formula_builder import EXIT_PALETTES
-    from lalala.strat_rules import EXIT_PRESETS, Preset
-
-    tile = RulesTile(
-        "EXIT RULES",
-        presets=EXIT_PRESETS,
-        palettes=EXIT_PALETTES,
-        fields=EXIT_FIELDS,
-        functions=EXIT_FUNCTIONS,
-    )
+def test_the_rules_tab_reads_a_formula_into_groups(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
     tile.show()
     app.processEvents()
 
-    assert [b.text() for b in tile.preset_buttons] == [
-        p.label for p in EXIT_PRESETS
-    ]
-    assert all(isinstance(p, Preset) for p in tile.presets)
-
-    tile.preset_buttons[0].click()  # Take profit
+    tile.set_text(
+        "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0"
+    )
+    tile.set_mode("rules")
     app.processEvents()
-    assert tile.text() == "pnl >= tp"
-    assert tile.error() == ""
-    # It goes straight to the tiles, ready to edit.
-    assert tile.mode() == "formula"
-    assert tile.pages.currentIndex() == 1
 
-    # A preset is an ordinary formula once it lands: editable like any other.
-    tile.set_code("pnl >= tp * 0.5")
-    app.processEvents()
-    assert tile.text() == "pnl >= tp * 0.5"
+    page = tile.conditions
+    assert page.assignments == ["band = bollinger_lower(close, 20, 2)"]
+    assert len(page.groups) == 1
+    rows = page.groups[0].rows
+    assert [
+        (row.left.currentText(), row.op.currentText(), row.right.currentText())
+        for row in rows
+    ] == [("close", "<", "band"), ("volume", ">", "0")]
+    assert page.groups[0].logic_key() == "and"
+    assert "close < band and volume > 0" in page.preview_text.text()
+    assert page.preview_status.text().startswith("✓")
     tile.close()
 
 
-def test_the_presets_page_lays_out_a_gallery(app: QApplication) -> None:
-    from lalala.strat_rules import ENTRY_PRESETS, PRESETS_PER_ROW, RulesTile
+def test_editing_a_row_rewrites_the_formula(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("close < open and volume > 0")
 
-    tile = RulesTile("ENTRY RULES", presets=ENTRY_PRESETS)
-    tile.resize(600, 420)
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setCurrentText("high")
+    row.right.setCurrentText("low")
+    app.processEvents()
+
+    assert tile.text() == "(high < low and volume > 0)"
+    assert tile.error() == ""
+    assert tile.code() == "(high < low and volume > 0)"
+    tile.close()
+
+
+def test_add_condition_and_group_change_the_formula(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("close > open")
+
+    page = tile.conditions
+    page.groups[0].add_row()
+    second = page.groups[0].rows[1]
+    second.left.setCurrentText("volume")
+    second.op.setCurrentText(">")
+    second.right.setCurrentText("0")
+    app.processEvents()
+    assert tile.text() == "(close > open and volume > 0)"
+
+    group = page.add_group()
+    group.rows[0].left.setCurrentText("rsi(close, 14)")
+    group.rows[0].op.setCurrentText("<")
+    group.rows[0].right.setCurrentText("30")
+    group.set_logic("or")
+    app.processEvents()
+
+    assert tile.text() == (
+        "(close > open and volume > 0) and rsi(close, 14) < 30"
+    )
+    assert tile.error() == ""
+    assert [g.caption.text() for g in page.groups] == ["GROUP 1", "GROUP 2"]
+    tile.close()
+
+
+def test_an_or_of_comparisons_is_one_or_group(app: QApplication) -> None:
+    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+
+    tile = RulesTile(
+        "EXIT RULES", fields=EXIT_FIELDS, functions=EXIT_FUNCTIONS
+    )
+    tile.show()
+    app.processEvents()
+    tile.set_text("pnl >= tp or pnl <= 0 - sl or bars >= 90")
+
+    page = tile.conditions
+    assert len(page.groups) == 1
+    assert page.groups[0].logic_key() == "or"
+    assert len(page.groups[0].rows) == 3
+    assert tile.text() == "pnl >= tp or pnl <= 0 - sl or bars >= 90"
+    tile.close()
+
+
+def test_a_condition_the_rows_cannot_hold_is_kept_whole(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("not (close > open)")
+
+    row = tile.conditions.groups[0].rows[0]
+    assert row._raw is True
+    assert "not" in tile.text()
+    assert tile.error() == ""
+    tile.close()
+
+
+def test_the_signal_rail_is_shown_but_disabled(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
     tile.show()
     app.processEvents()
 
-    cards = tile.preset_buttons
-    rows: dict[int, list] = {}
-    for card in cards:
-        rows.setdefault(card.geometry().top(), []).append(card)
-
-    # At most four to a row, and every row starts at the same left edge —
-    # a gallery, not a centred run.
-    assert len(rows) == 2  # six cards, four then two
-    assert all(len(row) <= PRESETS_PER_ROW for row in rows.values())
-    assert [len(row) for _, row in sorted(rows.items())] == [4, 2]
-    lefts = [min(c.geometry().left() for c in row) for row in rows.values()]
-    assert len(set(lefts)) == 1
-
-    # The cards in a row are the same size.
-    first_row = sorted(rows.items())[0][1]
-    assert len({c.geometry().width() for c in first_row}) == 1
-    assert len({c.geometry().height() for c in first_row}) == 1
+    page = tile.conditions
+    assert page.side_combo.currentText() == "YES"
+    assert not page.side_combo.isEnabled()
+    assert not page.confirmation_edit.isEnabled()
+    assert not page.cooldown_edit.isEnabled()
+    assert not page.entries_edit.isEnabled()
+    assert not page.together.isEnabled()
     tile.close()
 
 
