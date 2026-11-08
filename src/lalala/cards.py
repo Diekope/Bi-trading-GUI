@@ -1,7 +1,8 @@
 """Trading widgets: candlestick chart, timeframe pills, market card.
 
 The chart is hand-painted and supports panning and zooming: wheel to zoom,
-drag or arrow keys to pan, double-click to snap back to the live edge.
+drag to grab the trail on either axis (or use the arrow keys to pan), and
+double-click to snap back to the live edge and the fitted price range.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -41,8 +43,9 @@ from lalala.market_data import (
     format_price,
     search_markets,
 )
+from lalala.trade_form import TradeForm
 from lalala.panels import Card
-from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, TEXT_MUTED, UP
+from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, UP
 
 
 def format_axis_time(stamp_ms: int, interval: str) -> str:
@@ -53,10 +56,18 @@ def format_axis_time(stamp_ms: int, interval: str) -> str:
     return moment.strftime("%H:%M")
 
 
+_FONTS: dict[tuple[int, bool], QFont] = {}
+
+
 def mono_font(points: int = 12, bold: bool = False) -> QFont:
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    font.setPointSize(points)
-    font.setBold(bold)
+    """Cached fixed-width font. Callers must `QFont(font)` before mutating it."""
+    key = (points, bold)
+    font = _FONTS.get(key)
+    if font is None:
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSize(points)
+        font.setBold(bold)
+        _FONTS[key] = font
     return font
 
 
@@ -73,19 +84,50 @@ class ClickableLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+BOLLINGER_PERIOD = 20
+
+
 class CandleChart(QWidget):
-    """OHLC candles with a viewport that can be zoomed and panned.
+    """OHLC candles with a viewport that can be zoomed and grabbed.
 
     `_visible` is how many candles are on screen; `_offset` is how many candles
     sit to the right of the viewport (0 = pinned to the live edge).
+
+    Dragging grabs the chart itself: sideways walks through time, up and down
+    moves the price window. The vertical move is what makes a deep zoom usable
+    when the live candles are far from the ones on screen — the natural range
+    fits what is visible, and a price-axis zoom can still push the newest bars
+    out of view. The vertical grip is stored in pixels, so the trail follows
+    the pointer one-to-one instead of snapping back to a fitted scale.
+
+    The chart owns the deep history: `set_series` replaces it, `merge_series`
+    unions the live/reconcile feed into it, and `add_history` prepends a page
+    fetched when the viewport is dragged to its left edge. The card wires that
+    up; the chart only knows how to ask.
     """
+
+    # Signal(int) is a C int: a millisecond timestamp overflows it.
+    history_requested = Signal(object)   # oldest open time held, ms
+    interval_selected = Signal(str)   # a digit shortcut, e.g. "5m"
 
     GUTTER = 56          # right-hand price axis
     TIME_AXIS = 16       # bottom time axis
     MIN_VISIBLE = 8
     DEFAULT_VISIBLE = 80
+    # Upper bound on the wheel's zoom-out. Without it `_visible` grows without
+    # limit while the series is short (the view silently stops widening), and
+    # then history paging suddenly makes the chart draw thousands of bars per
+    # repaint. 600 bars is about one per pixel on a normal card.
+    MAX_VISIBLE = 600
     ZOOM_STEP = 1.12     # one wheel notch; deliberately gentle
-    DRAG_GAIN = 0.75     # candles travelled per slot dragged
+    DRAG_GAIN = 1.0      # the trail follows the pointer one-to-one
+    DRAG_THRESHOLD = 5.0  # px before a press turns into a drag
+    PRICE_ZOOM_STEP = 1.10
+    MIN_PRICE_ZOOM = 0.2
+    MAX_PRICE_ZOOM = 20.0
+    # A grabbed price range may leave the plot, but not so far that nothing can
+    # be found again: an edge tag still shows where the live price went.
+    MAX_PRICE_SHIFT = 1.5  # plot heights
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -93,19 +135,32 @@ class CandleChart(QWidget):
         # stacked cards must still fit inside the window's minimum height.
         self.setMinimumHeight(36)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setToolTip("Wheel: zoom · drag or ← →: pan · double-click: latest")
+        self.setToolTip(
+            "Wheel: zoom time · wheel over the price axis: stretch prices · "
+            "drag: grab and move the chart · ← →: pan · double-click: reset"
+        )
 
         self._candles: tuple[Candle, ...] = ()
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
+        self._price_zoom = 1.0
+        # How far the candles are pulled from the natural price position,
+        # in pixels. 0 is the fitted range; positive means dragged down.
+        self._price_shift = 0.0
         self._precision = 2
         self._interval = DEFAULT_TIMEFRAME
         self._show_volume = True
         self._show_bollinger = False
         self._placeholder = "search a market"
         self._drag_x: float | None = None
+        self._drag_y: float | None = None
         self._drag_offset = 0
+        self._drag_price_shift = 0.0
+        self._dragging = False
+        self._history_pending = False
+        self._history_exhausted = False
 
     # -- data --------------------------------------------------------------
 
@@ -139,9 +194,67 @@ class CandleChart(QWidget):
         return self._show_bollinger
 
     def set_series(self, candles: tuple[Candle, ...]) -> None:
+        """Replace the series, as when a market or interval changes."""
+        if not candles:
+            # A new market or interval starts from the default vertical scale.
+            self._price_zoom = 1.0
+            self._price_shift = 0.0
         self._candles = tuple(candles)
+        self._history_pending = False
+        self._history_exhausted = False
         self._clamp()
         self.update()
+
+    def merge_series(self, candles: tuple[Candle, ...]) -> None:
+        """Fold in a live or reconcile update without dropping older bars.
+
+        The venue sends the last few hundred bars; the chart may be holding
+        thousands from backfills. Union by open time, newer values winning.
+        """
+        if not candles:
+            return
+        if not self._candles:
+            self.set_series(candles)
+            return
+
+        newest = self._candles[-1].t
+        pool = {candle.t: candle for candle in self._candles}
+        appended = 0
+        for candle in candles:
+            pool[candle.t] = candle
+            if candle.t > newest:
+                appended += 1
+
+        self._candles = tuple(sorted(pool.values(), key=lambda c: c.t))
+        if appended and self._offset > 0:
+            # Scrolled back means frozen: new bars must not drag the viewport
+            # forward a candle every minute.
+            self._offset += appended
+        self._clamp()
+        self.update()
+
+    def add_history(self, candles: tuple[Candle, ...]) -> None:
+        """Prepend one page fetched from the venue.
+
+        An empty page means the venue has nothing older, so stop asking.
+        """
+        self._history_pending = False
+        oldest = self._candles[0].t if self._candles else None
+        fresh = tuple(c for c in candles if oldest is None or c.t < oldest)
+        if not fresh:
+            self._history_exhausted = True
+            return
+
+        # `_offset` counts back from the newest bar, so prepending leaves the
+        # viewport on exactly the same candles: a page arrives silently to the
+        # left, and the next pan walks into it.
+        self._candles = fresh + self._candles
+        self._clamp()
+        self.update()
+
+    def cancel_history_request(self) -> None:
+        """The fetch failed; allow the next pan-to-edge to try again."""
+        self._history_pending = False
 
     @property
     def candle_count(self) -> int:
@@ -165,9 +278,28 @@ class CandleChart(QWidget):
         return self._offset
 
     @property
+    def price_zoom(self) -> float:
+        """1.0 is the natural range; higher stretches prices apart."""
+        return self._price_zoom
+
+    @property
+    def price_shift(self) -> float:
+        """How far the trail was dragged vertically, in pixels."""
+        return self._price_shift
+
+    @property
     def is_live(self) -> bool:
         """True when the viewport is pinned to the newest candle."""
         return self._offset == 0
+
+    @property
+    def history_exhausted(self) -> bool:
+        """True once the venue has no older page for this series."""
+        return self._history_exhausted
+
+    @property
+    def awaiting_history(self) -> bool:
+        return self._history_pending
 
     def _visible_bounds(self) -> tuple[int, int]:
         if not self._candles:
@@ -193,6 +325,7 @@ class CandleChart(QWidget):
             self._visible = max(self._visible + 1, int(self._visible * self.ZOOM_STEP) + 1)
         self._clamp()
         self.update()
+        self._maybe_request_history()
 
     def pan(self, candles: int) -> None:
         """Positive moves back in time."""
@@ -201,55 +334,168 @@ class CandleChart(QWidget):
         self._offset += candles
         self._clamp()
         self.update()
+        if candles > 0:
+            self._maybe_request_history()
+
+    def zoom_price(self, direction: int) -> None:
+        """direction > 0 stretches the price range apart (fewer prices shown)."""
+        if not self._candles or direction == 0:
+            return
+        factor = self.PRICE_ZOOM_STEP if direction > 0 else 1 / self.PRICE_ZOOM_STEP
+        self._price_zoom = min(
+            self.MAX_PRICE_ZOOM, max(self.MIN_PRICE_ZOOM, self._price_zoom * factor)
+        )
+        self.update()
 
     def reset_view(self) -> None:
         self._visible = self.DEFAULT_VISIBLE
         self._offset = 0
+        self._price_zoom = 1.0
+        self._price_shift = 0.0
         self._clamp()
         self.update()
 
+    def _max_offset(self) -> int:
+        return max(0, len(self._candles) - self.visible_count)
+
+    def _maybe_request_history(self) -> None:
+        """Ask the card for an older page once the left edge is reached."""
+        if self._history_pending or self._history_exhausted:
+            return
+        if not self._candles or self._offset < self._max_offset():
+            return
+        self._history_pending = True
+        self.history_requested.emit(self._candles[0].t)
+
     def _clamp(self) -> None:
         total = len(self._candles)
-        self._visible = max(self.MIN_VISIBLE, self._visible)
+        self._visible = max(self.MIN_VISIBLE, min(self._visible, self.MAX_VISIBLE))
         self._offset = max(0, min(self._offset, max(0, total - self.visible_count)))
 
     # -- interaction -------------------------------------------------------
+
+    def _axis_at(self, x: float, y: float) -> str:
+        """Which axis, if any, the pointer is over: "price", "time" or ""."""
+        if x >= self.width() - self.GUTTER:
+            return "price"
+        if y >= self.height() - self.TIME_AXIS:
+            return "time"
+        return ""
+
+    def _price_shift_limit(self) -> float:
+        """How far the price window may be dragged before all data is lost."""
+        plot = max(24.0, self.height() - self.TIME_AXIS)
+        return plot * self.MAX_PRICE_SHIFT
+
+    def _update_hover_cursor(self, position) -> None:
+        """The plot is grabbable; the two axes keep their own resize cursors."""
+        if self._dragging:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        axis = self._axis_at(position.x(), position.y())
+        if axis == "price":
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        elif axis == "time":
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
 
     def wheelEvent(self, event) -> None:  # noqa: N802
         steps = event.angleDelta().y() / 120.0
         if steps == 0:
             return
+
+        notches = max(1, int(abs(steps)))
+        direction = 1 if steps > 0 else -1
+        axis = self._axis_at(event.position().x(), event.position().y())
+
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.pan(int(-steps * 2))
+        elif axis == "price":
+            # Next to the price labels: stretch or squash the vertical range
+            # without touching how much history is on screen.
+            for _ in range(notches):
+                self.zoom_price(direction)
         else:
-            direction = 1 if steps > 0 else -1
-            for _ in range(max(1, int(abs(steps)))):
+            # Over the plot or the time axis: zoom the time range.
+            for _ in range(notches):
                 self.zoom(direction)
         event.accept()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._axis_at(event.position().x(), event.position().y()):
+                # Pressing an axis is not a pan; leave the drag alone.
+                event.accept()
+                return
             self._drag_x = event.position().x()
+            self._drag_y = event.position().y()
             self._drag_offset = self._offset
+            self._drag_price_shift = self._price_shift
+            self._dragging = False
             self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if self._drag_x is None or not self._candles:
-            super().mouseMoveEvent(event)
-            return
-        slot = max(1.0, (self.width() - self.GUTTER) / max(1, len(self.visible_candles())))
-        shift = int((event.position().x() - self._drag_x) / slot * self.DRAG_GAIN)
-        self._offset = self._drag_offset + shift
-        self._clamp()
-        self.update()
-        event.accept()
-
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         self._drag_x = None
+        self._drag_y = None
+        self._dragging = False
+        self._update_hover_cursor(event.position())
         super().mouseReleaseEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_x is None or self._drag_y is None or not self._candles:
+            self._update_hover_cursor(event.position())
+            super().mouseMoveEvent(event)
+            return
+
+        dx = event.position().x() - self._drag_x
+        dy = event.position().y() - self._drag_y
+        if not self._dragging:
+            # A click that wobbles slightly is still a click, not a pan that
+            # silently freezes the viewport a candle back from live.
+            if abs(dx) < self.DRAG_THRESHOLD and abs(dy) < self.DRAG_THRESHOLD:
+                event.accept()
+                return
+            # Start from here, so crossing the dead zone does not make the
+            # trail jump by the threshold distance.
+            self._dragging = True
+            self._drag_x = event.position().x()
+            self._drag_y = event.position().y()
+            dx = dy = 0.0
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+        moved = False
+
+        # Time: one candle per on-screen slot. At a deep zoom a slot is wide,
+        # so the same drag walks fewer bars — exactly like grabbing paper.
+        slot = max(
+            1.0, (self.width() - self.GUTTER) / max(1, self.visible_count)
+        )
+        step = int(dx / slot * self.DRAG_GAIN + (0.5 if dx >= 0 else -0.5))
+        if step:
+            self._offset = self._drag_offset + step
+            self._clamp()
+            moved = True
+            if step > 0:
+                # Dragging back past the oldest bar pages in more history.
+                self._maybe_request_history()
+
+        # Price: in pixels, so the trail stays glued to the pointer. Once
+        # grabbed it no longer re-centres itself on every new candle.
+        limit = self._price_shift_limit()
+        price_shift = self._drag_price_shift + dy
+        price_shift = max(-limit, min(limit, price_shift))
+        if price_shift != self._price_shift:
+            self._price_shift = price_shift
+            moved = True
+
+        if moved:
+            self.update()
+        event.accept()
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
         self.reset_view()
@@ -266,6 +512,12 @@ class CandleChart(QWidget):
             self.pan(len(self._candles))
         elif key in (Qt.Key.Key_End, Qt.Key.Key_0):
             self.reset_view()
+        elif event.modifiers() == Qt.KeyboardModifier.NoModifier and (
+            Qt.Key.Key_1 <= key <= Qt.Key.Key_6
+        ):
+            index = key - Qt.Key.Key_1
+            if index < len(TIMEFRAMES):
+                self.interval_selected.emit(TIMEFRAMES[index])
         else:
             super().keyPressEvent(event)
             return
@@ -307,8 +559,13 @@ class CandleChart(QWidget):
 
         source = self._candles
         start, end = self._visible_bounds()
-        bands = bollinger_bands(source) if self._show_bollinger else ()
-        visible_bands = bands[start:end] if bands else ()
+        band_start = max(0, start - (BOLLINGER_PERIOD - 1))
+        bands = (
+            bollinger_bands(source[band_start:end])
+            if self._show_bollinger
+            else ()
+        )
+        visible_bands = bands[start - band_start:] if bands else ()
 
         candle_high = max(c.h for c in candles)
         candle_low = min(c.l for c in candles)
@@ -331,13 +588,26 @@ class CandleChart(QWidget):
         pad = (high - low) * 0.05 or max(high, 1.0) * 0.001
         high += pad
         low -= pad
-        span = high - low
+
+        # Vertical zoom: shrinking the span stretches prices apart. The centre
+        # of the natural range stays put, so the wheel does not make the chart
+        # jump up or down while zooming.
+        span = (high - low) / self._price_zoom
+        centre = (high + low) / 2
+        high = centre + span / 2
+        low = centre - span / 2
 
         slot = full.width() / len(candles)
         body_width = max(1.0, slot * 0.62)
 
         def price_y(price: float) -> float:
-            return price_rect.bottom() - (price - low) / span * price_rect.height()
+            # The vertical grab is a pixel offset, so the trail follows the
+            # pointer exactly and keeps its place when new candles arrive.
+            return (
+                price_rect.bottom()
+                - (price - low) / span * price_rect.height()
+                + self._price_shift
+            )
 
         def x_at(index: int) -> float:
             return full.left() + (index + 0.5) * slot
@@ -346,8 +616,11 @@ class CandleChart(QWidget):
         last_y = price_y(candles[-1].c)
         painter.setFont(mono_font(8))
         for fraction in (0.0, 0.5, 1.0):
-            level = low + span * fraction
-            gy = price_y(level)
+            # Grid lines stay put; their labels follow the grabbed window.
+            gy = price_rect.bottom() - fraction * price_rect.height()
+            level = low + (
+                fraction + self._price_shift / price_rect.height()
+            ) * span
             painter.setPen(QPen(QColor(BORDER), 1))
             painter.drawLine(QPointF(price_rect.left(), gy), QPointF(price_rect.right(), gy))
             if abs(gy - last_y) < 11:
@@ -453,16 +726,46 @@ class CandleChart(QWidget):
                 painter.setClipping(False)
 
         # -- last price --
-        painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(
-            QPointF(price_rect.left(), last_y), QPointF(price_rect.right(), last_y)
-        )
-        painter.setPen(QColor(ACCENT))
-        painter.drawText(
-            QRectF(price_rect.right() + 4, last_y - 7, self.GUTTER - 6, 14),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            format_price(candles[-1].c, self._precision),
-        )
+        text = format_price(candles[-1].c, self._precision)
+        if price_rect.top() <= last_y <= price_rect.bottom():
+            painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(
+                QPointF(price_rect.left(), last_y), QPointF(price_rect.right(), last_y)
+            )
+            painter.setPen(QColor(ACCENT))
+            painter.drawText(
+                QRectF(price_rect.right() + 4, last_y - 7, self.GUTTER - 6, 14),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                text,
+            )
+        else:
+            # The trail was grabbed past the live price: pin its label and a
+            # small wedge to the edge it left through, so it is obvious which
+            # way to drag back instead of the price simply disappearing.
+            beyond_top = last_y < price_rect.top()
+            edge_y = price_rect.top() if beyond_top else price_rect.bottom()
+            painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(
+                QPointF(price_rect.left(), edge_y), QPointF(price_rect.right(), edge_y)
+            )
+            painter.setPen(QColor(ACCENT))
+            painter.drawText(
+                QRectF(price_rect.right() + 4, edge_y - 7, self.GUTTER - 6, 14),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                text,
+            )
+            tip = 1.0 if beyond_top else -1.0
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(ACCENT))
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(price_rect.right() - 5, edge_y + tip * 2),
+                        QPointF(price_rect.right() - 11, edge_y - tip * 4),
+                        QPointF(price_rect.right() - 11, edge_y + tip * 6),
+                    ]
+                )
+            )
 
         # -- time axis --
         painter.setFont(mono_font(8))
@@ -488,13 +791,18 @@ class CandleChart(QWidget):
             )
             right_edge = left + width
 
-        # -- scrolled-back hint --
+        # -- scrolled-back / grabbed hint --
+        hints = []
         if not self.is_live:
+            hints.append(f"{self._offset} back")
+        if self._price_shift:
+            hints.append("price grabbed")
+        if hints:
             painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
                 QRectF(full.left() + 4, full.top(), full.width() - 8, 12),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                f"{self._offset} back · double-click for live",
+                f"{' · '.join(hints)} · double-click to reset",
             )
         painter.end()
 
@@ -516,6 +824,7 @@ class Timeframes(QWidget):
         for index, interval in enumerate(TIMEFRAMES):
             button = QPushButton(interval)
             button.setObjectName("tfButton")
+            button.setToolTip(f"{interval} — press {index + 1}")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setChecked(interval == current)
@@ -663,6 +972,8 @@ class MarketCard(Card):
 
     market_changed = Signal(str)
     interval_changed = Signal(str)
+    # before_ms is a Python int on purpose: Signal(int) is a 32-bit C int.
+    history_requested = Signal(str, str, object)   # coin, interval, before ms
     add_requested = Signal()
     close_requested = Signal()
 
@@ -725,6 +1036,24 @@ class MarketCard(Card):
         header.addWidget(self.name)
         header.addWidget(self.badge)
         header.addStretch(1)
+
+        # Overlays, in the card as the mock draws them.
+        self.volume_toggle = QCheckBox("Volume")
+        self.volume_toggle.setObjectName("overlayToggle")
+        self.volume_toggle.setToolTip("Volume bars under the candles")
+        self.volume_toggle.setChecked(True)
+        self.volume_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.volume_toggle.toggled.connect(self._apply_overlays)
+        self.bollinger_toggle = QCheckBox("Bollinger")
+        self.bollinger_toggle.setObjectName("overlayToggle")
+        self.bollinger_toggle.setToolTip("20-period, 2σ Bollinger bands")
+        self.bollinger_toggle.setChecked(False)
+        self.bollinger_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.bollinger_toggle.toggled.connect(self._apply_overlays)
+        header.addWidget(self.volume_toggle)
+        header.addWidget(self.bollinger_toggle)
+        header.addSpacing(2)
+
         header.addWidget(self.price)
         header.addWidget(self.add_button)
         header.addWidget(self.close_button)
@@ -741,11 +1070,18 @@ class MarketCard(Card):
         self.chart = CandleChart()
         self.chart.set_precision(self._sz_decimals)
         self.chart.set_interval(self.interval)
+        self.chart.history_requested.connect(self._on_history_requested)
+        self.chart.interval_selected.connect(self.set_interval)
 
         self.body.addLayout(header)
         self.body.addWidget(self.search)
         self.body.addWidget(self.timeframes)
         self.body.addWidget(self.chart, 1)
+
+        # The trade form under the chart, as the mock draws it.
+        self.trade_form = TradeForm()
+        self.trade_form.setVisible(coin is not None)
+        self.body.addWidget(self.trade_form)
 
         self.name.clicked.connect(self.open_search)
         self.set_placeholder("search a market above")
@@ -754,6 +1090,11 @@ class MarketCard(Card):
         self.timeframes.setVisible(coin is not None)
 
     # -- state -------------------------------------------------------------
+
+    def _apply_overlays(self, *_args) -> None:
+        """The card's own overlay switches drive its chart."""
+        self.chart.set_show_volume(self.volume_toggle.isChecked())
+        self.chart.set_show_bollinger(self.bollinger_toggle.isChecked())
 
     def _no_markets(self) -> list[Market]:
         return []
@@ -785,20 +1126,27 @@ class MarketCard(Card):
         self.chart.set_precision(self._sz_decimals)
         self.search.setVisible(market is None)
         self.timeframes.setVisible(market is not None)
+        self.trade_form.setVisible(market is not None)
         if market is None:
             self.chart.set_series(())
             self.set_placeholder("search a market above")
             self.price.setText("—")
+            self.trade_form.set_price(None)
 
     def apply_mid(self, price: float) -> None:
         self._has_mids = True
         self.price.setText(format_price(price, self._sz_decimals))
+        self.trade_form.set_price(price)
 
     def apply_candles(self, series: CandleSeries) -> None:
         if series.coin != self.coin or series.interval != self.interval:
             return
-        self.chart.set_series(series.candles)
+        # Merge rather than replace: a reconcile carries only the last few
+        # hundred bars, and the chart may be holding pages panned back to.
+        self.chart.merge_series(series.candles)
         self.set_placeholder("waiting for candles…")
+        if series.candles:
+            self.trade_form.set_price(series.candles[-1].c)
         last = series.last_price
         if last is not None and not self._has_mids:
             self.price.setText(format_price(last, self._sz_decimals))
@@ -810,9 +1158,31 @@ class MarketCard(Card):
         self.search.setVisible(False)
         self.market_changed.emit(coin)
 
-    def _on_interval_changed(self, interval: str) -> None:
+    def set_interval(self, interval: str) -> None:
+        """Switch timeframe from a pill or the 1-6 keys."""
+        if interval not in TIMEFRAMES:
+            return
+        self.timeframes.set_current(interval)
         self.interval = interval
         self.chart.set_interval(interval)
         self.chart.set_series(())
         self.set_placeholder("loading…")
         self.interval_changed.emit(interval)
+
+    def _on_interval_changed(self, interval: str) -> None:
+        self.set_interval(interval)
+
+    # -- history -----------------------------------------------------------
+
+    def _on_history_requested(self, before_ms: int) -> None:
+        if self.coin:
+            self.history_requested.emit(self.coin, self.interval, before_ms)
+
+    def apply_history(self, series: CandleSeries) -> None:
+        if series.coin != self.coin or series.interval != self.interval:
+            return
+        self.chart.add_history(series.candles)
+
+    def apply_history_failure(self, coin: str, interval: str) -> None:
+        if coin == self.coin and interval == self.interval:
+            self.chart.cancel_history_request()

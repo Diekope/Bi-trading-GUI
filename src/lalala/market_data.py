@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import floor, log10
 
-DEFAULT_MARKET = "HYPE"
+DEFAULT_MARKET = "BTC"
 XYZ_PREFIX = "xyz:"
 XYZ_DEX = "xyz"
 MAIN_DEX = ""
@@ -249,6 +249,29 @@ def parse_all_mids(payload: dict) -> dict[str, float]:
         except (TypeError, ValueError):
             continue
     return out
+
+
+def parse_bbo(payload: dict) -> tuple[str, float] | None:
+    """Parse a `bbo` message into `(coin, mid)`.
+
+    The frame carries the best bid then the best ask. This is the fast path
+    for the Polymarket column: `allMids` can be several seconds apart, while
+    BTC's best bid/offer moves continuously.
+    """
+    if not isinstance(payload, dict):
+        return None
+    coin = str(payload.get("coin") or "")
+    levels = payload.get("bbo") or ()
+    if not coin or len(levels) < 2:
+        return None
+    try:
+        bid = float(levels[0]["px"])
+        ask = float(levels[1]["px"])
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    if bid <= 0 or ask <= 0:
+        return None
+    return coin, (bid + ask) / 2.0
 
 
 def parse_book(payload: dict) -> Book:

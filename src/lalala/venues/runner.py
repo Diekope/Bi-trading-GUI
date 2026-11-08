@@ -41,14 +41,18 @@ class AsyncRunner:
             self.start()
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
-    def stop(self, timeout: float = 2.0) -> None:
+    def stop(self, timeout: float = 3.0) -> None:
         with self._lock:
             if not self._started:
                 return
             self._started = False
         self._loop.call_soon_threadsafe(self._cancel_and_stop)
         self._thread.join(timeout)
-        self._loop.close()
+        # A websocket close handshake can outlast the join. Closing a loop that
+        # is still running raises "Cannot close a running event loop", so leave
+        # it alone: the thread is a daemon and exits with the process.
+        if not self._thread.is_alive():
+            self._loop.close()
 
     def _cancel_and_stop(self) -> None:
         """Cancel in-flight coroutines and let them unwind before stopping.

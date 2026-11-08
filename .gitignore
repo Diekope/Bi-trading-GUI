@@ -7,3 +7,10 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Downloaded OHLCV history: keep the folder, ignore the data.
+data/candles/*
+!data/candles/.gitkeep
+
+# Rust build output.
+rust/*/target/

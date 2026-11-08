@@ -25,6 +25,47 @@ def test_all_mids_frame_becomes_float_map() -> None:
     assert seen == [{"HYPE": 84.4945}]
 
 
+def test_bbo_frame_becomes_coin_and_mid() -> None:
+    feed = _feed()
+    seen: list[tuple[str, float]] = []
+    feed.bbo_updated.connect(lambda coin, mid: seen.append((coin, mid)))
+
+    feed.dispatch(
+        json.dumps(
+            {
+                "channel": "bbo",
+                "data": {
+                    "coin": "BTC",
+                    "time": 1_793_739_344_693,
+                    "bbo": [
+                        {"px": "77839.0", "sz": "0.03", "n": 4},
+                        {"px": "77840.0", "sz": "15.7", "n": 65},
+                    ],
+                },
+            }
+        )
+    )
+
+    assert seen == [("BTC", 77_839.5)]
+
+
+def test_malformed_bbo_frames_are_ignored() -> None:
+    feed = _feed()
+    seen: list[tuple[str, float]] = []
+    feed.bbo_updated.connect(lambda coin, mid: seen.append((coin, mid)))
+
+    for data in (
+        {},
+        {"coin": "BTC"},
+        {"coin": "BTC", "bbo": [{"px": "1"}]},
+        {"coin": "BTC", "bbo": [{"px": "nope"}, {"px": "2"}]},
+        {"coin": "BTC", "bbo": [{"px": "0"}, {"px": "2"}]},
+    ):
+        feed.dispatch(json.dumps({"channel": "bbo", "data": data}))
+
+    assert seen == []
+
+
 def test_hip3_book_frame_becomes_book() -> None:
     feed = _feed()
     seen: list[Book] = []
@@ -162,3 +203,47 @@ def test_unwatching_drops_the_cached_series() -> None:
     feed.unwatch_candles("HYPE", "1m")
 
     assert ("HYPE", "1m") not in feed._candle_cache
+
+
+# -- backfill requests -----------------------------------------------------
+
+def test_a_backfill_is_refused_while_the_feed_is_stopped() -> None:
+    feed = _feed()
+    feed.watch_candles("HYPE", "1m")
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    # No runner thread is spun up, and the chart is told to try again later.
+    assert failures == [("HYPE", "1m")]
+    assert feed._history_pending == set()
+
+
+def test_a_backfill_for_an_unwatched_pair_is_refused() -> None:
+    feed = _feed()
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    assert failures == [("HYPE", "1m")]
+
+
+def test_two_owners_asking_at_once_do_not_stack_requests() -> None:
+    feed = _feed()
+    feed.watch_candles("HYPE", "1m")
+    feed._started = True  # pretend the app is running, but keep the runner off
+    submitted: list[object] = []
+    feed._runner.submit = lambda coro: submitted.append(coro)  # type: ignore[method-assign]
+    failures: list[tuple[str, str]] = []
+    feed.history_failed.connect(lambda c, i: failures.append((c, i)))
+
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+    feed.request_older("HYPE", "1m", 1_700_000_000_000)
+
+    assert len(submitted) == 1
+    assert failures == [("HYPE", "1m")]
+
+    for coro in submitted:
+        coro.close()  # type: ignore[attr-defined]  # never scheduled on purpose

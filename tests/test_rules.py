@@ -1,0 +1,538 @@
+"""The rules tile: one formula, written with tiles or as code."""
+
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from lalala.formula_builder import CallChip  # noqa: E402
+from lalala.strat_rules import RULES_MODES, RulesTile  # noqa: E402
+from lalala.theme import apply_dark_theme  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def app() -> QApplication:
+    instance = QApplication.instance() or QApplication([])
+    apply_dark_theme(instance)
+    return instance
+
+
+@pytest.fixture
+def tile(app: QApplication) -> RulesTile:
+    widget = RulesTile("ENTRY RULES")
+    widget.resize(560, 320)
+    widget.show()
+    app.processEvents()
+    yield widget
+    widget.close()
+
+
+def test_it_is_titled_with_three_modes(app: QApplication) -> None:
+    tile = RulesTile("EXIT RULES")
+    tile.show()
+    app.processEvents()
+
+    assert tile.title.text() == "EXIT RULES"
+    assert tile.title.objectName() == "tileTitle"
+    assert [key for key, _ in RULES_MODES] == ["rules", "formula", "code"]
+    assert list(tile.mode_buttons) == ["rules", "formula", "code"]
+    assert tile.mode() == "rules"  # a rule starts on the conditions
+    assert tile.pages.count() == 3
+    tile.close()
+
+
+def test_the_code_is_filled_from_the_tiles(
+    app: QApplication, tile: RulesTile
+) -> None:
+    tile.set_text("mid = sma(close, 20)\nclose < mid")
+    tile.set_mode("code")
+    app.processEvents()
+
+    assert tile.code() == "mid = sma(close, 20)\nclose < mid"
+    assert tile.code_error.text() == ""
+
+
+def test_typing_code_rebuilds_the_tiles(
+    app: QApplication, tile: RulesTile
+) -> None:
+    tile.set_mode("code")
+    tile.set_code("close < bollinger_lower(close, 20, 2)")
+    app.processEvents()
+
+    assert tile.text() == "close < bollinger_lower(close, 20, 2)"
+    assert tile.code_error.text() == ""
+    strip = tile.formula.strips[0]
+    # The indicator came back as one tile, not a run of tokens.
+    assert any(isinstance(chip, CallChip) for chip in strip.chips())
+
+
+def test_an_unknown_name_is_accepted_and_flagged(
+    app: QApplication, tile: RulesTile
+) -> None:
+    tile.set_mode("code")
+    tile.set_code("close < clsoe")
+    app.processEvents()
+
+    # The edit is kept — only the checker complains.
+    assert tile.code() == "close < clsoe"
+    assert tile.code_error.text() == "line 1, column 9: unknown name 'clsoe'"
+    assert tile.parsed() is None
+
+    # Defining the name above clears it.
+    tile.set_code("clsoe = close * 2\nclose < clsoe")
+    app.processEvents()
+    assert tile.code_error.text() == ""
+    assert tile.parsed() is not None
+
+
+def test_a_line_the_language_cannot_read_is_refused(
+    app: QApplication, tile: RulesTile
+) -> None:
+    tile.set_text("close < sma(close, 20)")
+    tile.set_mode("code")
+    app.processEvents()
+    assert tile.code() == "close < sma(close, 20)"
+
+    # A character the scanner rejects: the edit does not stick.
+    tile.set_code("close @ 10")
+    app.processEvents()
+
+    assert tile.code() == "close < sma(close, 20)"  # put back
+    assert tile.code_error.text().startswith("refused —")
+    assert "unexpected character '@'" in tile.code_error.text()
+    # The tiles never moved either.
+    assert tile.text() == "close < sma(close, 20)"
+    assert tile.parsed() is not None
+
+
+def test_the_tiles_and_the_code_agree_after_an_edit(
+    app: QApplication, tile: RulesTile
+) -> None:
+    tile.set_mode("code")
+    tile.set_code("close < sma(close, 20)")
+    app.processEvents()
+    # Back to the tiles: they hold what the code said.
+    tile.set_mode("formulas")
+    app.processEvents()
+    assert tile.text() == "close < sma(close, 20)"
+
+    # Change the tiles; the code follows.
+    strip = tile.formula.strips[0]
+    chip = [c for c in strip.chips() if isinstance(c, CallChip)][0]
+    chip.fields[0].setText("50")
+    app.processEvents()
+    tile.set_mode("code")
+    app.processEvents()
+    assert tile.code() == "close < sma(close, 50)"
+    assert tile.code_error.text() == ""
+
+
+def test_two_tiles_do_not_share_a_formula(
+    app: QApplication
+) -> None:
+    entry = RulesTile("ENTRY RULES")
+    exit_ = RulesTile("EXIT RULES")
+    entry.show()
+    exit_.show()
+    app.processEvents()
+
+    entry.set_text("close < sma(close, 20)")
+    exit_.set_text("close > sma(close, 50)")
+    app.processEvents()
+
+    assert entry.text() == "close < sma(close, 20)"
+    assert exit_.text() == "close > sma(close, 50)"
+
+    entry.set_mode("code")
+    app.processEvents()
+    assert exit_.mode() == "rules"  # the other tile is untouched
+    assert exit_.code() == "close > sma(close, 50)"
+    entry.close()
+    exit_.close()
+
+
+def test_the_rules_tab_reads_a_formula_into_groups(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    tile.set_text(
+        "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0"
+    )
+    tile.set_mode("rules")
+    app.processEvents()
+
+    page = tile.conditions
+    assert page.assignments == ["band = bollinger_lower(close, 20, 2)"]
+    assert len(page.groups) == 1
+    rows = page.groups[0].rows
+    assert [
+        (row.left.currentText(), row.op.currentText(), row.right.currentText())
+        for row in rows
+    ] == [("close", "<", "band"), ("volume", ">", "0")]
+    assert page.groups[0].logic_key() == "and"
+    assert "close < band and volume > 0" in page.preview_text.text()
+    assert page.preview_status.text().startswith("✓")
+    tile.close()
+
+
+def test_a_fresh_rule_has_one_active_cell(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    assert len(page.groups) == 1
+    # One cell, ready to fill, and the cursor is already in it.
+    assert len(page.groups[0].rows) == 1
+    assert page.groups[0].rows[0].left.hasFocus()
+    tile.close()
+
+
+def test_the_operands_are_picked_not_typed(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    # The operand and the operator are lists; only the value takes text.
+    assert not row.left.isEditable()
+    assert not row.op.isEditable()
+    assert row.right.isEditable()
+    # A pick-only box will not take a word that is not on its list.
+    row.left.setCurrentText("close")
+    assert row.left.currentText() == "close"
+    row.left.setCurrentText("nonsense")
+    assert row.left.currentText() == "close"
+    tile.close()
+
+
+def test_the_cross_shows_only_when_a_cell_can_be_removed(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    group = page.groups[0]
+    # One cell and one group: nothing can be deleted, so no × anywhere.
+    first = group.rows[0]
+    app.processEvents()
+    assert not first.remove.isVisible()
+    assert not group.remove.isVisible()
+
+    second = group.add_row()
+    app.processEvents()
+    assert first.remove.isVisible()
+    assert second.remove.isVisible()
+
+    # A second group makes the group's own × show.
+    page.add_group()
+    app.processEvents()
+    assert group.remove.isVisible()
+    tile.close()
+
+
+def test_picking_a_variable_after_a_rebuild_does_not_crash(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setFocus()
+    app.processEvents()
+    # A rebuild deletes the box that had the cursor.
+    tile.set_text("close < open")
+    app.processEvents()
+
+    # The rail pick must not touch the dead box: it falls back to the new row.
+    tile.conditions.insert_variable("volume")
+    app.processEvents()
+    assert tile.conditions.groups[0].rows[0].left.currentText() == "volume"
+    tile.close()
+
+
+def test_clicking_an_operand_targets_it_for_the_rail(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    # The operand box is click-focusable, not tab-only.
+    assert row.left.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    # Move the cursor away, then click the operand box itself.
+    row.right.setFocus()
+    app.processEvents()
+    assert page.active_operand is not row.left
+
+    QTest.mouseClick(
+        row.left, Qt.MouseButton.LeftButton, pos=row.left.rect().center()
+    )
+    app.processEvents()
+    assert row.left.hasFocus()
+    assert page.active_operand is row.left
+
+    # And a rail pick now fills that box.
+    page.insert_variable("volume")
+    app.processEvents()
+    assert row.left.currentText() == "volume"
+    tile.close()
+
+
+def test_the_operand_box_has_no_dropdown(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.showPopup()
+    # The list never opens: the Variables rail is how a name is picked.
+    assert not row.left.view().isVisible()
+    tile.close()
+
+
+def test_math_and_value_cells_extend_a_condition(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    row.left.setCurrentText("volume")
+    row.op.setCurrentText(">")
+    row.right.setCurrentText("sma(volume, 50)")
+
+    page.groups[0].add_math().op.setCurrentText("*")
+    page.groups[0].add_value().operand.setCurrentText("2")
+    app.processEvents()
+
+    assert tile.text() == "volume > sma(volume, 50) * 2"
+    assert tile.error() == ""
+
+    # Removing the value cell takes the tail off again.
+    value = row.extras[-1]
+    row.remove_extra(value)
+    app.processEvents()
+    assert tile.text() == "volume > sma(volume, 50) *"
+    tile.close()
+
+
+def test_editing_a_row_rewrites_the_formula(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("close < open and volume > 0")
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setCurrentText("high")
+    row.right.setCurrentText("low")
+    app.processEvents()
+
+    assert tile.text() == "(high < low and volume > 0)"
+    assert tile.error() == ""
+    assert tile.code() == "(high < low and volume > 0)"
+    tile.close()
+
+
+def test_add_condition_and_group_change_the_formula(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("close > open")
+
+    page = tile.conditions
+    page.groups[0].add_row()
+    second = page.groups[0].rows[1]
+    second.left.setCurrentText("volume")
+    second.op.setCurrentText(">")
+    second.right.setCurrentText("0")
+    app.processEvents()
+    assert tile.text() == "(close > open and volume > 0)"
+
+    group = page.add_group()
+    second_row = group.rows[0]
+    second_row.left.setCurrentText("rsi(close, 14)")
+    second_row.op.setCurrentText("<")
+    second_row.right.setCurrentText("30")
+    group.set_logic("or")
+    app.processEvents()
+
+    assert tile.text() == (
+        "(close > open and volume > 0) and rsi(close, 14) < 30"
+    )
+    assert tile.error() == ""
+    assert [g.caption.text() for g in page.groups] == ["GROUP 1", "GROUP 2"]
+    tile.close()
+
+
+def test_an_or_of_comparisons_is_one_or_group(app: QApplication) -> None:
+    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+
+    tile = RulesTile(
+        "EXIT RULES", fields=EXIT_FIELDS, functions=EXIT_FUNCTIONS
+    )
+    tile.show()
+    app.processEvents()
+    tile.set_text("pnl >= tp or pnl <= 0 - sl or bars >= 90")
+
+    page = tile.conditions
+    assert len(page.groups) == 1
+    assert page.groups[0].logic_key() == "or"
+    assert len(page.groups[0].rows) == 3
+    assert tile.text() == "pnl >= tp or pnl <= 0 - sl or bars >= 90"
+    tile.close()
+
+
+def test_a_condition_the_rows_cannot_hold_is_kept_whole(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+    tile.set_text("not (close > open)")
+
+    row = tile.conditions.groups[0].rows[0]
+    assert row._raw is True
+    assert "not" in tile.text()
+    assert tile.error() == ""
+    tile.close()
+
+
+def test_the_variables_rail_lists_what_a_rule_can_use(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    # The fields and the indicators are there, each a button.
+    assert "close" in page.variable_buttons
+    assert "bollinger_lower(close, 20, 2)" in page.variable_buttons
+    tile.close()
+
+
+def test_clicking_a_variable_drops_it_into_the_active_operand(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    # Put the cursor in the value box, then pick a variable.
+    row.right.setFocus()
+    app.processEvents()
+    page.insert_variable("rsi(close, 14)")
+    app.processEvents()
+    assert row.right.currentText() == "rsi(close, 14)"
+
+    # Without a focused box it falls back to the last row's left operand.
+    page.active_operand = None
+    page.insert_variable("volume")
+    app.processEvents()
+    assert row.left.currentText() == "volume"
+    tile.close()
+
+
+def test_picking_a_variable_replaces_what_is_there(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setCurrentText("volume")
+    row.left.setFocus()
+    app.processEvents()
+    tile.conditions.insert_variable("close")
+    app.processEvents()
+    # It replaces the box, it does not run on the end of "volume".
+    assert row.left.currentText() == "close"
+    tile.close()
+
+
+def test_a_variable_can_be_created_and_used(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    assignment = page.add_assignment(
+        "band", "bollinger_lower(close, 20, 2)"
+    )
+    app.processEvents()
+    assert assignment.line() == "band = bollinger_lower(close, 20, 2)"
+    # It joins the rail, so it can be dropped into a condition.
+    assert "band" in page.variable_buttons
+
+    row = page.groups[0].rows[0]
+    row.left.setCurrentText("close")
+    row.right.setCurrentText("band")
+    app.processEvents()
+
+    assert tile.text() == (
+        "band = bollinger_lower(close, 20, 2)\nclose < band"
+    )
+    assert tile.error() == ""
+
+    # Removing it takes it out of the formula and the rail.
+    page.remove_assignment(assignment)
+    app.processEvents()
+    assert "band" not in page.variable_buttons
+    assert tile.text() == "close < band"
+    tile.close()
+
+
+def test_the_code_edit_fills_the_rules_and_fires_changed(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    seen: list[int] = []
+    tile.changed.connect(lambda: seen.append(1))
+
+    tile.set_mode("code")
+    tile.code_edit.setPlainText("band = sma(close, 5)\nclose < band")
+    app.processEvents()
+
+    # The code reached the rules rows: the LET row and the condition.
+    page = tile.conditions
+    assert [row.line() for row in page.assignment_rows] == [
+        "band = sma(close, 5)"
+    ]
+    assert page.groups[0].rows[0].left.currentText() == "close"
+    assert page.groups[0].rows[0].right.currentText() == "band"
+    # And the tile said so, so the window can re-run the report.
+    assert seen
+    tile.close()
+
+
+def test_the_changed_signal_fires_on_a_tile_edit(
+    app: QApplication, tile: RulesTile
+) -> None:
+    seen: list[int] = []
+    tile.changed.connect(lambda: seen.append(1))
+    tile.formula.drop_tokens(
+        {"tokens": ["close"], "from": None}, tile.formula.strips[0], 0
+    )
+    app.processEvents()
+    assert seen
