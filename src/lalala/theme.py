@@ -614,6 +614,9 @@ QComboBox#conditionOperand::down-arrow {{
     width: 0;
     height: 0;
 }}
+QComboBox#conditionOperand:focus {{
+    border-color: {ACCENT};
+}}
 /* A math or value cell: a little box of its own, the × inside it. */
 #extraCell {{
     background-color: {PANEL_ALT};

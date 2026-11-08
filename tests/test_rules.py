@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from lalala.formula_builder import CallChip  # noqa: E402
@@ -257,6 +258,36 @@ def test_picking_a_variable_after_a_rebuild_does_not_crash(
     tile.conditions.insert_variable("volume")
     app.processEvents()
     assert tile.conditions.groups[0].rows[0].left.currentText() == "volume"
+    tile.close()
+
+
+def test_clicking_an_operand_targets_it_for_the_rail(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    # The operand box is click-focusable, not tab-only.
+    assert row.left.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    # Move the cursor away, then click the operand box itself.
+    row.right.setFocus()
+    app.processEvents()
+    assert page.active_operand is not row.left
+
+    QTest.mouseClick(
+        row.left, Qt.MouseButton.LeftButton, pos=row.left.rect().center()
+    )
+    app.processEvents()
+    assert row.left.hasFocus()
+    assert page.active_operand is row.left
+
+    # And a rail pick now fills that box.
+    page.insert_variable("volume")
+    app.processEvents()
+    assert row.left.currentText() == "volume"
     tile.close()
 
 

@@ -195,6 +195,8 @@ def _pick_combo(parent, choices, placeholder: str = "", editable: bool = False):
     combo = PickBox(parent)
     combo.setObjectName("conditionOperand")
     combo.setCursor(Qt.CursorShape.PointingHandCursor)
+    # A click must land the cursor here, so the rail knows which box to fill.
+    combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     combo.addItems([""] + [str(choice) for choice in choices])
     if editable:
         combo.setEditable(True)
