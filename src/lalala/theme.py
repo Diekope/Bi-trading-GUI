@@ -604,6 +604,23 @@ QComboBox#conditionOperand, QComboBox#conditionOp, QComboBox#groupLogic {{
     padding: 4px 6px;
     min-height: 20px;
 }}
+/* The operand and value come from the Variables rail: no dropdown arrow. */
+QComboBox#conditionOperand::drop-down {{
+    width: 0;
+    border: none;
+}}
+QComboBox#conditionOperand::down-arrow {{
+    image: none;
+    width: 0;
+    height: 0;
+}}
+/* A math or value cell: a little box of its own, the × inside it. */
+#extraCell {{
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    padding: 2px 4px;
+}}
 QLineEdit#assignName {{
     background-color: {PANEL};
     border: 1px solid {BORDER};

@@ -167,9 +167,21 @@ def _choices(fields, functions) -> list:
     return choices
 
 
+class PickBox(QComboBox):
+    """A box whose list never opens: the Variables rail fills it.
+
+    The operand and the value are chosen from the rail on the right, so the
+    dropdown is turned off — a click just leaves the cursor here, ready for a
+    rail pick. An editable box still takes typed text, for numbers.
+    """
+
+    def showPopup(self) -> None:  # noqa: N802
+        return
+
+
 def _pick_combo(parent, choices, placeholder: str = "", editable: bool = False):
     """A box that lists the vocabulary; the value box also takes typed text."""
-    combo = QComboBox(parent)
+    combo = PickBox(parent)
     combo.setObjectName("conditionOperand")
     combo.setCursor(Qt.CursorShape.PointingHandCursor)
     combo.addItems([""] + [str(choice) for choice in choices])
@@ -222,6 +234,7 @@ class MathCell(QFrame):
     def __init__(self, choices: list, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("extraCell")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._loading = False
 
         row = QHBoxLayout(self)
@@ -266,6 +279,7 @@ class ValueCell(QFrame):
     def __init__(self, choices: list, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("extraCell")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._loading = False
 
         row = QHBoxLayout(self)
@@ -323,7 +337,11 @@ class ConditionRow(QFrame):
         self._choices = list(choices)
         self.extras: list = []
 
-        row = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
 
@@ -341,7 +359,16 @@ class ConditionRow(QFrame):
         row.addWidget(self.op, 0)
         row.addWidget(self.right, 3)
         row.addWidget(self.remove, 0)
+        outer.addLayout(row)
         self.row_layout = row
+
+        # The math and value cells sit on a line of their own under the
+        # condition, so a long tail never squeezes the comparison.
+        self.extras_box = QHBoxLayout()
+        self.extras_box.setContentsMargins(0, 0, 0, 0)
+        self.extras_box.setSpacing(6)
+        self.extras_box.addStretch(1)
+        outer.addLayout(self.extras_box)
 
         # Tell the page which operand box has the cursor, so the variables
         # rail knows where an inserted name should land. Focus may land on the
@@ -374,15 +401,15 @@ class ConditionRow(QFrame):
         cell.removed.connect(self.remove_extra)
         if hasattr(cell, "activated"):
             cell.activated.connect(self.activated)
-        # Before the row's own remove button.
-        self.row_layout.insertWidget(self.row_layout.count() - 1, cell)
+        # Before the trailing stretch of the extras line.
+        self.extras_box.insertWidget(self.extras_box.count() - 1, cell)
         self.extras.append(cell)
 
     def remove_extra(self, cell) -> None:
         if cell not in self.extras:
             return
         self.extras.remove(cell)
-        self.row_layout.removeWidget(cell)
+        self.extras_box.removeWidget(cell)
         cell.setParent(None)
         cell.deleteLater()
         self._touched()
@@ -453,6 +480,7 @@ class ConditionGroup(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.choices = list(choices)
         self.rows: list[ConditionRow] = []
+        self._many = None
 
         column = QVBoxLayout(self)
         column.setContentsMargins(10, 8, 10, 10)
@@ -499,6 +527,28 @@ class ConditionGroup(QFrame):
     def set_logic(self, key: str) -> None:
         self.logic.setCurrentIndex(1 if key == "or" else 0)
 
+    def set_removable(self, removable: bool) -> None:
+        """The group's own × shows only when another group is left behind."""
+        self.remove.setVisible(removable)
+
+    def cell_count(self) -> int:
+        return len(self.rows) + sum(len(row.extras) for row in self.rows)
+
+    def _update_removes(self) -> None:
+        """A cell's × shows only when there is more than one cell to delete."""
+        many = self.cell_count() > 1
+        if many == self._many:
+            return
+        self._many = many
+        for row in self.rows:
+            row.remove.setVisible(many)
+            for cell in row.extras:
+                cell.remove.setVisible(many)
+
+    def _row_changed(self) -> None:
+        self._update_removes()
+        self.changed.emit()
+
     def add_row(self, parts: dict | None = None) -> ConditionRow:
         row = ConditionRow(self.choices, self)
         if parts:
@@ -506,20 +556,25 @@ class ConditionGroup(QFrame):
                 parts.get("left", ""), parts.get("op", "<"),
                 parts.get("right", ""), bool(parts.get("raw")),
             )
-        row.changed.connect(self.changed)
+        row.changed.connect(self._row_changed)
         row.removed.connect(self.remove_row)
         row.activated.connect(self.activated)
         self.rows_box.addWidget(row)
         self.rows.append(row)
+        self._update_removes()
         return row
 
     def add_math(self):
         row = self.rows[-1] if self.rows else self.add_row()
-        return row.add_math()
+        cell = row.add_math()
+        self._update_removes()
+        return cell
 
     def add_value(self):
         row = self.rows[-1] if self.rows else self.add_row()
-        return row.add_value()
+        cell = row.add_value()
+        self._update_removes()
+        return cell
 
     def _open_cell_menu(self) -> None:
         menu = QMenu(self)
@@ -550,6 +605,7 @@ class ConditionGroup(QFrame):
         row.deleteLater()
         if not self.rows:
             self.add_row()
+        self._update_removes()
         self.changed.emit()
 
     def text(self) -> str | None:
@@ -886,6 +942,10 @@ class RulesPage(QWidget):
     def _renumber(self) -> None:
         for index, group in enumerate(self.groups, 1):
             group.caption.setText(f"GROUP {index}")
+        # The group's × shows only when it would leave another behind.
+        many = len(self.groups) > 1
+        for group in self.groups:
+            group.set_removable(many)
 
     def _group_changed(self) -> None:
         if self._loading:

@@ -214,6 +214,43 @@ def test_the_operands_are_picked_not_typed(app: QApplication) -> None:
     tile.close()
 
 
+def test_the_cross_shows_only_when_a_cell_can_be_removed(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    group = page.groups[0]
+    # One cell and one group: nothing can be deleted, so no × anywhere.
+    assert not group.rows[0].remove.isVisible()
+    assert not group.remove.isVisible()
+
+    second = group.add_row()
+    app.processEvents()
+    assert group.rows[0].remove.isVisible()
+    assert second.remove.isVisible()
+
+    # A second group makes the group's own × show.
+    page.add_group()
+    app.processEvents()
+    assert group.remove.isVisible()
+    tile.close()
+
+
+def test_the_operand_box_has_no_dropdown(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.showPopup()
+    # The list never opens: the Variables rail is how a name is picked.
+    assert not row.left.view().isVisible()
+    tile.close()
+
+
 def test_math_and_value_cells_extend_a_condition(
     app: QApplication,
 ) -> None:

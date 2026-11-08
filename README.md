@@ -409,14 +409,18 @@ groups themselves are joined with AND. `×` removes a cell. The rule as a
 formula is pinned at the bottom left, with whether the rows make a valid rule
 and what the newest bar said.
 
-The **operands and the operator are picked, not typed**: they list the fields,
-the indicators and any name the LET rows define. Only the value box takes
-typed text, so a number like `0.03` can be written — and the only name written
-free-hand anywhere is the LET variable's own. The right rail is a **Variables**
-column of the same vocabulary, one click from the operand box that has the
-cursor; picking one **replaces** what is in the box. (The mock put signal
-options there — side, confirmation bars, cooldown — but the backtest models
-none of them.)
+The **operands and the operator are picked, not typed**. The operator has its
+own little list; the operands and values have **no dropdown at all** — a click
+leaves the cursor in the box and the **Variables** rail fills it. The rail lists
+the fields, the indicators and any name the LET rows define; picking one
+**replaces** what is in the focused box. Only the value box takes typed text,
+so a number like `0.03` can be written — the only name written free-hand is the
+LET variable's own.
+
+A cell's `×` shows **only when it can be deleted**: the sole condition of a
+group, or the only group, carries no `×`. (The mock put signal options in the
+right rail — side, confirmation bars, cooldown — but the backtest models none
+of them.)
 
 `Rules` is another way to write the same formula: it reads any condition that
 is a flat AND / OR of comparisons into rows, keeps `name = …` lines as LET
