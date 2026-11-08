@@ -709,8 +709,11 @@ side / result / exit filters, and a detail panel for the picked trade: its
 entry and exit (time · price), the reason, how long it ran and its fees, its
 return, and a little line of the price through the trade. **Picking a row
 brings that trade out on the candle chart** — a violet band over the stretch it
-held, a line across it, and its entry and exit prices marked. It reads the
-newest `SHOWN` (400) trades so a long run stays light.
+held, a line across it, and its entry and exit prices marked. A window of
+candles around the trade is read on demand and shown in place of the live
+tail, so a trade well before the last candles can be looked at **without
+moving the run**. It reads the newest `SHOWN` (400) trades so a long run stays
+light.
 
 Everything is drawn as **return from the start**, not as a dollar balance. Over
 a long span buy and hold compounds many times over while a strategy that

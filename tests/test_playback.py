@@ -230,6 +230,17 @@ def test_the_window_never_grows_past_the_chart() -> None:
     assert len(play.recent()) == CHART_BARS
 
 
+def test_a_window_around_a_stamp_is_read() -> None:
+    from lalala.strat_playback import window_around
+
+    _write(2021, 300, price=200.0)
+    # The stamp of bar 150 of 2021 (the writer uses index * 60_000).
+    bars = window_around([2021], "1m", 150 * 60_000, count=40)
+    assert bars
+    assert len(bars) <= 40
+    assert any(bar.stamp == 150 * 60_000 for bar in bars)
+
+
 def test_a_saved_rule_can_drive_the_walk() -> None:
     from lalala.formula import ENTRY_FIELDS, FUNCTIONS, parse
     from lalala.strat_playback import build_session

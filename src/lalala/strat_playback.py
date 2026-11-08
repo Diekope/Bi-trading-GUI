@@ -233,6 +233,34 @@ def load_all_candles(years: list[int], resolution: str) -> list[Candle]:
     return list(iter_candles(years, resolution))
 
 
+def window_around(
+    years: list[int], resolution: str, stamp: int, count: int = 400
+) -> list[Candle]:
+    """A window of `count` bars around `stamp`, read from the year it is in.
+
+    Read on demand, so a picked trade can be shown without keeping the whole
+    span in memory.
+    """
+    if not years or not stamp:
+        return []
+    year = datetime.fromtimestamp(stamp / 1000, tz=timezone.utc).year
+    if year not in years:
+        year = min(years, key=lambda value: abs(value - year))
+    path = candle_file(year)
+    if not path.exists():
+        return []
+    bars = list(_iter_file(path, FACTOR.get(resolution, 1)))
+    if not bars:
+        return []
+    target = len(bars) - 1
+    for index, bar in enumerate(bars):
+        if bar.stamp >= stamp:
+            target = index
+            break
+    start = max(0, target - count // 2)
+    return bars[start : start + count]
+
+
 def sample_candles(count: int = SAMPLE_BARS, seed: int = SAMPLE_SEED) -> list[Candle]:
     """A fixed-seed walk, for when the store has nothing to show."""
     rng = random.Random(seed)
@@ -848,6 +876,10 @@ class CandlePlayer(QWidget):
         self.offset = 0.0
         # The trade to bring out, when a row is picked in the results.
         self.trade: dict | None = None
+        # A static window of candles to show instead of the live tail, so a
+        # picked trade can be looked at without moving the run.
+        self.view: list[Candle] | None = None
+        self._view_head: int | None = None
         # The price window eases, so filling the tile does not make it jump.
         self._low: float | None = None
         self._high: float | None = None
@@ -861,8 +893,39 @@ class CandlePlayer(QWidget):
         self.trade = trade
         self.update()
 
+    def clear_view(self) -> None:
+        """Go back to the live tail."""
+        self.view = None
+        self._view_head = None
+        self.update()
+
+    def set_view(
+        self, bars: list[Candle] | None, trade: dict | None = None
+    ) -> None:
+        """Show a fixed window of candles, with `trade` marked, or the live tail."""
+        self.view = list(bars) if bars else None
+        self.trade = trade
+        self._view_head = None
+        if self.view and trade is not None:
+            # Where the trade's exit sits inside the window (by timestamp).
+            head = None
+            for index, bar in enumerate(self.view):
+                if bar.stamp >= int(trade.get("out_stamp", 0)):
+                    head = index
+                    break
+            self._view_head = head
+        self.update()
+
     def set_offset(self, offset: float) -> None:
         self.offset = max(0.0, min(0.999, offset))
+
+    @staticmethod
+    def _position_for(bars: list[Candle], stamp: int, base: int) -> int:
+        """The index (in the run's numbering) of the bar at `stamp`."""
+        for index, bar in enumerate(bars):
+            if bar.stamp >= int(stamp):
+                return base + index
+        return base + len(bars) - 1
 
     def reset_range(self, candles: list[Candle] | None = None) -> None:
         """Start the price window at the whole series, not at the first bar.
@@ -897,7 +960,8 @@ class CandlePlayer(QWidget):
         if right - left < 40 or bottom - top < 30:
             return
 
-        bars = self.playback.recent()
+        viewing = self.view is not None
+        bars = self.view if viewing else self.playback.recent()
         if not bars:
             painter.setFont(mono_font(9))
             painter.setPen(QColor(TEXT_FAINT))
@@ -908,12 +972,20 @@ class CandlePlayer(QWidget):
             )
             return
 
-        # Absolute indices: the window is the tail of a stream, so position in
-        # the list is not position in the run.
-        base = self.playback.index - len(bars)
-        last = base + len(bars) - 1
-        playhead = last + self.offset
         room = self.visible_count(width)
+        if viewing:
+            # A fixed window: indices are positions in the list, and the trade
+            # is centred rather than the newest candle.
+            base = 0
+            last = len(bars) - 1
+            head = self._view_head if self._view_head is not None else last
+            playhead = min(float(last), head + room / 2)
+        else:
+            # Absolute indices: the window is the tail of a stream, so position
+            # in the list is not position in the run.
+            base = self.playback.index - len(bars)
+            last = base + len(bars) - 1
+            playhead = last + self.offset
         slot = (right - left) / room
         first = max(base, int(-(-(playhead + 0.5 - room) // 1)))
         window = bars[first - base :]
@@ -959,33 +1031,40 @@ class CandlePlayer(QWidget):
             painter.drawRect(QRectF(x - body / 2, top_y, body, height_y))
 
         # Entries and exits, so the trades are visible on the candles.
-        for position, kind, price in self.playback.markers:
-            x = x_of(position)
-            if x < left - slot or x > right + slot:
-                continue
-            y = y_of(price)
-            colour = QColor(ACCENT if kind == "in" else TEXT_MUTED)
-            painter.setPen(QPen(colour, 1))
-            painter.setBrush(colour)
-            if kind == "in":
-                painter.drawPolygon(
-                    QPolygonF(
-                        [QPointF(x, y - 6), QPointF(x - 4, y - 12), QPointF(x + 4, y - 12)]
+        if not viewing:
+            for position, kind, price in self.playback.markers:
+                x = x_of(position)
+                if x < left - slot or x > right + slot:
+                    continue
+                y = y_of(price)
+                colour = QColor(ACCENT if kind == "in" else TEXT_MUTED)
+                painter.setPen(QPen(colour, 1))
+                painter.setBrush(colour)
+                if kind == "in":
+                    painter.drawPolygon(
+                        QPolygonF(
+                            [QPointF(x, y - 6), QPointF(x - 4, y - 12), QPointF(x + 4, y - 12)]
+                        )
                     )
-                )
-            else:
-                painter.drawPolygon(
-                    QPolygonF(
-                        [QPointF(x, y + 6), QPointF(x - 4, y + 12), QPointF(x + 4, y + 12)]
+                else:
+                    painter.drawPolygon(
+                        QPolygonF(
+                            [QPointF(x, y + 6), QPointF(x - 4, y + 12), QPointF(x + 4, y + 12)]
+                        )
                     )
-                )
 
         # The picked trade, brought out in its own colour: the stretch it held,
         # a line across it, and its entry and exit prices.
         trade = self.trade
         if trade is not None:
-            x_in = x_of(trade["in_index"])
-            x_out = x_of(trade["out_index"])
+            if viewing:
+                in_at = self._position_for(bars, trade.get("in_stamp", 0), base)
+                out_at = self._position_for(bars, trade.get("out_stamp", 0), base)
+            else:
+                in_at = trade["in_index"]
+                out_at = trade["out_index"]
+            x_in = x_of(in_at)
+            x_out = x_of(out_at)
             y_in = y_of(trade["in_price"])
             y_out = y_of(trade["out_price"])
             band = QColor(TRADE_HILITE)
@@ -1186,13 +1265,24 @@ class PlaybackTile(Card):
         self._reveal_trade(self._pending_trade)
 
     def _reveal_trade(self, trade: dict | None) -> None:
-        """Mark a picked trade on the chart.
+        """Show a picked trade on a fixed window of candles.
 
-        It does **not** move the walk: rewinding to show an old trade would
-        cut the curves and the later trades away, so the pick is only drawn
-        where it already is.
+        It does **not** move the walk: a window of candles around the trade is
+        read on demand and shown in place of the live tail, so a trade before
+        the last candles can be looked at without cutting the run short.
         """
-        self.player.set_trade(trade)
+        if trade is None:
+            self.player.set_view(None, None)
+            return
+        bars = window_around(
+            self._wanted_years,
+            self._wanted_resolution,
+            int(trade.get("in_stamp", 0)),
+        )
+        if bars:
+            self.player.set_view(bars, trade)
+        else:
+            self.player.set_trade(trade)
         self.player.update()
 
     def closeEvent(self, event) -> None:  # noqa: N802
@@ -1236,6 +1326,7 @@ class PlaybackTile(Card):
         self.player.update()
 
     def play(self) -> None:
+        self.player.clear_view()  # back to the live tail
         self._timer.start()
         self.run_button.setText("Pause")
 

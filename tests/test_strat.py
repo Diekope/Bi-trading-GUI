@@ -557,13 +557,13 @@ def test_the_results_switch_between_overview_and_trades(
     assert page.table.item(0, 5).text().startswith(("+", "−", "-"))
     # A trade is picked, so the detail panel shows it…
     assert page.detail_title.text().startswith("Trade #")
-    # …and the candle chart is told which trade to bring out.
+    # …and the candle chart is told which trade to bring out, and the run
+    # itself does not move.
+    index_before = window.left.playback.index
     page.table.selectRow(0)
     app.processEvents()
     assert window.left.player.trade is not None
-    assert window.left.player.trade["out_index"] >= (
-        window.left.player.trade["in_index"]
-    )
+    assert window.left.playback.index == index_before
 
     # The exit filter narrows the list.
     page.exit.setCurrentText("SL")
