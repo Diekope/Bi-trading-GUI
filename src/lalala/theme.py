@@ -164,18 +164,22 @@ QLabel#blockLabel {{
     color: {UP};
 }}
 
-/* Maths and everything else: neutral. */
+/* Maths: a cool teal, its own colour. */
 #paletteBlock[group="maths"], #formulaChip[group="maths"] {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
+    background-color: #0e2a2f;
+    border: 1px solid #1c5058;
 }}
 #paletteBlock[group="maths"] QLabel, #formulaChip[group="maths"] QLabel {{
-    color: {TEXT};
+    color: #58cfe0;
 }}
-/* A variable's name: a chip like any other, but you type in it. */
+/* A variable's name: a rose chip like any other, but you type in it. */
 #paletteBlock[group="name"], #formulaChip[group="name"] {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
+    background-color: #2b1622;
+    border: 1px solid #5a2942;
+}}
+#paletteBlock[group="name"] QLabel, #formulaChip[group="name"] QLabel,
+#formulaChip[group="name"] QLineEdit {{
+    color: #ef8fc0;
 }}
 #formulaChip[slot="true"] {{
     background-color: {CANVAS};
@@ -195,13 +199,17 @@ QLabel#blockLabel {{
 #formulaChip[fixed="true"] QLabel {{
     color: {TEXT_MUTED};
 }}
-/* A palette block nothing here carries: named, but dashed and faint. */
+/* A palette block nothing here carries: dashed, in a dimmer shade of its
+   group's colour, so it reads as the same kind of thing, not a different one. */
 #paletteBlock[missing="true"] {{
-    background-color: {CANVAS};
-    border: 1px dashed {BORDER};
+    border-style: dashed;
 }}
-#paletteBlock[missing="true"] QLabel {{
-    color: {TEXT_FAINT};
+#paletteBlock[group="data"][missing="true"] {{
+    background-color: #141a30;
+    border-color: #26325a;
+}}
+#paletteBlock[group="data"][missing="true"] QLabel {{
+    color: #7f8bbf;
 }}
 
 QLabel#formulaWarning {{

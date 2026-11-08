@@ -61,6 +61,17 @@ from lalala.theme import BORDER, TEXT_FAINT
 MIME = "application/x-lalala-chip"
 HANDLE = "⠿"
 LOGIC_WORDS = ("and", "or", "not")
+# The palette groups, and the colour each of its blocks wears — so a block is
+# coloured by where it sits, not by what it happens to hold.
+GROUP_KEYS = {
+    "Data": "data",
+    "Indicators": "indicator",
+    "Maths": "maths",
+    "Logic": "logic",
+    "Trade": "data",
+}
+# The maths functions: they live in Maths, so they wear its colour.
+MATHS_FUNCS = frozenset({"abs", "log"})
 # Names that read as "the bar" or "the trade": both are data, coloured alike.
 DATA_NAMES = frozenset(ENTRY_FIELDS) | frozenset(EXIT_FIELDS)
 
@@ -114,6 +125,7 @@ PALETTES: tuple = (
         "Data",
         (
             Item("close", ("close",), "the bar's closing price"),
+            Item("price", ("price",), "the market price — the bar's close"),
             Item("open", ("open",)),
             Item("high", ("high",)),
             Item("low", ("low",)),
@@ -622,7 +634,7 @@ class CallChip(Chip):
         return False
 
     def group(self) -> str:
-        return "indicator"
+        return "maths" if self.func in MATHS_FUNCS else "indicator"
 
     def tokens(self) -> list:
         tokens = [self.func, "(", self.series]
@@ -971,7 +983,8 @@ class FormulaBuilder(QWidget):
         # dragged into the condition like any other block.
         column.addWidget(self._variables_group(inner))
         for group, items in self.palette:
-            column.addWidget(self._block_group(inner, group, items))
+            key = GROUP_KEYS.get(group, "maths")
+            column.addWidget(self._block_group(inner, group, items, key))
         column.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
@@ -1027,7 +1040,9 @@ class FormulaBuilder(QWidget):
                         names.append(name)
         return names
 
-    def _block_group(self, parent: QWidget, title: str, items: tuple) -> QWidget:
+    def _block_group(
+        self, parent: QWidget, title: str, items: tuple, key: str
+    ) -> QWidget:
         """One dashed group: its caption, then its blocks, wrapping."""
         frame = QFrame(parent)
         frame.setObjectName("blockGroup")
@@ -1044,6 +1059,10 @@ class FormulaBuilder(QWidget):
         blocks: list[PaletteBlock] = []
         for item in items:
             block = PaletteBlock(item, holder)
+            # The block wears its group's colour, whatever it holds.
+            block.setProperty("group", key)
+            block.style().unpolish(block)
+            block.style().polish(block)
             holder.flow.addWidget(block)
             blocks.append(block)
         self.blocks[title] = blocks

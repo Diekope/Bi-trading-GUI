@@ -64,6 +64,9 @@ def _value(bar, name: str):
         raw = bar.get(name)
     else:
         raw = getattr(bar, name, None)
+        if raw is None and name == "price":
+            # On a bar, the market price is the close.
+            raw = getattr(bar, "close", None)
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     return float(raw)

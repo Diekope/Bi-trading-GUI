@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.autocomplete import CodeEdit, vocabulary
+from lalala.syntax import FormulaHighlighter, defined_names
 from lalala.formula import (
     ENTRY_FIELDS,
     EXIT_FIELDS,
@@ -268,6 +269,12 @@ class RulesTile(Card):
         )
         self.code_edit.textChanged.connect(self._code_edited)
         code_layout.addWidget(self.code_edit, 1)
+        self.code_highlighter = FormulaHighlighter(
+            self.code_edit.document(), self.fields, self.functions
+        )
+        self.code_edit.document().contentsChanged.connect(
+            self._refresh_code_names
+        )
 
         self.code_error = QLabel("", code_card)
         self.code_error.setObjectName("formulaError")
@@ -577,6 +584,18 @@ class RulesTile(Card):
         self.code_edit.setPlainText(self._accepted)
         self._syncing = False
         self.code_error.setText(f"refused — {message}")
+
+    def _refresh_code_names(self) -> None:
+        """Tell the highlighter which names the code defines."""
+        if getattr(self, "_naming", False):
+            return
+        self._naming = True
+        try:
+            self.code_highlighter.set_defined(
+                defined_names(self.code_edit.toPlainText())
+            )
+        finally:
+            self._naming = False
 
     def _sync_code(self) -> None:
         """Show the builder's text in the code view, and its verdict."""

@@ -66,8 +66,9 @@ EXIT_FIELDS = ("price", "entry", "tp", "sl", "pnl", "bars")
 # quietly reading zero.
 NO_HISTORY = ("model_p", "spread", "liquidity", "days_left")
 
-# The entry vocabulary: the bar, plus those words.
-ENTRY_FIELDS = FIELDS + NO_HISTORY
+# The entry vocabulary: the bar, plus those words, and `price` — the close,
+# the market price a Polymarket-style rule names.
+ENTRY_FIELDS = FIELDS + NO_HISTORY + ("price",)
 
 # A line about each word, shown when it is selected in the code tab.
 FIELD_NOTES: dict[str, str] = {
