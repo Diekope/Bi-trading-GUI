@@ -752,6 +752,7 @@ to a line, wrapping with the tile's width:
 | `Position` | the value itself; its caption and its bounds follow `Sizing` |
 | `TP %` / `SL %` | take profit and stop loss, percent from entry |
 | `Max cash $` | most cash the run may trade with; anything above it is set aside |
+| `Fee %` | commission each way, percent of the notional |
 | `Dynamic TP` | switch: let the take profit trail |
 | `Reverse % to close` | pull-back from the peak that closes a trailing TP; only live while the switch is on |
 
@@ -780,9 +781,13 @@ opens one again: the controls are set back and the run is **walked straight to
 the end**, so every result and trade is there at once.
 
 The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
-extension wrapped by `lalala.core`). When it is built it runs the walk; when it
-is not, the same walk runs in Python, so nothing depends on the build. To build
-it: `uv run maturin develop --release --manifest-path rust/lalala_core/Cargo.toml`.
+extension wrapped by `lalala.core`). A span small enough to hold in memory
+(≤ `CORE_MAX`, 1.5M bars) is loaded and its entries worked out up front, so the
+walk and every seek are a slice plus one native pass — **Finish** and a jump
+are instant. A longer span is streamed off disk and stepped in Python. When the
+extension is not built, `lalala.core` falls back to the same walk in Python, so
+nothing depends on it. Build it with:
+`uv run maturin develop --release --manifest-path rust/lalala_core/Cargo.toml`.
 
 ## Playback tile
 

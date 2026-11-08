@@ -43,12 +43,13 @@ TEMPLATE = {
     "ease_range": 0.08,
     "frame_ms": 33,
     "backtest": {
-        "_comment": "Where a new backtest starts. sizing = balance | fixed | risk; cash is in dollars",
+        "_comment": "Where a new backtest starts. sizing = balance | fixed | risk; cash is in dollars; fee is percent per side",
         "initial_capital": 10_000.0,
         "tp": 2.0,
         "sl": 1.0,
         "position": 10.0,
         "cash": 2_000.0,
+        "fee": 0.06,
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "sizing": "balance",
@@ -70,6 +71,7 @@ class BacktestDefaults:
     sl: float = 1.0                    # stop loss, percent
     position: float = 10.0             # read as `sizing` says
     cash: float = 2_000.0              # most that may sit in cash, dollars
+    fee: float = 0.06                  # fee per side, percent
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     sizing: str = "balance"            # balance % | fixed $ | risk %
@@ -101,6 +103,7 @@ class BacktestDefaults:
                 _number(values.get("position"), defaults.position), 0.0, 1e9
             ),
             cash=_clamp(_number(values.get("cash"), defaults.cash), 0.0, 1e12),
+            fee=_clamp(_number(values.get("fee"), defaults.fee), 0.0, 100.0),
             dynamic_tp=_flag(values.get("dynamic_tp"), defaults.dynamic_tp),
             dyn_tp_reverse=_clamp(
                 _number(values.get("dyn_tp_reverse"), defaults.dyn_tp_reverse),

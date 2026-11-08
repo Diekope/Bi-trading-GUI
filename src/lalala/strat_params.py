@@ -110,6 +110,7 @@ class ParamsTile(Card):
         self.tp_field = self._field(defaults.tp, 0.0, 10_000.0)
         self.sl_field = self._field(defaults.sl, 0.0, 100.0)
         self.cash_field = self._field(defaults.cash, 0.0, 1e12)
+        self.fee_field = self._field(defaults.fee, 0.0, 100.0)
 
         self.dynamic_tp = _WideToggle("Enabled")
         self.dynamic_tp.setObjectName("paramToggle")
@@ -130,11 +131,12 @@ class ParamsTile(Card):
             _Element("TP %", self.tp_field),
             _Element("SL %", self.sl_field),
             _Element("Max cash $", self.cash_field),
+            _Element("Fee %", self.fee_field),
             _Element("Dynamic TP", self.dynamic_tp),
             _Element("Reverse % to close", self.reverse_field),
         ]
         self.position_element = self._elements[2]
-        self.reverse_element = self._elements[7]
+        self.reverse_element = self._elements[8]
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 0, 0, 0)
@@ -189,6 +191,7 @@ class ParamsTile(Card):
             "tp": _number(self.tp_field.text()),
             "sl": _number(self.sl_field.text()),
             "cash": _number(self.cash_field.text()),
+            "fee": _number(self.fee_field.text()),
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
         }
@@ -201,6 +204,7 @@ class ParamsTile(Card):
             "tp": self.tp_field,
             "sl": self.sl_field,
             "cash": self.cash_field,
+            "fee": self.fee_field,
             "dyn_tp_reverse": self.reverse_field,
         }
         for key, widget in fields.items():

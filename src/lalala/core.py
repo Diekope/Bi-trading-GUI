@@ -67,6 +67,8 @@ def _python_walk(
     entry_price = 0.0
     entry_index = 0
     entry_cost = 0.0
+    entry_fee = 0.0
+    entry_notional = 0.0
     trades: list[tuple] = []
     equity: list[float] = []
 
@@ -77,12 +79,16 @@ def _python_walk(
             target = entry_price * (1.0 + tp / 100.0)
             stop = entry_price * (1.0 - sl / 100.0)
             price = None
+            reason = "time"
             if tp > 0 and high >= target:
                 price = target
+                reason = "tp"
             elif sl > 0 and low <= stop:
                 price = stop
+                reason = "sl"
             elif index - entry_index >= max_hold:
                 price = close
+                reason = "time"
             if price is not None:
                 proceeds = qty * price
                 cost = proceeds * fee
@@ -90,7 +96,12 @@ def _python_walk(
                 result = (
                     (proceeds - cost) / entry_cost - 1.0 if entry_cost else 0.0
                 )
-                trades.append((entry_index, entry_price, index, price, result))
+                trades.append(
+                    (
+                        entry_index, entry_price, index, price, result,
+                        entry_fee + cost, entry_notional, reason,
+                    )
+                )
                 qty = 0.0
                 entry_cost = 0.0
         elif index != 0 and entries[index]:
@@ -106,6 +117,8 @@ def _python_walk(
                 cash -= notional + cost
                 entry_price = close
                 entry_index = index
+                entry_fee = cost
+                entry_notional = notional
                 entry_cost = notional + cost
         equity.append(cash + qty * entry_price)
 

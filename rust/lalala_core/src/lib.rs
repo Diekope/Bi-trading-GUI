@@ -7,8 +7,9 @@
 
 use pyo3::prelude::*;
 
-/// One closed trade: (entry index, entry price, exit index, exit price, result).
-type Trade = (usize, f64, usize, f64, f64);
+/// One closed trade:
+/// (entry index, entry price, exit index, exit price, result, fees, notional, reason).
+type Trade = (usize, f64, usize, f64, f64, f64, f64, &'static str);
 
 struct Settings {
     tp: f64,
@@ -68,6 +69,8 @@ fn walk(
     let mut entry_price = 0.0_f64;
     let mut entry_index = 0_usize;
     let mut entry_cost = 0.0_f64;
+    let mut entry_fee = 0.0_f64;
+    let mut entry_notional = 0.0_f64;
 
     for index in 0..n {
         let close = closes[index];
@@ -78,12 +81,16 @@ fn walk(
             let target = entry_price * (1.0 + s.tp / 100.0);
             let stop = entry_price * (1.0 - s.sl / 100.0);
             let mut price: Option<f64> = None;
+            let mut reason = "time";
             if s.tp > 0.0 && high >= target {
                 price = Some(target);
+                reason = "tp";
             } else if s.sl > 0.0 && low <= stop {
                 price = Some(stop);
+                reason = "sl";
             } else if (index as i64) - (entry_index as i64) >= s.max_hold {
                 price = Some(close);
+                reason = "time";
             }
             if let Some(price) = price {
                 let proceeds = qty * price;
@@ -95,7 +102,16 @@ fn walk(
                 } else {
                     0.0
                 };
-                trades.push((entry_index, entry_price, index, price, result));
+                trades.push((
+                    entry_index,
+                    entry_price,
+                    index,
+                    price,
+                    result,
+                    entry_fee + cost,
+                    entry_notional,
+                    reason,
+                ));
                 qty = 0.0;
                 entry_cost = 0.0;
             }
@@ -107,6 +123,8 @@ fn walk(
                 cash -= notional + cost;
                 entry_price = close;
                 entry_index = index;
+                entry_fee = cost;
+                entry_notional = notional;
                 entry_cost = notional + cost;
             }
         }

@@ -505,6 +505,91 @@ class Playback:
     def advance(self) -> None:
         self.step()
 
+    def adopt(self, trades, equity, bars, index) -> None:
+        """Take a state computed elsewhere (the core), flat at `index`.
+
+        Rebuilds everything the figures and the picture read — the closed
+        trades, the markers, the equity statistics, the candle window — from
+        `trades`/`equity` over `bars`, so a seek is a slice, not a walk.
+        """
+        self.index = max(0, min(index, len(bars)))
+        self.cash = (
+            equity[self.index - 1] if 0 < self.index <= len(equity)
+            else self.capital
+        )
+        self.qty = 0.0
+        self.entry_price = 0.0
+        self.entry_index = 0
+        self.entry_cost = 0.0
+        self.entry_stamp = 0
+        self.entry_notional = 0.0
+        self.entry_fee = 0.0
+        self._path = []
+        self._exhausted = self.total > 0 and self.index >= len(bars)
+        self._feed = self._feed_factory() if bars is None else iter(
+            bars[self.index :]
+        )
+
+        closed = [t for t in trades if t[2] < self.index]
+        self.trade_returns = [t[4] for t in closed]
+        self.trades_log = []
+        self.markers = deque(maxlen=MAX_MARKERS)
+        self.streak = 0
+        self.best_win = 0
+        self.worst_loss = 0
+        for in_index, in_px, out_index, out_px, result, fees, notional, reason in closed:
+            in_stamp = bars[in_index].stamp
+            out_stamp = bars[out_index].stamp
+            self.trades_log.append(
+                (in_stamp, in_index, in_px, out_stamp, out_index, out_px,
+                 result, notional, notional * result, reason, fees, [])
+            )
+            self.markers.append((in_index, "in", in_px))
+            self.markers.append((out_index, "out", out_px))
+            if result > 0:
+                self.streak = self.streak + 1 if self.streak > 0 else 1
+                self.best_win = max(self.best_win, self.streak)
+            else:
+                self.streak = self.streak - 1 if self.streak < 0 else -1
+                self.worst_loss = min(self.worst_loss, self.streak)
+        self.fees = sum(t[5] for t in closed)
+
+        if bars:
+            self.first_close = bars[0].close
+            start = max(0, self.index - CHART_BARS)
+            self._window = deque(bars[start : self.index], maxlen=CHART_BARS)
+            self._previous = bars[self.index - 1] if self.index > 0 else None
+        self._closes = deque(maxlen=BOLLINGER_PERIOD)
+        self._close_total = 0.0
+        self._close_squares = 0.0
+        for bar in bars[max(0, self.index - BOLLINGER_PERIOD) : self.index]:
+            self._closes.append(bar.close)
+            self._close_total += bar.close
+            self._close_squares += bar.close * bar.close
+        self._band = self._compute_band()
+
+        self.peak = self.capital
+        self.max_drawdown = 0.0
+        self.max_gain = 0.0
+        self._last_equity = self.capital
+        self._returns = 0
+        self._return_mean = 0.0
+        self._return_m2 = 0.0
+        for value in equity[: self.index]:
+            self.peak = max(self.peak, value)
+            self.max_drawdown = min(self.max_drawdown, self._dd(value))
+            self.max_gain = max(self.max_gain, value / self.capital - 1.0)
+            self._observe(value)
+
+    def _dd(self, equity: float) -> float:
+        return equity / self.peak - 1.0 if self.peak > 0 else 0.0
+
+    def _compute_band(self):
+        return _bollinger(
+            self._closes, self._close_total, self._close_squares,
+            BOLLINGER_PERIOD, BOLLINGER_DEVIATIONS,
+        )
+
     def _advance_one(self) -> bool:
         try:
             candle = next(self._feed)
@@ -714,6 +799,60 @@ def _slim(points, cap: int = 60) -> tuple:
     return tuple(points[int(index * step)] for index in range(cap))
 
 
+def bollinger_entries(bars: list[Candle]) -> list[bool]:
+    """Which bars the built-in rule opens on (close below the lower band)."""
+    entries = [False] * len(bars)
+    closes: deque[float] = deque(maxlen=BOLLINGER_PERIOD)
+    total = 0.0
+    squares = 0.0
+    for index, bar in enumerate(bars):
+        if len(closes) == closes.maxlen:
+            gone = closes[0]
+            total -= gone
+            squares -= gone * gone
+        closes.append(bar.close)
+        total += bar.close
+        squares += bar.close * bar.close
+        if index == 0:
+            continue
+        band = _bollinger(
+            closes, total, squares, BOLLINGER_PERIOD, BOLLINGER_DEVIATIONS
+        )
+        if band is not None and bar.close < band[2]:
+            entries[index] = True
+    return entries
+
+
+def random_entries(
+    bars: list[Candle], settings: dict, seed: int = 1234, chance: float = 0.03
+) -> list[bool]:
+    """The coin-flip baseline's entries, consumed a bar at a time while flat."""
+    rng = random.Random(seed)
+    entries = [False] * len(bars)
+    in_position = False
+    entry_price = 0.0
+    entry_index = 0
+    tp = settings["tp"]
+    sl = settings["sl"]
+    hold = 90
+    for index in range(1, len(bars)):
+        bar = bars[index]
+        if in_position:
+            target = entry_price * (1.0 + tp / 100.0)
+            stop = entry_price * (1.0 - sl / 100.0)
+            if (tp > 0 and bar.high >= target) or (
+                sl > 0 and bar.low <= stop
+            ) or (index - entry_index >= hold):
+                in_position = False
+        elif rng.random() < chance:
+            entries[index] = True
+            in_position = True
+            entry_price = bar.close
+            entry_index = index
+    return entries
+
+
+
 # -- the three curves ------------------------------------------------------
 
 
@@ -733,6 +872,14 @@ class BacktestSession:
     random_curve: list[float] = field(default_factory=list)
     low: float = 0.0
     high: float = 0.0
+    # When the span is held in memory, the core can jump the walk to a bar.
+    bars: list | None = None
+    closes: tuple | None = None
+    highs: tuple | None = None
+    lows: tuple | None = None
+    settings: dict | None = None
+    strategy_entries: list | None = None
+    random_entries: list | None = None
 
     @property
     def index(self) -> int:
@@ -779,10 +926,14 @@ class BacktestSession:
     def seek(self, target: int) -> None:
         """Rewind the walk and fast-forward to bar `target`, curves and all.
 
-        The walk consumes `stride` bars a step, so `target` is turned into
-        steps. No session is rebuilt — the feeds rewind in place — so scrubbing
-        is cheap and does not churn the widgets.
+        With the span in memory the core does the jump — the bars are sliced
+        and one native walk rebuilds the state; otherwise the Python walk steps
+        through it.
         """
+        target = max(0, min(int(target), self.strategy.total))
+        if self._core_ready():
+            self._core_seek(target)
+            return
         self.strategy.reset()
         self.random.reset()
         self.strategy_curve = []
@@ -790,7 +941,6 @@ class BacktestSession:
         self.benchmark = []
         self.low = self.high = self.capital
         stride = max(1, self.strategy.stride)
-        target = max(0, target)
         steps = target // stride
         if target and steps == 0:
             steps = 1  # never land on bar zero by accident
@@ -801,6 +951,50 @@ class BacktestSession:
             self.random.step()
         self._sample()
 
+    def _core_ready(self) -> bool:
+        from lalala import core
+
+        return (
+            core.available()
+            and self.bars is not None
+            and self.settings is not None
+            and self.strategy_entries is not None
+            and self.random_entries is not None
+        )
+
+    def _core_seek(self, target: int) -> None:
+        from lalala import core
+
+        s = self.settings
+        closes = list(self.closes[:target])
+        highs = list(self.highs[:target])
+        lows = list(self.lows[:target])
+        args = (closes, highs, lows)
+
+        def run(entries):
+            return core.walk(
+                *args,
+                list(entries[:target]),
+                s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
+                s["max_cash"], s["fee"], 90,
+            )
+
+        strategy_trades, strategy_equity = run(self.strategy_entries)
+        random_trades, random_equity = run(self.random_entries)
+        self.strategy.adopt(strategy_trades, strategy_equity, self.bars, target)
+        self.random.adopt(random_trades, random_equity, self.bars, target)
+        self.strategy_curve = strategy_equity
+        self.random_curve = random_equity
+        first = closes[0] if closes else 0.0
+        self.benchmark = [
+            s["capital"] * close / first if first else s["capital"]
+            for close in closes
+        ]
+        self.low = self.high = s["capital"]
+        for curve in (self.strategy_curve, self.random_curve):
+            for value in curve:
+                self._grow(value)
+
 
 def _walk_settings(params: dict) -> dict:
     return {
@@ -810,7 +1004,14 @@ def _walk_settings(params: dict) -> dict:
         "position": float(params["position"] or 0.0),
         "sizing": str(params["sizing"]),
         "max_cash": float(params["cash"] or 0.0),
+        # The tile takes a percent; the walk a fraction per side.
+        "fee": float(params.get("fee") or 0.0) / 100.0,
     }
+
+
+# Above this many bars a span is streamed rather than held in memory, so the
+# core (which needs the bars) only drives the shorter runs.
+CORE_MAX = 1_500_000
 
 
 def build_session(
@@ -824,41 +1025,65 @@ def build_session(
 ) -> BacktestSession:
     """A run over the whole span.
 
-    A built-in rule streams the span off disk. A saved rule (a formula) is
-    checked over the whole series first, so that run reads the span into a
-    list and hands the walk the exact bars to open on.
+    A span small enough to hold is loaded and its entries worked out up front,
+    so the walk (and every seek) can be done by the core. A longer span is
+    streamed off disk and stepped in Python.
     """
     settings = _walk_settings(params)
-    entries = None
-    if entry_formula is not None:
-        from lalala.formula import ENTRY_FIELDS
-        from lalala.formula_eval import entry_signals
+    loaded: list[Candle] | None = None
+    total = count_bars(years, resolution)
+    if entry_formula is not None or (total and total <= CORE_MAX):
+        loaded = load_all_candles(years, resolution)
+        if not loaded:
+            loaded = fallback if fallback is not None else sample_candles()
+        total = len(loaded)
+    if not total:
+        loaded = fallback if fallback is not None else sample_candles()
+        total = len(loaded)
 
-        bars = load_all_candles(years, resolution) or (
-            fallback if fallback is not None else sample_candles()
-        )
-        total = len(bars)
-        entries = set(
-            entry_signals(entry_formula, bars, fields or ENTRY_FIELDS)
-        )
-        feeds = [lambda: iter(bars) for _ in range(2)]
-    else:
-        total = count_bars(years, resolution)
-        if total:
-            feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
-        else:
-            bars = fallback if fallback is not None else sample_candles()
-            total = len(bars)
-            feeds = [lambda: iter(bars) for _ in range(2)]
     stride = plan_stride(total)
-    strategy = Playback(
-        feeds[0], rule=rule, total=total, stride=stride, entries=entries,
-        **settings,
-    )
-    random_buy = Playback(
-        feeds[1], rule="random", total=total, stride=stride, **settings
-    )
-    session = BacktestSession(strategy=strategy, random=random_buy)
+    session = BacktestSession(strategy=None, random=None)
+    if loaded is not None:
+        feeds = [lambda: iter(loaded) for _ in range(2)]
+        session.settings = settings
+        session.bars = loaded
+        session.closes = tuple(bar.close for bar in loaded)
+        session.highs = tuple(bar.high for bar in loaded)
+        session.lows = tuple(bar.low for bar in loaded)
+        if entry_formula is not None:
+            from lalala.formula import ENTRY_FIELDS
+            from lalala.formula_eval import entry_signals
+
+            indices = set(
+                entry_signals(entry_formula, loaded, fields or ENTRY_FIELDS)
+            )
+            strategy_entries = [i in indices for i in range(len(loaded))]
+        elif rule == "bollinger":
+            strategy_entries = bollinger_entries(loaded)
+        else:
+            strategy_entries = [False] * len(loaded)
+        session.strategy_entries = strategy_entries
+        session.random_entries = random_entries(loaded, settings)
+        strategy = Playback(
+            feeds[0], rule=rule, total=total, stride=stride,
+            entries=set(i for i, on in enumerate(strategy_entries) if on),
+            **settings,
+        )
+        random_buy = Playback(
+            feeds[1], rule="random", total=total, stride=stride,
+            entries=set(i for i, on in enumerate(session.random_entries) if on),
+            **settings,
+        )
+    else:
+        feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
+        strategy = Playback(
+            feeds[0], rule=rule, total=total, stride=stride, **settings
+        )
+        random_buy = Playback(
+            feeds[1], rule="random", total=total, stride=stride, **settings
+        )
+    session.strategy = strategy
+    session.random = random_buy
     session.low = session.high = settings["capital"]
     session._sample()
     return session
@@ -1351,8 +1576,11 @@ class PlaybackTile(Card):
         if self.session is None:
             return
         self.pause()
-        while not self.playback.done:
-            self.session.advance()
+        if self.session._core_ready():
+            self.session.seek(self.session.total)  # one native walk
+        else:
+            while not self.playback.done:
+                self.session.advance()
         self._elapsed = 0
         self.player.set_offset(0.0)
         self.player.reset_range()
@@ -1379,6 +1607,7 @@ class PlaybackTile(Card):
             "position": 10.0,
             "sizing": "balance",
             "cash": 2_000.0,
+            "fee": 0.06,
         }
         self.session = build_session(
             self._wanted_years,

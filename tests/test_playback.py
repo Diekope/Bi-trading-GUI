@@ -230,6 +230,30 @@ def test_the_window_never_grows_past_the_chart() -> None:
     assert len(play.recent()) == CHART_BARS
 
 
+def test_the_core_drives_a_seek_like_the_python_walk() -> None:
+    from lalala import core
+    from lalala.strat_playback import Playback, build_session, sample_candles
+
+    params = {
+        "initial_capital": 10_000.0, "tp": 2.0, "sl": 1.0, "position": 10.0,
+        "sizing": "balance", "cash": 2_000.0, "fee": 0.06,
+    }
+    session = build_session([], params, "bollinger", "1m")
+    if not session._core_ready():
+        pytest.skip("the native core is not built")
+    reference = build_session([], params, "bollinger", "1m")
+    for _ in range(200):
+        reference.strategy.step()
+        reference.random.step()
+
+    session.seek(200)
+    assert session.strategy.index == 200
+    assert session.strategy.trades == reference.strategy.trades
+    assert session.strategy.equity == pytest.approx(
+        reference.strategy.equity, abs=1e-6
+    )
+
+
 def test_a_window_around_a_stamp_is_read() -> None:
     from lalala.strat_playback import window_around
 
