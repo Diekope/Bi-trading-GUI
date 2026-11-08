@@ -87,6 +87,17 @@ def _number(value: float) -> str:
     return f"{value:g}"
 
 
+def _alive(widget) -> bool:
+    """Whether a Qt widget still exists — a rebuilt row may have removed it."""
+    if widget is None:
+        return False
+    try:
+        import shiboken6
+    except ImportError:  # pragma: no cover - shiboken ships with PySide6
+        return True
+    return shiboken6.isValid(widget)
+
+
 def expression_text(node, parent: int = 0) -> str:
     """Write a parsed expression back as source, with only needed brackets."""
     if isinstance(node, Number):
@@ -893,16 +904,32 @@ class RulesPage(QWidget):
         does not run on the end of what was typed.
         """
         combo = self.active_operand
+        if not self._usable(combo):
+            # The box was rebuilt or removed since it had the cursor.
+            self.active_operand = None
+            combo = None
         if combo is None:
-            if self.assignment_rows:
-                combo = self.assignment_rows[-1].value
-            elif self.groups and self.groups[-1].rows:
-                combo = self.groups[-1].rows[-1].left
+            for candidate in self._fallback_boxes():
+                if self._usable(candidate):
+                    combo = candidate
+                    break
         if combo is None:
             return
         combo.setCurrentText(name)
         self._set_index(combo)
         combo.setFocus()
+
+    def _usable(self, combo) -> bool:
+        """A box still on the page — not one a rebuild left for deletion."""
+        return _alive(combo) and self.isAncestorOf(combo)
+
+    def _fallback_boxes(self) -> list:
+        boxes = []
+        if self.assignment_rows:
+            boxes.append(self.assignment_rows[-1].value)
+        if self.groups and self.groups[-1].rows:
+            boxes.append(self.groups[-1].rows[-1].left)
+        return boxes
 
     @staticmethod
     def _set_index(combo) -> None:
@@ -1001,6 +1028,7 @@ class RulesPage(QWidget):
     def set_text(self, text: str) -> None:
         """Read a formula into rows; keep anything odd as one raw expression."""
         self._loading = True
+        self.active_operand = None
         try:
             for group in list(self.groups):
                 self.groups_box.removeWidget(group)

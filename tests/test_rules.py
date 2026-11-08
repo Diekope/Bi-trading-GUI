@@ -239,6 +239,27 @@ def test_the_cross_shows_only_when_a_cell_can_be_removed(
     tile.close()
 
 
+def test_picking_a_variable_after_a_rebuild_does_not_crash(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setFocus()
+    app.processEvents()
+    # A rebuild deletes the box that had the cursor.
+    tile.set_text("close < open")
+    app.processEvents()
+
+    # The rail pick must not touch the dead box: it falls back to the new row.
+    tile.conditions.insert_variable("volume")
+    app.processEvents()
+    assert tile.conditions.groups[0].rows[0].left.currentText() == "volume"
+    tile.close()
+
+
 def test_the_operand_box_has_no_dropdown(app: QApplication) -> None:
     tile = RulesTile("ENTRY RULES")
     tile.show()
