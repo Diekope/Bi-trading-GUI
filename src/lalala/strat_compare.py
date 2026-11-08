@@ -1,11 +1,9 @@
 """The compare subwindow: the run against its two stand-ins, and a sweep.
 
-Inspired by the compare mock. Three things:
+Inspired by the compare mock. Two things:
 
 - the three curves — strategy, a random-buy version and buy and hold — with a
   table of the same figures side by side;
-- a **train / test** split with a handle, so the first part of the span is read
-  as the past and the rest as the unknown;
 - a **walk-forward** count over four folds, and a **TP × SL sweep** drawn as a
   heat-map grid.
 
@@ -24,7 +22,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSizePolicy,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -37,17 +34,7 @@ from lalala.formula_eval import (
     curve_sharpe,
 )
 from lalala.strat_report import CurveChart
-from lalala.theme import (
-    ACCENT,
-    BAND,
-    BORDER,
-    DOWN,
-    PANEL_ALT,
-    TEXT,
-    TEXT_FAINT,
-    TEXT_MUTED,
-    UP,
-)
+from lalala.theme import ACCENT, BAND, TEXT_MUTED
 
 # The TP / SL grid the sweep walks, and the columns of the compare table.
 SWEEP_TPS = (1.0, 1.5, 2.0, 3.0, 4.0)
@@ -57,7 +44,6 @@ SWEEP_SLS = (0.5, 1.0, 1.5, 2.0, 3.0)
 SWEEP_COLOURS = ("#8f3a40", "#5a2328", "#2a2b31", "#1f4a33", "#2a7a52")
 
 FOLDS = 4
-DEFAULT_SPLIT = 70
 
 
 def _segments(bars, parts: int) -> list[list]:
@@ -67,16 +53,6 @@ def _segments(bars, parts: int) -> list[list]:
     size = max(1, len(bars) // parts)
     chunks = [bars[i : i + size] for i in range(0, len(bars), size)]
     return chunks[:parts]
-
-
-def split_returns(bars, entry, exit_, split: int, tp: float, sl: float) -> tuple:
-    """Return of the first `split` % of the span, and of the rest."""
-    if not bars:
-        return 0.0, 0.0
-    cut = max(1, min(len(bars) - 1, int(len(bars) * split / 100)))
-    train = backtest(bars[:cut], entry, exit_, tp=tp, sl=sl)
-    test = backtest(bars[cut:], entry, exit_, tp=tp, sl=sl)
-    return train.pnl, test.pnl
 
 
 def walk_forward(bars, entry, exit_, tp: float, sl: float, folds: int = FOLDS):
@@ -231,7 +207,7 @@ class ComparePage(QWidget):
         left.addLayout(self.table)
         body.addLayout(left, 1)
 
-        # Right: the train / test split, the folds, and the sweep.
+        # Right: the folds, and the sweep.
         rail = QWidget(self)
         rail.setObjectName("resultsRail")
         rail.setFixedWidth(250)
@@ -239,20 +215,6 @@ class ComparePage(QWidget):
         rail_layout.setContentsMargins(0, 0, 0, 0)
         rail_layout.setSpacing(6)
 
-        self.split_caption = QLabel(f"Train / Test · {DEFAULT_SPLIT} % / "
-                                    f"{100 - DEFAULT_SPLIT} %", rail)
-        self.split_caption.setObjectName("panelTitle")
-        rail_layout.addWidget(self.split_caption)
-
-        self.split_slider = QSlider(Qt.Orientation.Horizontal, rail)
-        self.split_slider.setObjectName("splitSlider")
-        self.split_slider.setRange(20, 90)
-        self.split_slider.setValue(DEFAULT_SPLIT)
-        self.split_slider.valueChanged.connect(self._split_changed)
-        rail_layout.addWidget(self.split_slider)
-
-        self.train_row = self._stat_row(rail, "Train")
-        self.test_row = self._stat_row(rail, "Test")
         self.folds_row = self._stat_row(rail, "Walk-forward (4)")
 
         sweep_caption = QLabel("TP x SL sweep", rail)
@@ -322,15 +284,8 @@ class ComparePage(QWidget):
         self._dirty = False
         self.chart.set_report(self.report)
         self._fill_table(self.report)
-        self._update_split()
         self._update_folds()
         self._update_sweep()
-
-    def _split_changed(self, value: int) -> None:
-        self.split_caption.setText(
-            f"Train / Test · {value} % / {100 - value} %"
-        )
-        self._update_split()
 
     def _ready(self) -> bool:
         return bool(self.bars) and self.entry is not None
@@ -391,18 +346,6 @@ class ComparePage(QWidget):
             return "down"
         return "muted"
 
-    def _update_split(self) -> None:
-        if not self._ready():
-            self.train_row.setText("—")
-            self.test_row.setText("—")
-            return
-        train, test = split_returns(
-            self.bars, self.entry, self.exit, self.split_slider.value(),
-            self.tp, self.sl,
-        )
-        self.train_row.setText(f"{train * 100:+,.2f}%")
-        self.test_row.setText(f"{test * 100:+,.2f}%")
-
     def _update_folds(self) -> None:
         if not self._ready():
             self.folds_row.setText("—")
@@ -426,7 +369,6 @@ __all__ = [
     "ComparePage",
     "SweepHeatmap",
     "TagChip",
-    "split_returns",
     "sweep_returns",
     "walk_forward",
 ]

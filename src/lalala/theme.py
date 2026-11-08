@@ -578,22 +578,6 @@ QLabel#tableCell[tone="down"] {{
 QLabel#tableCell[tone="muted"] {{
     color: {TEXT_MUTED};
 }}
-QSlider#splitSlider::groove:horizontal {{
-    background-color: {PANEL_ALT};
-    border: 1px solid {BORDER};
-    border-radius: 3px;
-    height: 6px;
-}}
-QSlider#splitSlider::handle:horizontal {{
-    background-color: {ACCENT};
-    border-radius: 5px;
-    width: 10px;
-    margin: -4px 0;
-}}
-QSlider#splitSlider::sub-page:horizontal {{
-    background-color: {ACCENT_DIM};
-    border-radius: 3px;
-}}
 
 /* The little confirm prompt on top of the window. */
 QDialog#confirmDialog {{

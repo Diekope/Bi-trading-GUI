@@ -552,11 +552,13 @@ per reason, most-appearing first.
 - a row of **runs** — `Strategy`, `Random buy`, `Buy & hold`, and a `+ Add`
   placeholder — then the three curves over a **table** of the same figures
   (`PnL`, `Sharpe`, `Max DD`, `Win rate` for each);
-- a **train / test** handle, reading the first part of the span as the past and
-  the rest as the unknown, with each half's return;
 - a **walk-forward** count over four folds (`1 / 4 positive`);
 - a **TP × SL sweep** as a 5 × 5 heat-map, each cell the return of the run at
   that take-profit and stop-loss, red through green.
+
+The sweep is a parameter search: it re-runs the whole span for each of the 25
+take-profit / stop-loss pairs and colours the result, so a rule that only works
+at one lucky setting shows a single bright cell among dark ones.
 
 It recomputes only when it is on show, so the walk does not run behind
 `Overview`.
