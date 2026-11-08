@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import floor, log10
 
-DEFAULT_MARKET = "HYPE"
+DEFAULT_MARKET = "BTC"
 XYZ_PREFIX = "xyz:"
 XYZ_DEX = "xyz"
 MAIN_DEX = ""

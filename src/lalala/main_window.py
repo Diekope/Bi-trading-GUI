@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -28,13 +27,11 @@ from PySide6.QtWidgets import (
 from lalala.cards import MarketCard
 from lalala.feed import MarketFeed
 from lalala.market_data import (
-    DEFAULT_MARKET,
     TIMEFRAMES,
     CandleSeries,
     Market,
     bollinger_bands,
 )
-from lalala.panels import MAX_TILES
 from lalala.polymarket_data import PolymarketMarket, window_price_points
 from lalala.polymarket_feed import PolymarketFeed
 from lalala.polymarket_panel import VIEW_MS, PolymarketPanel
@@ -119,14 +116,10 @@ class MainWindow(QMainWindow):
         self.installEventFilter(self)
 
         self.cards: list[MarketCard] = []
-        self.main_card = self._new_card(DEFAULT_MARKET, closable=False)
+        # Only BTC: one card, fixed, with no search and no tiles to add.
+        self.main_card = self._new_card("BTC", closable=False)
         self.stack.addWidget(self.main_card)
         self.cards.append(self.main_card)
-        self._update_add_buttons()
-        self._update_close_buttons()
-
-        self.add_shortcut = QShortcut(QKeySequence("Ctrl+T"), self)
-        self.add_shortcut.activated.connect(self.add_tile)
 
         # -- feed --
         self.feed = MarketFeed(self)
@@ -164,87 +157,11 @@ class MainWindow(QMainWindow):
     def _new_card(self, coin: str | None, *, closable: bool) -> MarketCard:
         card = MarketCard(coin, closable=closable, parent=self.stack)
         card.set_market_source(lambda: self._markets)
-        card.market_changed.connect(
-            lambda chosen, c=card: self._on_market_chosen(c, chosen)
-        )
         card.interval_changed.connect(lambda _iv, c=card: self._on_interval_changed(c))
         card.history_requested.connect(self._on_card_history)
-        card.add_requested.connect(self.add_tile)
-        card.close_requested.connect(lambda c=card: self.remove_card(c))
         return card
-
-    @property
-    def tile_count(self) -> int:
-        return max(0, len(self.cards) - 1)
-
-    def add_tile(self) -> MarketCard | None:
-        if self.tile_count >= MAX_TILES:
-            return None
-        card = self._new_card(None, closable=True)
-        self.stack.addWidget(card)
-        self.cards.append(card)
-        self._update_add_buttons()
-        self._update_close_buttons()
-        self._rebalance()
-        card.open_search()
-        log.info("tile added (%d/%d)", self.tile_count, MAX_TILES)
-        return card
-
-    def remove_card(self, card: MarketCard) -> None:
-        """Close any card, including the main one, as long as one survives."""
-        if card not in self.cards or len(self.cards) == 1:
-            return
-        self.cards.remove(card)
-        card.setParent(None)
-        card.deleteLater()
-        if card is self.main_card:
-            # The topmost survivor takes over the main-card role.
-            self.main_card = self.cards[0]
-        self._update_add_buttons()
-        self._update_close_buttons()
-        self._rebalance()
-        self._sync_watches()
-
-    def _update_add_buttons(self) -> None:
-        """The + button follows the newest card; hidden entirely at the cap."""
-        at_cap = self.tile_count >= MAX_TILES
-        for index, card in enumerate(self.cards):
-            newest = index == len(self.cards) - 1
-            card.add_button.setVisible(newest and not at_cap)
-            remaining = MAX_TILES - self.tile_count
-            card.add_button.setToolTip(
-                f"Add a market tile — {remaining} left (⌘T)" if remaining else ""
-            )
-
-    def _update_close_buttons(self) -> None:
-        """Every card is closable while another one remains to inherit the view."""
-        closable = len(self.cards) > 1
-        for card in self.cards:
-            card.close_button.setVisible(closable)
-
-    def _rebalance(self) -> None:
-        """Main card gets 1.5x a tile's height, so it stays the primary view."""
-        total = self.stack.height()
-        if total <= 0 or not self.cards:
-            return
-        if len(self.cards) == 1:
-            self.stack.setSizes([total])
-            return
-        # Handles are between widgets, so they come out of the usable height;
-        # otherwise the last card silently absorbs the remainder.
-        handles = (len(self.cards) - 1) * self.stack.handleWidth()
-        usable = max(1, total - handles)
-        unit = usable / (1.5 + self.tile_count)
-        main_height = max(1, int(unit * 1.5))
-        each = max(1, int(unit))
-        self.stack.setSizes([main_height] + [each] * self.tile_count)
 
     # -- card events -------------------------------------------------------
-
-    def _on_market_chosen(self, card: MarketCard, coin: str) -> None:
-        card.interval = card.timeframes.current()
-        card.set_market(self._markets.get(coin))
-        self._sync_watches()
 
     def _on_interval_changed(self, card: MarketCard) -> None:
         self._sync_watches()
@@ -266,7 +183,7 @@ class MainWindow(QMainWindow):
         self._markets = {market.coin: market for market in markets}
         log.info("universe: %d markets", len(self._markets))
         if self.main_card.market is None:
-            self.main_card.set_market(self._markets.get(DEFAULT_MARKET))
+            self.main_card.set_market(self._markets.get("BTC"))
         self._sync_watches()
 
     def _on_mids(self, mids: dict[str, float]) -> None:
@@ -405,7 +322,6 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        QTimer.singleShot(0, self._rebalance)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.feed.stop()

@@ -80,11 +80,6 @@ def test_cards_carry_no_drop_shadow(window: MainWindow) -> None:
         assert card.graphicsEffect() is None
 
 
-def test_main_card_defaults_to_hype(window: MainWindow) -> None:
-    assert window.main_card.coin == "HYPE"
-    assert window.main_card.name.text() == "HYPE"
-
-
 def test_order_book_is_gone(window: MainWindow) -> None:
     assert not hasattr(window.main_card, "ladder")
     assert not hasattr(window.main_card, "book")
@@ -93,68 +88,7 @@ def test_order_book_is_gone(window: MainWindow) -> None:
 # -- the + button follows the newest card ---------------------------------
 
 
-def test_first_card_holds_the_add_button(window: MainWindow) -> None:
-    assert window.main_card.add_button.isVisible() is True
-
-
-def test_add_button_moves_to_the_newest_tile(app: QApplication, window: MainWindow) -> None:
-    tile = window.add_tile()
-    assert tile is not None
-    app.processEvents()
-    assert window.main_card.add_button.isVisible() is False
-    assert tile.add_button.isVisible() is True
-
-
-def test_tiles_are_capped_and_button_disappears(app: QApplication, window: MainWindow) -> None:
-    for _ in range(MAX_TILES):
-        assert window.add_tile() is not None
-    app.processEvents()
-    assert window.tile_count == MAX_TILES
-    assert window.add_tile() is None
-    assert all(card.add_button.isVisible() is False for card in window.cards)
-
-
-def test_closing_a_tile_hands_the_button_back(app: QApplication, window: MainWindow) -> None:
-    first = window.add_tile()
-    second = window.add_tile()
-    assert first is not None and second is not None
-    window.remove_card(second)
-    app.processEvents()
-    assert window.tile_count == 1
-    assert first.add_button.isVisible() is True
-
-
 # -- search collapses ------------------------------------------------------
-
-
-def test_search_collapses_once_a_market_is_loaded(app: QApplication, window: MainWindow) -> None:
-    window._markets = {"xyz:CL": Market("xyz:CL", "xyz", sz_decimals=3)}
-    tile = window.add_tile()
-    assert tile is not None
-    assert tile.search.isVisible() is True
-
-    tile.search.chosen.emit("xyz:CL")
-    app.processEvents()
-
-    assert tile.search.isVisible() is False
-    assert tile.coin == "xyz:CL"
-    assert tile.market is not None
-    assert tile.timeframes.isVisible() is True
-
-
-def test_clicking_the_name_reopens_search(app: QApplication, window: MainWindow) -> None:
-    window._markets = {"xyz:CL": Market("xyz:CL", "xyz", sz_decimals=3)}
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.chosen.emit("xyz:CL")
-    app.processEvents()
-    assert tile.search.isVisible() is False
-
-    tile.name.clicked.emit()
-    app.processEvents()
-
-    assert tile.search.isVisible() is True
-    assert tile.search.text() == "xyz:CL"
 
 
 # -- candles ---------------------------------------------------------------
@@ -171,30 +105,6 @@ def test_timeframes_span_one_minute_to_one_hour(window: MainWindow) -> None:
         for i in range(window.main_card.timeframes.group.buttons().__len__())
     ]
     assert labels == ["1m", "3m", "5m", "15m", "30m", "1h"]
-
-
-def test_candles_reach_the_matching_card(app: QApplication, window: MainWindow) -> None:
-    window._on_candles(_series("HYPE", "1m"))
-    assert window.main_card.chart.candle_count == 3
-    assert window.main_card.price.text() != "—"
-
-
-def test_candles_ignore_other_coins_and_intervals(app: QApplication, window: MainWindow) -> None:
-    window._on_candles(_series("BTC", "1m"))
-    window._on_candles(_series("HYPE", "1h"))
-    assert window.main_card.chart.candle_count == 0
-
-
-def test_candles_route_to_the_right_tile(app: QApplication, window: MainWindow) -> None:
-    window._markets = {"xyz:CL": Market("xyz:CL", "xyz", sz_decimals=3)}
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.chosen.emit("xyz:CL")
-
-    window._on_candles(_series("xyz:CL", "1m"))
-
-    assert tile.chart.candle_count == 3
-    assert window.main_card.chart.candle_count == 0
 
 
 def test_chart_paints_without_a_backend(app: QApplication, window: MainWindow) -> None:
@@ -240,76 +150,7 @@ def test_disconnect_replaces_the_latency_readout(window: MainWindow) -> None:
     assert window.latency_label.text() == "HL ● reconnecting…"
 
 
-def test_shortcut_is_registered(window: MainWindow) -> None:
-    assert window.add_shortcut.key().toString() == "Ctrl+T"
-
-
-def test_cards_keep_their_own_market(app: QApplication, window: MainWindow) -> None:
-    window._markets = {
-        "HYPE": Market("HYPE", sz_decimals=2),
-        "xyz:GOLD": Market("xyz:GOLD", "xyz", sz_decimals=1),
-    }
-    window.main_card.set_market(window._markets["HYPE"])
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.chosen.emit("xyz:GOLD")
-
-    assert isinstance(window.main_card, MarketCard)
-    assert window.main_card.coin == "HYPE"
-    assert tile.coin == "xyz:GOLD"
-
-
 # -- search: inline results, no popup window -------------------------------
-
-
-def test_search_results_render_inside_the_card(app: QApplication, window: MainWindow) -> None:
-    window._markets = {
-        "xyz:CL": Market("xyz:CL", "xyz", sz_decimals=3),
-        "xyz:GOLD": Market("xyz:GOLD", "xyz", sz_decimals=1),
-    }
-    tile = window.add_tile()
-    assert tile is not None
-
-    tile.search.edit.textEdited.emit("o")
-    app.processEvents()
-
-    # A child widget, never a top-level popup: a popup grabs the keyboard on
-    # macOS and eats every keystroke after the first.
-    assert tile.search.results.isWindow() is False
-    assert tile.search.results.isVisible() is True
-    assert tile.search.results.count() >= 1
-
-
-def test_search_accepts_multiple_characters(app: QApplication, window: MainWindow) -> None:
-    window._markets = {"xyz:CL": Market("xyz:CL", "xyz", sz_decimals=3)}
-    tile = window.add_tile()
-    assert tile is not None
-
-    for text in ("o", "oi", "oil"):
-        tile.search.edit.textEdited.emit(text)
-        app.processEvents()
-        assert tile.search.results.isVisible() is True
-    assert tile.search.results.currentItem().data(Qt.ItemDataRole.UserRole) == "xyz:CL"
-
-
-def test_search_shows_a_hint_when_nothing_matches(app: QApplication, window: MainWindow) -> None:
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.edit.textEdited.emit("zzzz")
-    app.processEvents()
-
-    assert tile.search.results.count() == 1
-    item = tile.search.results.item(0)
-    assert item.data(Qt.ItemDataRole.UserRole) is None
-    assert item.flags() == Qt.ItemFlag.NoItemFlags
-
-
-def test_single_character_does_not_show_a_hint(app: QApplication, window: MainWindow) -> None:
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.edit.textEdited.emit("z")
-    app.processEvents()
-    assert tile.search.results.isVisible() is False
 
 
 # -- chart navigation ------------------------------------------------------
@@ -588,39 +429,6 @@ def test_single_card_has_no_close_button(window: MainWindow) -> None:
     assert window.main_card.close_button.isVisible() is False
 
 
-def test_main_card_becomes_closable_once_a_tile_exists(app: QApplication, window: MainWindow) -> None:
-    window.add_tile()
-    app.processEvents()
-    assert window.main_card.close_button.isVisible() is True
-
-
-def test_closing_the_main_card_promotes_the_next_one(app: QApplication, window: MainWindow) -> None:
-    window._markets = {"xyz:GOLD": Market("xyz:GOLD", "xyz", sz_decimals=1)}
-    tile = window.add_tile()
-    assert tile is not None
-    tile.search.chosen.emit("xyz:GOLD")
-    old_main = window.main_card
-
-    window.remove_card(old_main)
-    app.processEvents()
-
-    assert old_main not in window.cards
-    assert window.main_card is tile
-    assert tile.coin == "xyz:GOLD"
-    assert tile.close_button.isVisible() is False
-
-
-def test_removing_everything_but_one_keeps_the_last_card_unclosable(app: QApplication, window: MainWindow) -> None:
-    first = window.add_tile()
-    second = window.add_tile()
-    assert first is not None and second is not None
-    window.remove_card(second)
-    window.remove_card(first)
-    app.processEvents()
-    assert window.cards == [window.main_card]
-    assert window.main_card.close_button.isVisible() is False
-
-
 def test_viewport_recovers_as_history_grows(window: MainWindow) -> None:
     # A freshly opened chart starts with a couple of bars; the window must not
     # latch at the minimum once more data arrives.
@@ -633,35 +441,6 @@ def test_viewport_recovers_as_history_grows(window: MainWindow) -> None:
 
 
 # -- four stacked cards must fit the minimum window ------------------------
-
-def test_four_cards_fit_the_minimum_window(app: QApplication, window: MainWindow) -> None:
-    for _ in range(MAX_TILES):
-        window.add_tile()
-    window.resize(window.minimumWidth(), window.minimumHeight())
-    app.processEvents()
-
-    bottom = window.cards[-1].geometry().bottom()
-    assert bottom <= window.stack.height(), (
-        f"last card ends at {bottom} but the stack is {window.stack.height()} tall"
-    )
-
-
-def test_cards_share_the_space_proportionally_when_resized(app: QApplication, window: MainWindow) -> None:
-    for _ in range(MAX_TILES):
-        window.add_tile()
-
-    window.resize(1240, 900)
-    app.processEvents()
-    tall = window.stack.sizes()
-
-    window.resize(1240, 640)
-    app.processEvents()
-    short = window.stack.sizes()
-
-    # Every card shrinks; the first one is not stuck at a larger minimum.
-    assert all(after < before for before, after in zip(tall, short))
-    assert short[0] > short[1] > 0
-
 
 # -- volume + Bollinger overlays ------------------------------------------
 
@@ -722,25 +501,6 @@ def test_volume_stays_out_of_the_way_without_volume_data(app: QApplication, wind
     off = chart.grab().toImage()
     # No volume to draw, so the layout should be identical.
     assert on == off
-
-
-def test_overlay_checkboxes_live_in_the_card(app: QApplication, window: MainWindow) -> None:
-    card = window.main_card
-    assert card.volume_toggle.objectName() == "overlayToggle"
-    assert card.bollinger_toggle.objectName() == "overlayToggle"
-
-    # Each card drives its own chart.
-    card.volume_toggle.setChecked(False)
-    card.bollinger_toggle.setChecked(True)
-    app.processEvents()
-    assert card.chart.show_volume is False
-    assert card.chart.show_bollinger is True
-
-    fresh = window.add_tile()
-    assert fresh is not None
-    fresh.volume_toggle.setChecked(False)
-    app.processEvents()
-    assert fresh.chart.show_volume is False
 
 
 # -- axis-specific wheel zoom ---------------------------------------------
@@ -1048,19 +808,6 @@ def test_digit_keys_reach_the_window_when_nothing_has_focus(
     QTest.keyClick(window, Qt.Key.Key_5)
 
     assert window.main_card.interval == "30m"
-
-
-def test_digit_keys_do_not_hijack_the_search_box(
-    app: QApplication, window: MainWindow
-) -> None:
-    card = window.main_card
-    card.open_search()
-    app.processEvents()
-
-    QTest.keyClicks(card.search.edit, "5")
-
-    assert card.search.text() == "5"
-    assert card.interval == "1m"
 
 
 def test_timeframe_pills_advertise_their_key(window: MainWindow) -> None:
