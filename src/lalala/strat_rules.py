@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -28,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.cards import mono_font
-from lalala.autocomplete import TextEditCompleter, vocabulary
+from lalala.autocomplete import CodeEdit, vocabulary
 from lalala.formula import (
     ENTRY_FIELDS,
     EXIT_FIELDS,
@@ -257,7 +256,9 @@ class RulesTile(Card):
         head.addWidget(note)
         code_layout.addLayout(head)
 
-        self.code_edit = QPlainTextEdit(code_card)
+        self.code_edit = CodeEdit(
+            vocabulary(self.fields, self.functions), code_card
+        )
         self.code_edit.setObjectName("codeEdit")
         self.code_edit.setFont(mono_font(9))
         self.code_edit.setTabChangesFocus(True)
@@ -267,9 +268,6 @@ class RulesTile(Card):
         )
         self.code_edit.textChanged.connect(self._code_edited)
         code_layout.addWidget(self.code_edit, 1)
-        self.code_completer = TextEditCompleter(
-            self.code_edit, vocabulary(self.fields, self.functions)
-        )
 
         self.code_error = QLabel("", code_card)
         self.code_error.setObjectName("formulaError")
@@ -560,6 +558,11 @@ class RulesTile(Card):
         self._syncing = False
         self._accepted = text
         self.code_error.setText(self.formula.error())
+        # The code is canonical too: redraw the rows from it, and let the
+        # window re-fit the tiles and run the report.
+        self.conditions.set_text(self.formula.formula_text())
+        self.conditions.set_status(self.formula.error(), self._last_result)
+        self.changed.emit()
 
     def _refuse(self, message: str) -> None:
         self._syncing = True

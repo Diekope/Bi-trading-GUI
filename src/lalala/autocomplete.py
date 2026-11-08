@@ -2,19 +2,20 @@
 
 The vocabulary is the same one the tiles offer — the bar's own words and the
 functions — plus the words the language joins them with (`and`, `or`, `not`).
-A `QLineEdit` gets a plain `QCompleter`; a `QPlainTextEdit` gets a small popup
-of its own, since Qt gives text edits no completer.
+A `QLineEdit` gets a plain `QCompleter`; the code editor is a `QPlainTextEdit`
+subclass that gives itself one too, since Qt wires completers only for line
+edits.
 """
 
 from __future__ import annotations
 
 import re
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QCompleter, QLineEdit, QListWidget
+from PySide6.QtWidgets import QCompleter, QLineEdit, QPlainTextEdit
 
-# The word under the cursor, for the text-edit popup: a name, not a number.
+# The word under the cursor: a name, not a number.
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 
 KEYWORDS = ("and", "or", "not")
@@ -45,89 +46,41 @@ def attach_completer(edit: QLineEdit, words) -> QCompleter:
     return completer
 
 
-class TextEditCompleter(QObject):
-    """A completion popup for a `QPlainTextEdit`.
+class CodeEdit(QPlainTextEdit):
+    """The code editor, with a completion popup of the rule's vocabulary.
 
-    Qt has no completer for text edits, so this watches the editor's keys: it
-    offers the words that start with the one under the cursor, and inserts the
-    chosen one where that word was.
+    Qt gives a text edit no completer, so this follows the usual recipe: it
+    sets up a `QCompleter` over its own viewport and drives it from the key
+    presses, offering the words that start with the one under the cursor.
     """
 
-    def __init__(self, edit, words) -> None:
-        super().__init__(edit)
-        self.edit = edit
-        self.words = [str(word) for word in words]
-        self.popup = QListWidget(edit)
-        self.popup.setObjectName("completionPopup")
-        self.popup.setWindowFlags(
-            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
+    def __init__(self, words, parent=None) -> None:
+        super().__init__(parent)
+        self._words = [str(word) for word in words]
+        self.completer = QCompleter(self._words, self)
+        self.completer.setWidget(self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(
+            QCompleter.CompletionMode.PopupCompletion
         )
-        self.popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.popup.itemClicked.connect(lambda item: self.insert(item.text()))
-        edit.installEventFilter(self)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        self.completer.activated.connect(self._insert)
+        popup = self.completer.popup()
+        if popup is not None:
+            popup.setObjectName("completionPopup")
 
-    # -- the keys ----------------------------------------------------------
+    # -- the word under the cursor -----------------------------------------
 
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        if obj is not self.edit:
-            return super().eventFilter(obj, event)
-        kind = event.type()
-
-        if kind == QEvent.Type.FocusOut:
-            self.popup.hide()
-            return False
-
-        if kind != QEvent.Type.KeyPress:
-            return False
-
-        key = event.key()
-        if self.popup.isVisible():
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab):
-                item = self.popup.currentItem()
-                if item is not None:
-                    self.insert(item.text())
-                    return True
-            if key == Qt.Key.Key_Escape:
-                self.popup.hide()
-                return True
-            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-                step = -1 if key == Qt.Key.Key_Up else 1
-                row = self.popup.currentRow() + step
-                row = max(0, min(row, self.popup.count() - 1))
-                self.popup.setCurrentRow(row)
-                return True
-
-        # The key itself is handled by the editor; refresh once it has been.
-        QTimer.singleShot(0, self.refresh)
-        return False
-
-    # -- the popup ---------------------------------------------------------
-
-    def refresh(self) -> None:
-        cursor = self.edit.textCursor()
-        before = self.edit.toPlainText()[: cursor.position()]
+    def _prefix(self) -> str:
+        cursor = self.textCursor()
+        before = self.toPlainText()[: cursor.position()]
         match = _WORD.search(before)
-        if match is None:
-            self.popup.hide()
-            return
-        prefix = match.group()
-        items = [
-            word
-            for word in self.words
-            if word.lower().startswith(prefix.lower()) and word != prefix
-        ]
-        if not items:
-            self.popup.hide()
-            return
-        self.popup.clear()
-        self.popup.addItems(items)
-        self.popup.setCurrentRow(0)
-        rect = self.edit.cursorRect()
-        self.popup.move(self.edit.viewport().mapToGlobal(rect.bottomLeft()))
-        self.popup.show()
+        return match.group() if match is not None else ""
 
-    def insert(self, word: str) -> None:
-        cursor = self.edit.textCursor()
+    def _insert(self, word: str) -> None:
+        if not word:
+            return
+        cursor = self.textCursor()
         column = cursor.positionInBlock()
         before = cursor.block().text()[:column]
         match = _WORD.search(before)
@@ -140,14 +93,46 @@ class TextEditCompleter(QObject):
             )
             cursor.removeSelectedText()
         cursor.insertText(word)
-        self.edit.setTextCursor(cursor)
-        self.popup.hide()
-        self.edit.setFocus()
+        self.setTextCursor(cursor)
+
+    # -- the keys ----------------------------------------------------------
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        popup = self.completer.popup()
+        if popup.isVisible():
+            if event.key() in (
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+                Qt.Key.Key_Tab,
+                Qt.Key.Key_Escape,
+                Qt.Key.Key_Backtab,
+            ):
+                # Let the completer take it: it activated() the choice.
+                event.ignore()
+                return
+
+        super().keyPressEvent(event)
+
+        prefix = self._prefix()
+        if len(prefix) < 1:
+            popup.hide()
+            return
+        if prefix != self.completer.completionPrefix():
+            self.completer.setCompletionPrefix(prefix)
+            self.completer.popup().setCurrentIndex(
+                self.completer.completionModel().index(0, 0)
+            )
+        rect = self.cursorRect()
+        rect.setWidth(
+            self.completer.popup().sizeHintForColumn(0)
+            + self.completer.popup().verticalScrollBar().sizeHint().width()
+        )
+        self.completer.complete(rect)
 
 
 __all__ = [
     "KEYWORDS",
-    "TextEditCompleter",
+    "CodeEdit",
     "attach_completer",
     "vocabulary",
 ]

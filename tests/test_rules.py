@@ -299,6 +299,82 @@ def test_clicking_a_variable_drops_it_into_the_active_operand(
     tile.close()
 
 
+def test_picking_a_variable_replaces_what_is_there(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    row.left.setCurrentText("volume")
+    row.left.setFocus()
+    app.processEvents()
+    tile.conditions.insert_variable("close")
+    app.processEvents()
+    # It replaces the box, it does not run on the end of "volume".
+    assert row.left.currentText() == "close"
+    tile.close()
+
+
+def test_a_variable_can_be_created_and_used(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    assignment = page.add_assignment(
+        "band", "bollinger_lower(close, 20, 2)"
+    )
+    app.processEvents()
+    assert assignment.line() == "band = bollinger_lower(close, 20, 2)"
+    # It joins the rail, so it can be dropped into a condition.
+    assert "band" in page.variable_buttons
+
+    row = page.groups[0].rows[0]
+    row.left.setCurrentText("close")
+    row.right.setCurrentText("band")
+    app.processEvents()
+
+    assert tile.text() == (
+        "band = bollinger_lower(close, 20, 2)\nclose < band"
+    )
+    assert tile.error() == ""
+
+    # Removing it takes it out of the formula and the rail.
+    page.remove_assignment(assignment)
+    app.processEvents()
+    assert "band" not in page.variable_buttons
+    assert tile.text() == "close < band"
+    tile.close()
+
+
+def test_the_code_edit_fills_the_rules_and_fires_changed(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    seen: list[int] = []
+    tile.changed.connect(lambda: seen.append(1))
+
+    tile.set_mode("code")
+    tile.code_edit.setPlainText("band = sma(close, 5)\nclose < band")
+    app.processEvents()
+
+    # The code reached the rules rows: the LET row and the condition.
+    page = tile.conditions
+    assert [row.line() for row in page.assignment_rows] == [
+        "band = sma(close, 5)"
+    ]
+    assert page.groups[0].rows[0].left.currentText() == "close"
+    assert page.groups[0].rows[0].right.currentText() == "band"
+    # And the tile said so, so the window can re-run the report.
+    assert seen
+    tile.close()
+
+
 def test_the_changed_signal_fires_on_a_tile_edit(
     app: QApplication, tile: RulesTile
 ) -> None:

@@ -8,11 +8,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtGui import QTextCursor  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
 
 from lalala.autocomplete import (  # noqa: E402
     KEYWORDS,
-    TextEditCompleter,
+    CodeEdit,
     attach_completer,
     vocabulary,
 )
@@ -42,41 +42,34 @@ def test_a_line_edit_gets_a_completer(app: QApplication) -> None:
     completer = attach_completer(edit, ["close", "volume", "sma"])
     assert edit.completer() is completer
 
-    edit.setText("cl")
     completer.setCompletionPrefix("cl")
     assert completer.completionCount() == 1
     assert completer.currentCompletion() == "close"
     edit.deleteLater()
 
 
-def test_the_text_edit_popup_offers_the_word_under_the_cursor(
+def test_the_code_edit_completes_the_word_under_the_cursor(
     app: QApplication,
 ) -> None:
-    edit = QPlainTextEdit()
-    edit.resize(200, 80)
-    completer = TextEditCompleter(edit, ["close", "closed", "volume", "sma"])
+    edit = CodeEdit(["close", "closed", "volume", "sma"])
     edit.setPlainText("clo")
     edit.moveCursor(QTextCursor.MoveOperation.End)
-    completer.refresh()
-    assert completer.popup.isVisible()
-    assert [completer.popup.item(i).text() for i in range(completer.popup.count())] == [
-        "close",
-        "closed",
-    ]
+    edit.completer.setCompletionPrefix(edit._prefix())
 
-    completer.insert("close")
+    assert edit._prefix() == "clo"
+    model = edit.completer.completionModel()
+    shown = [model.index(i, 0).data() for i in range(model.rowCount())]
+    assert shown == ["close", "closed"]
+
+    edit._insert("close")
     assert edit.toPlainText() == "close"
-    assert not completer.popup.isVisible()
     edit.deleteLater()
 
 
-def test_the_text_edit_popup_stays_quiet_without_a_word(
-    app: QApplication,
-) -> None:
-    edit = QPlainTextEdit()
-    completer = TextEditCompleter(edit, ["close", "volume"])
-    edit.setPlainText("12 + ")
+def test_inserting_replaces_the_word_not_appends(app: QApplication) -> None:
+    edit = CodeEdit(["volume"])
+    edit.setPlainText("mid = sma(close, 20)\ncl")
     edit.moveCursor(QTextCursor.MoveOperation.End)
-    completer.refresh()
-    assert not completer.popup.isVisible()
+    edit._insert("close")
+    assert edit.toPlainText() == "mid = sma(close, 20)\nclose"
     edit.deleteLater()

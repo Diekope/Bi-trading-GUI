@@ -396,24 +396,29 @@ the side on show and follow it when you switch. That way either rule gets the
 full width of the tile instead of the two squeezing into it.
 
 Each side has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
-`Rules`, the condition editor: comparisons gathered in dashed **groups**. Each
-row is an operand, an operator and a value (the operand boxes offer the bar's
-words and the indicators, and anything else can be typed); each group joins its
-rows with **All (AND)** or **Any (OR)**, and the groups themselves are joined
-with AND. `+ Add condition` adds a row, `+ Add group` another group, and `×`
-removes one. The rule as a formula is pinned at the bottom left, with whether
-the rows make a valid rule and what the newest bar said.
+`Rules`, the condition editor. A **LET** section on top names series
+(`band = bollinger_lower(close, 20, 2)`): `+ Add variable` adds one, and the
+name it defines joins the Variables rail below. Then come the comparisons,
+gathered in dashed **groups**: each row is an operand, an operator and a value
+(the operand boxes offer the bar's words and the indicators, and anything else
+can be typed); each group joins its rows with **All (AND)** or **Any (OR)**,
+and the groups themselves are joined with AND. `+ Add condition` adds a row,
+`+ Add group` another group, and `×` removes one. The rule as a formula is
+pinned at the bottom left, with whether the rows make a valid rule and what the
+newest bar said.
 
 The right rail is a **Variables** column: every field and indicator the rule can
-use, one click from the operand box that has the cursor — pick a name and it
-drops in where you are typing. (The mock put signal options there — side,
-confirmation bars, cooldown — but the backtest models none of them.)
+use — plus the names the LET section defines — one click from the operand box
+that has the cursor. Picking one **replaces** what is in the box; it does not
+run on the end of it. (The mock put signal options there — side, confirmation
+bars, cooldown — but the backtest models none of them.)
 
 `Rules` is another way to write the same formula: it reads any condition that
-is a flat AND / OR of comparisons into rows, keeps `name = …` lines verbatim
-above them, and keeps a condition it cannot break up as one raw expression, so
-switching tabs never rewrites the rule. `Formula` is the drag-and-drop builder
-and `Code` the same formula as text.
+is a flat AND / OR of comparisons into rows, keeps `name = …` lines as LET
+rows, and keeps a condition it cannot break up as one raw expression. `Code` is
+canonical both ways: typing it rebuilds the rows and the formula, and the
+window re-runs the report. `Formula` is the drag-and-drop builder and `Code`
+the same formula as text.
 
 ![The builder on the Rules tab: the grouped condition editor with its variables rail, ENTRY RULES / EXIT RULES as the switch, and the results under it](docs/images/builder-rules.png)
 

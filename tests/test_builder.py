@@ -560,6 +560,28 @@ def test_the_condition_rows_fill_the_rule(
     assert builder.entry_formula().startswith("close < bollinger_lower")
 
 
+def test_typing_the_code_reaches_the_rules_and_the_report(
+    app: QApplication, builder: StrategyBuilderWindow
+) -> None:
+    calls: list[int] = []
+    original = builder._sync_report
+    builder._sync_report = lambda: (calls.append(1), original())[1]
+
+    builder.entry.set_mode("code")
+    builder.entry.code_edit.setPlainText("band = sma(close, 5)\nclose < band")
+    app.processEvents()
+
+    # The rows follow the code…
+    assert builder.entry_formula() == "band = sma(close, 5)\nclose < band"
+    page = builder.entry.conditions
+    assert [row.line() for row in page.assignment_rows] == [
+        "band = sma(close, 5)"
+    ]
+    assert page.groups[0].rows[0].right.currentText() == "band"
+    # …and the window was told, so the report re-ran.
+    assert calls
+
+
 def test_the_report_follows_the_rules(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:

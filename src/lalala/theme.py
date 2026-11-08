@@ -604,6 +604,24 @@ QComboBox#conditionOperand, QComboBox#conditionOp, QComboBox#groupLogic {{
     padding: 4px 6px;
     min-height: 20px;
 }}
+QLineEdit#assignName {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {ACCENT};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+    min-height: 20px;
+}}
+QLineEdit#assignName:focus {{
+    border-color: {ACCENT};
+}}
+QLabel#assignEquals {{
+    color: {TEXT_MUTED};
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+}}
 QPushButton#removeCondition {{
     background-color: transparent;
     border: 1px solid {BORDER};
@@ -616,7 +634,7 @@ QPushButton#removeCondition:hover {{
     border-color: {DOWN};
     color: {DOWN};
 }}
-QPushButton#addCondition, QPushButton#addGroup {{
+QPushButton#addCondition, QPushButton#addGroup, QPushButton#addVariable {{
     background-color: transparent;
     border: none;
     color: {ACCENT};
@@ -624,10 +642,11 @@ QPushButton#addCondition, QPushButton#addGroup {{
     padding: 3px 2px;
     text-align: left;
 }}
-QPushButton#addGroup {{
+QPushButton#addGroup, QPushButton#addVariable {{
     color: {TEXT_MUTED};
 }}
-QPushButton#addCondition:hover, QPushButton#addGroup:hover {{
+QPushButton#addCondition:hover, QPushButton#addGroup:hover,
+QPushButton#addVariable:hover {{
     color: {TEXT};
 }}
 #conditionPreview {{
@@ -667,6 +686,9 @@ QPushButton#variablePick {{
 }}
 QPushButton#variablePick:hover {{
     background-color: {PANEL_ALT};
+    color: {ACCENT};
+}}
+QPushButton#variablePick[defined="true"] {{
     color: {ACCENT};
 }}
 QComboBox:disabled {{
