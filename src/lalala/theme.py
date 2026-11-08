@@ -582,7 +582,7 @@ QLabel#tableCell[tone="muted"] {{
 }}
 
 /* -- the Rules tab: condition groups ---------------------------------- */
-#conditionsInner, #conditionRow {{
+#conditionsInner, #conditionRow, #extraCell {{
     background-color: transparent;
 }}
 #conditionGroup {{

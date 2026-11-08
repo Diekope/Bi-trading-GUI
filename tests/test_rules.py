@@ -181,6 +181,67 @@ def test_the_rules_tab_reads_a_formula_into_groups(app: QApplication) -> None:
     tile.close()
 
 
+def test_a_fresh_rule_starts_with_one_condition_cell(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    assert len(page.groups) == 1
+    assert len(page.groups[0].rows) == 1
+    # And the + cell is what adds the rest.
+    assert page.groups[0].add_cell_button.isVisible()
+    tile.close()
+
+
+def test_the_operands_are_picked_not_typed(app: QApplication) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    row = tile.conditions.groups[0].rows[0]
+    # The operand and the operator are lists; only the value takes text.
+    assert not row.left.isEditable()
+    assert not row.op.isEditable()
+    assert row.right.isEditable()
+    # A pick-only box will not take a word that is not on its list.
+    row.left.setCurrentText("close")
+    assert row.left.currentText() == "close"
+    row.left.setCurrentText("nonsense")
+    assert row.left.currentText() == "close"
+    tile.close()
+
+
+def test_math_and_value_cells_extend_a_condition(
+    app: QApplication,
+) -> None:
+    tile = RulesTile("ENTRY RULES")
+    tile.show()
+    app.processEvents()
+
+    page = tile.conditions
+    row = page.groups[0].rows[0]
+    row.left.setCurrentText("volume")
+    row.op.setCurrentText(">")
+    row.right.setCurrentText("sma(volume, 50)")
+
+    page.groups[0].add_math().op.setCurrentText("*")
+    page.groups[0].add_value().operand.setCurrentText("2")
+    app.processEvents()
+
+    assert tile.text() == "volume > sma(volume, 50) * 2"
+    assert tile.error() == ""
+
+    # Removing the value cell takes the tail off again.
+    value = row.extras[-1]
+    row.remove_extra(value)
+    app.processEvents()
+    assert tile.text() == "volume > sma(volume, 50) *"
+    tile.close()
+
+
 def test_editing_a_row_rewrites_the_formula(app: QApplication) -> None:
     tile = RulesTile("ENTRY RULES")
     tile.show()

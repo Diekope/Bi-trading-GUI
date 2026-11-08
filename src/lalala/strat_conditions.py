@@ -1,9 +1,19 @@
 """The Rules tab: conditions in groups, the way the mock draws them.
 
 A rule is a few comparisons over the bar (or the open trade), gathered into
-groups. Each group joins its rows with **All (AND)** or **Any (OR)**, and the
+groups. Each group joins its terms with **All (AND)** or **Any (OR)**, and the
 groups themselves are joined with AND — the same shape the formula language
 gives `a and b and (c or d)`.
+
+A term starts as one **condition** cell — an operand, an operator and a value —
+and can grow with a **math** cell (`* sma(volume, 20)`) or a **value** cell, the
+way `volume > sma(volume, 50) * 2` is one condition plus a multiplication. The
+**+ cell** under the rows offers those three things.
+
+The operands and the operator are **picked, not typed**: they list the fields,
+the indicators and any name the LET rows define. Only the value box takes typed
+text, so a number like `0.03` can be written, and only the variable's own name
+is written free-hand.
 
 This page is another way to write the same formula as the Formula and Code
 tabs. It reads any formula whose condition is a flat AND / OR of comparisons,
@@ -26,6 +36,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -45,6 +56,7 @@ from lalala.formula import (
 )
 
 COMPARISONS = ("<", "<=", ">", ">=", "==", "!=")
+MATH_OPS = ("+", "-", "*", "/", "%", "^")
 
 # Called on a bar, offered as ready expressions beside the plain fields.
 INDICATORS = (
@@ -155,22 +167,149 @@ def _choices(fields, functions) -> list:
     return choices
 
 
-def _operand_combo(parent, choices, placeholder: str) -> QComboBox:
-    """An editable box that offers the vocabulary but takes anything typed."""
+def _pick_combo(parent, choices, placeholder: str = "", editable: bool = False):
+    """A box that lists the vocabulary; the value box also takes typed text."""
     combo = QComboBox(parent)
     combo.setObjectName("conditionOperand")
-    combo.setEditable(True)
-    combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-    combo.addItems(list(choices))
-    combo.setCurrentText("")
-    if combo.lineEdit() is not None:
-        combo.lineEdit().setPlaceholderText(placeholder)
+    combo.setCursor(Qt.CursorShape.PointingHandCursor)
+    combo.addItems([""] + [str(choice) for choice in choices])
+    if editable:
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setCurrentText("")
+        if combo.lineEdit() is not None:
+            combo.lineEdit().setPlaceholderText(placeholder)
+    else:
+        combo.setCurrentIndex(0)  # the blank entry: nothing picked yet
+    return combo
+
+
+def _set_pick(combo, text: str) -> None:
+    """Show `text` in a pick-only box, adding it if the list lacks it."""
+    text = text or ""
+    if text and combo.findText(text) < 0:
+        combo.addItem(text)
+    combo.setCurrentText(text)
+
+
+def _refill(combo, choices) -> None:
+    """Replace a combo's items, keeping whatever it was showing."""
+    current = combo.currentText()
+    combo.blockSignals(True)
+    combo.clear()
+    combo.addItems([""] + [str(choice) for choice in choices])
+    if current and combo.findText(current) < 0:
+        combo.addItem(current)
+    combo.setCurrentText(current)
+    combo.blockSignals(False)
+
+
+def _op_combo(parent) -> QComboBox:
+    combo = QComboBox(parent)
+    combo.setObjectName("conditionOp")
+    combo.addItems(COMPARISONS)
+    combo.setFixedWidth(62)
     combo.setCursor(Qt.CursorShape.PointingHandCursor)
     return combo
 
 
+class MathCell(QFrame):
+    """An operator appended to a term: the `*` in `… * 2`."""
+
+    changed = Signal()
+    removed = Signal(object)
+
+    def __init__(self, choices: list, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("extraCell")
+        self._loading = False
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.op = QComboBox(self)
+        self.op.setObjectName("conditionOp")
+        self.op.addItems(MATH_OPS)
+        self.op.setFixedWidth(46)
+        self.op.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove = QPushButton("×", self)
+        self.remove.setObjectName("removeCondition")
+        self.remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove.setToolTip("remove this operator")
+        self.remove.setFixedWidth(24)
+        self.remove.clicked.connect(lambda: self.removed.emit(self))
+
+        row.addWidget(self.op, 0)
+        row.addWidget(self.remove, 0)
+
+        self.op.currentIndexChanged.connect(self._touched)
+
+    def text(self) -> str:
+        return self.op.currentText()
+
+    def set_choices(self, choices) -> None:
+        pass
+
+    def _touched(self, *_args) -> None:
+        if not self._loading:
+            self.changed.emit()
+
+
+class ValueCell(QFrame):
+    """A value appended to a term: the `2` in `… * 2`, or `band`."""
+
+    changed = Signal()
+    removed = Signal(object)
+    activated = Signal(object)
+
+    def __init__(self, choices: list, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("extraCell")
+        self._loading = False
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.operand = _pick_combo(self, choices, "value", editable=True)
+        self.remove = QPushButton("×", self)
+        self.remove.setObjectName("removeCondition")
+        self.remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove.setToolTip("remove this value")
+        self.remove.setFixedWidth(24)
+        self.remove.clicked.connect(lambda: self.removed.emit(self))
+
+        row.addWidget(self.operand, 1)
+        row.addWidget(self.remove, 0)
+
+        self.operand.installEventFilter(self)
+        line = self.operand.lineEdit()
+        if line is not None:
+            line.installEventFilter(self)
+
+        self.operand.editTextChanged.connect(self._touched)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.FocusIn and (
+            obj is self.operand or obj is self.operand.lineEdit()
+        ):
+            self.activated.emit(self.operand)
+        return super().eventFilter(obj, event)
+
+    def text(self) -> str | None:
+        return self.operand.currentText().strip() or None
+
+    def set_choices(self, choices) -> None:
+        _refill(self.operand, choices)
+
+    def _touched(self, *_args) -> None:
+        if not self._loading:
+            self.changed.emit()
+
+
 class ConditionRow(QFrame):
-    """One comparison: an operand, an operator and a value."""
+    """One comparison: an operand, an operator and a value, plus extras."""
 
     changed = Signal()
     removed = Signal(object)
@@ -181,18 +320,16 @@ class ConditionRow(QFrame):
         self.setObjectName("conditionRow")
         self._loading = False
         self._raw = False
+        self._choices = list(choices)
+        self.extras: list = []
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
 
-        self.left = _operand_combo(self, choices, "condition")
-        self.op = QComboBox(self)
-        self.op.setObjectName("conditionOp")
-        self.op.addItems(COMPARISONS)
-        self.op.setFixedWidth(62)
-        self.op.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.right = _operand_combo(self, choices, "value")
+        self.left = _pick_combo(self, choices, "condition", editable=False)
+        self.op = _op_combo(self)
+        self.right = _pick_combo(self, choices, "value", editable=True)
         self.remove = QPushButton("×", self)
         self.remove.setObjectName("removeCondition")
         self.remove.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -204,6 +341,7 @@ class ConditionRow(QFrame):
         row.addWidget(self.op, 0)
         row.addWidget(self.right, 3)
         row.addWidget(self.remove, 0)
+        self.row_layout = row
 
         # Tell the page which operand box has the cursor, so the variables
         # rail knows where an inserted name should land. Focus may land on the
@@ -214,9 +352,49 @@ class ConditionRow(QFrame):
             if line is not None:
                 line.installEventFilter(self)
 
-        self.left.editTextChanged.connect(self._touched)
+        self.left.currentIndexChanged.connect(self._touched)
         self.right.editTextChanged.connect(self._touched)
+        self.right.currentIndexChanged.connect(self._touched)
         self.op.currentIndexChanged.connect(self._touched)
+
+    # -- the cells ---------------------------------------------------------
+
+    def add_math(self) -> MathCell:
+        cell = MathCell(self._choices, self)
+        self._wire_extra(cell)
+        return cell
+
+    def add_value(self) -> ValueCell:
+        cell = ValueCell(self._choices, self)
+        self._wire_extra(cell)
+        return cell
+
+    def _wire_extra(self, cell) -> None:
+        cell.changed.connect(self._touched)
+        cell.removed.connect(self.remove_extra)
+        if hasattr(cell, "activated"):
+            cell.activated.connect(self.activated)
+        # Before the row's own remove button.
+        self.row_layout.insertWidget(self.row_layout.count() - 1, cell)
+        self.extras.append(cell)
+
+    def remove_extra(self, cell) -> None:
+        if cell not in self.extras:
+            return
+        self.extras.remove(cell)
+        self.row_layout.removeWidget(cell)
+        cell.setParent(None)
+        cell.deleteLater()
+        self._touched()
+
+    def set_choices(self, choices) -> None:
+        self._choices = list(choices)
+        for combo in (self.left, self.right):
+            _refill(combo, choices)
+        for cell in self.extras:
+            cell.set_choices(choices)
+
+    # -- state -------------------------------------------------------------
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.FocusIn:
@@ -230,7 +408,7 @@ class ConditionRow(QFrame):
         self._loading = True
         try:
             self._raw = raw
-            self.left.setCurrentText(left)
+            _set_pick(self.left, left)
             index = self.op.findText(op)
             self.op.setCurrentIndex(index if index >= 0 else 0)
             self.right.setCurrentText(right)
@@ -240,85 +418,22 @@ class ConditionRow(QFrame):
             self._loading = False
 
     def value(self) -> str | None:
+        pieces: list[str] = []
         left = self.left.currentText().strip()
         if self._raw:
-            return left or None
-        right = self.right.currentText().strip()
-        if not left or not right:
+            if left:
+                pieces.append(left)
+        else:
+            right = self.right.currentText().strip()
+            if left and right:
+                pieces.append(f"{left} {self.op.currentText()} {right}")
+        if not pieces:
             return None
-        return f"{left} {self.op.currentText()} {right}"
-
-    def _touched(self, *_args) -> None:
-        if not self._loading:
-            self.changed.emit()
-
-
-class AssignmentRow(QFrame):
-    """One named series above the condition: `name = expression`."""
-
-    changed = Signal()
-    removed = Signal(object)
-    activated = Signal(object)
-
-    def __init__(self, choices: list, parent=None) -> None:
-        super().__init__(parent)
-        self.setObjectName("conditionRow")
-        self._loading = False
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-
-        self.name = QLineEdit(self)
-        self.name.setObjectName("assignName")
-        self.name.setPlaceholderText("name")
-        self.name.setFixedWidth(96)
-        self.equals = QLabel("=", self)
-        self.equals.setObjectName("assignEquals")
-        self.value = _operand_combo(self, choices, "expression")
-        self.remove = QPushButton("×", self)
-        self.remove.setObjectName("removeCondition")
-        self.remove.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.remove.setToolTip("remove this variable")
-        self.remove.setFixedWidth(24)
-        self.remove.clicked.connect(lambda: self.removed.emit(self))
-
-        row.addWidget(self.name, 0)
-        row.addWidget(self.equals, 0)
-        row.addWidget(self.value, 1)
-        row.addWidget(self.remove, 0)
-
-        # Focus on the name or the expression tells the rail where to insert.
-        for widget in (self.name, self.value):
-            widget.installEventFilter(self)
-        line = self.value.lineEdit()
-        if line is not None:
-            line.installEventFilter(self)
-
-        self.name.textChanged.connect(self._touched)
-        self.value.editTextChanged.connect(self._touched)
-
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        if event.type() == QEvent.Type.FocusIn and (
-            obj is self.value or obj is self.value.lineEdit()
-        ):
-            self.activated.emit(self.value)
-        return super().eventFilter(obj, event)
-
-    def set_parts(self, name: str, value: str) -> None:
-        self._loading = True
-        try:
-            self.name.setText(name)
-            self.value.setCurrentText(value)
-        finally:
-            self._loading = False
-
-    def line(self) -> str | None:
-        name = self.name.text().strip()
-        value = self.value.currentText().strip()
-        if not name or not value:
-            return None
-        return f"{name} = {value}"
+        for cell in self.extras:
+            text = cell.text()
+            if text:
+                pieces.append(text)
+        return " ".join(pieces)
 
     def _touched(self, *_args) -> None:
         if not self._loading:
@@ -326,7 +441,7 @@ class AssignmentRow(QFrame):
 
 
 class ConditionGroup(QFrame):
-    """A dashed box: its logic, its rows, and a way to add one more."""
+    """A dashed box: its logic, its condition cells, and a + cell."""
 
     changed = Signal()
     removed = Signal(object)
@@ -336,7 +451,7 @@ class ConditionGroup(QFrame):
         super().__init__(parent)
         self.setObjectName("conditionGroup")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.choices = choices
+        self.choices = list(choices)
         self.rows: list[ConditionRow] = []
 
         column = QVBoxLayout(self)
@@ -371,11 +486,12 @@ class ConditionGroup(QFrame):
         self.rows_box.setSpacing(6)
         column.addLayout(self.rows_box)
 
-        self.add_button = QPushButton("+  Add condition", self)
-        self.add_button.setObjectName("addCondition")
-        self.add_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_button.clicked.connect(self.add_row)
-        column.addWidget(self.add_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.add_cell_button = QPushButton("+  cell", self)
+        self.add_cell_button.setObjectName("addCondition")
+        self.add_cell_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_cell_button.setToolTip("add a condition, a math term or a value")
+        self.add_cell_button.clicked.connect(self._open_cell_menu)
+        column.addWidget(self.add_cell_button, 0, Qt.AlignmentFlag.AlignLeft)
 
     def logic_key(self) -> str:
         return "or" if self.logic.currentIndex() == 1 else "and"
@@ -397,6 +513,34 @@ class ConditionGroup(QFrame):
         self.rows.append(row)
         return row
 
+    def add_math(self):
+        row = self.rows[-1] if self.rows else self.add_row()
+        return row.add_math()
+
+    def add_value(self):
+        row = self.rows[-1] if self.rows else self.add_row()
+        return row.add_value()
+
+    def _open_cell_menu(self) -> None:
+        menu = QMenu(self)
+        for label, slot in (
+            ("Condition", self.add_row),
+            ("Math", self.add_math),
+            ("Value", self.add_value),
+        ):
+            action = menu.addAction(label)
+            action.triggered.connect(slot)
+        menu.exec(
+            self.add_cell_button.mapToGlobal(
+                self.add_cell_button.rect().bottomLeft()
+            )
+        )
+
+    def set_choices(self, choices) -> None:
+        self.choices = list(choices)
+        for row in self.rows:
+            row.set_choices(choices)
+
     def remove_row(self, row: ConditionRow) -> None:
         if row not in self.rows:
             return
@@ -417,6 +561,81 @@ class ConditionGroup(QFrame):
 
     def _logic_changed(self, *_args) -> None:
         self.changed.emit()
+
+
+class AssignmentRow(QFrame):
+    """One named series above the condition: `name = expression`."""
+
+    changed = Signal()
+    removed = Signal(object)
+    activated = Signal(object)
+
+    def __init__(self, choices: list, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("conditionRow")
+        self._loading = False
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.name = QLineEdit(self)
+        self.name.setObjectName("assignName")
+        self.name.setPlaceholderText("name")
+        self.name.setFixedWidth(96)
+        self.equals = QLabel("=", self)
+        self.equals.setObjectName("assignEquals")
+        self.value = _pick_combo(self, choices, "expression", editable=False)
+        self.remove = QPushButton("×", self)
+        self.remove.setObjectName("removeCondition")
+        self.remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove.setToolTip("remove this variable")
+        self.remove.setFixedWidth(24)
+        self.remove.clicked.connect(lambda: self.removed.emit(self))
+
+        row.addWidget(self.name, 0)
+        row.addWidget(self.equals, 0)
+        row.addWidget(self.value, 1)
+        row.addWidget(self.remove, 0)
+
+        # Focus on the name or the expression tells the rail where to insert.
+        for widget in (self.name, self.value):
+            widget.installEventFilter(self)
+        line = self.value.lineEdit()
+        if line is not None:
+            line.installEventFilter(self)
+
+        self.name.textChanged.connect(self._touched)
+        self.value.currentIndexChanged.connect(self._touched)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.FocusIn and (
+            obj is self.value or obj is self.value.lineEdit()
+        ):
+            self.activated.emit(self.value)
+        return super().eventFilter(obj, event)
+
+    def set_parts(self, name: str, value: str) -> None:
+        self._loading = True
+        try:
+            self.name.setText(name)
+            _set_pick(self.value, value)
+        finally:
+            self._loading = False
+
+    def set_choices(self, choices) -> None:
+        _refill(self.value, choices)
+
+    def line(self) -> str | None:
+        name = self.name.text().strip()
+        value = self.value.currentText().strip()
+        if not name or not value:
+            return None
+        return f"{name} = {value}"
+
+    def _touched(self, *_args) -> None:
+        if not self._loading:
+            self.changed.emit()
 
 
 class RulesPage(QWidget):
@@ -534,7 +753,7 @@ class RulesPage(QWidget):
         rail_title.setObjectName("panelTitle")
         rail_layout.addWidget(rail_title)
 
-        hint = QLabel("click one to drop it where the cursor is", rail)
+        hint = QLabel("click one to drop it into the focused box", rail)
         hint.setObjectName("railNote")
         hint.setWordWrap(True)
         rail_layout.addWidget(hint)
@@ -572,6 +791,11 @@ class RulesPage(QWidget):
                 names.append(name)
         return names
 
+    def _vocabulary(self) -> list[str]:
+        names = list(self.choices)
+        names += [name for name in self._defined_names() if name not in names]
+        return names
+
     def _rebuild_picker(self) -> None:
         """Refill the rail: the vocabulary first, then the created names."""
         for button in self.variable_buttons.values():
@@ -580,9 +804,7 @@ class RulesPage(QWidget):
             button.deleteLater()
         self.variable_buttons = {}
         self._picker_names = self._defined_names()
-        names = list(self.choices)
-        names += [name for name in self._picker_names if name not in names]
-        for name in names:
+        for name in self._vocabulary():
             button = QPushButton(name, self.picker_inner)
             button.setObjectName("variablePick")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -596,6 +818,14 @@ class RulesPage(QWidget):
                 self.picker_layout.count() - 1, button
             )
             self.variable_buttons[name] = button
+
+    def _refresh_choices(self) -> None:
+        """Let every box offer the names the LET rows now define."""
+        vocabulary = self._vocabulary()
+        for group in self.groups:
+            group.set_choices(vocabulary)
+        for row in self.assignment_rows:
+            row.set_choices(vocabulary)
 
     def _operand_activated(self, combo) -> None:
         self.active_operand = combo
@@ -615,12 +845,21 @@ class RulesPage(QWidget):
         if combo is None:
             return
         combo.setCurrentText(name)
+        self._set_index(combo)
         combo.setFocus()
+
+    @staticmethod
+    def _set_index(combo) -> None:
+        # A pick-only combo ignores the text it cannot find; make sure a name
+        # that was added to the list is the one on show.
+        index = combo.findText(combo.currentText())
+        if index >= 0:
+            combo.setCurrentIndex(index)
 
     # -- the groups --------------------------------------------------------
 
     def add_group(self, logic: str = "and", rows: list | None = None) -> ConditionGroup:
-        group = ConditionGroup(self.choices, self)
+        group = ConditionGroup(self._vocabulary(), self)
         group.set_logic(logic)
         group.changed.connect(self._group_changed)
         group.removed.connect(self.remove_group)
@@ -653,13 +892,14 @@ class RulesPage(QWidget):
             return
         if self._defined_names() != self._picker_names:
             self._rebuild_picker()
+            self._refresh_choices()
         self._refresh_preview()
         self.changed.emit()
 
     # -- the named series --------------------------------------------------
 
     def add_assignment(self, name: str = "", value: str = "") -> AssignmentRow:
-        row = AssignmentRow(self.choices, self)
+        row = AssignmentRow(self._vocabulary(), self)
         if name or value:
             row.set_parts(name, value)
         row.changed.connect(self._group_changed)
@@ -735,6 +975,7 @@ class RulesPage(QWidget):
         finally:
             self._loading = False
         self._rebuild_picker()
+        self._refresh_choices()
         self._refresh_preview()
 
     def set_status(self, error: str = "", result=None) -> None:
@@ -772,10 +1013,13 @@ class RulesPage(QWidget):
 __all__ = [
     "COMPARISONS",
     "INDICATORS",
+    "MATH_OPS",
     "AssignmentRow",
     "ConditionGroup",
     "ConditionRow",
+    "MathCell",
     "RulesPage",
+    "ValueCell",
     "condition_groups",
     "expression_text",
 ]

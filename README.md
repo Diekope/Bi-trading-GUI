@@ -398,20 +398,25 @@ full width of the tile instead of the two squeezing into it.
 Each side has **three tabs** — `Rules`, `Formula`, `Code` — and starts on
 `Rules`, the condition editor. A **LET** section on top names series
 (`band = bollinger_lower(close, 20, 2)`): `+ Add variable` adds one, and the
-name it defines joins the Variables rail below. Then come the comparisons,
-gathered in dashed **groups**: each row is an operand, an operator and a value
-(the operand boxes offer the bar's words and the indicators, and anything else
-can be typed); each group joins its rows with **All (AND)** or **Any (OR)**,
-and the groups themselves are joined with AND. `+ Add condition` adds a row,
-`+ Add group` another group, and `×` removes one. The rule as a formula is
-pinned at the bottom left, with whether the rows make a valid rule and what the
-newest bar said.
+name it defines joins the Variables rail below. Then come the conditions,
+gathered in dashed **groups**. A group starts with one **condition cell** — an
+operand, an operator and a value — and a `+ cell` under the rows offers three
+things to add: a **Condition** (another comparison), a **Math** operator
+(`* + - / …`) or a **Value** (`2`, `band`). That is how
+`volume > sma(volume, 50) * 2` is one condition plus a math cell and a value
+cell. Each group joins its terms with **All (AND)** or **Any (OR)**, and the
+groups themselves are joined with AND. `×` removes a cell. The rule as a
+formula is pinned at the bottom left, with whether the rows make a valid rule
+and what the newest bar said.
 
-The right rail is a **Variables** column: every field and indicator the rule can
-use — plus the names the LET section defines — one click from the operand box
-that has the cursor. Picking one **replaces** what is in the box; it does not
-run on the end of it. (The mock put signal options there — side, confirmation
-bars, cooldown — but the backtest models none of them.)
+The **operands and the operator are picked, not typed**: they list the fields,
+the indicators and any name the LET rows define. Only the value box takes
+typed text, so a number like `0.03` can be written — and the only name written
+free-hand anywhere is the LET variable's own. The right rail is a **Variables**
+column of the same vocabulary, one click from the operand box that has the
+cursor; picking one **replaces** what is in the box. (The mock put signal
+options there — side, confirmation bars, cooldown — but the backtest models
+none of them.)
 
 `Rules` is another way to write the same formula: it reads any condition that
 is a flat AND / OR of comparisons into rows, keeps `name = …` lines as LET
