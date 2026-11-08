@@ -42,6 +42,7 @@ from lalala.market_data import (
     format_price,
     search_markets,
 )
+from lalala.trade_form import TradeForm
 from lalala.panels import Card
 from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, UP
 
@@ -1058,6 +1059,11 @@ class MarketCard(Card):
         self.body.addWidget(self.timeframes)
         self.body.addWidget(self.chart, 1)
 
+        # The trade form under the chart, as the mock draws it.
+        self.trade_form = TradeForm()
+        self.trade_form.setVisible(coin is not None)
+        self.body.addWidget(self.trade_form)
+
         self.name.clicked.connect(self.open_search)
         self.set_placeholder("search a market above")
         # A card born with a coin is already loaded; only fresh tiles search.
@@ -1096,14 +1102,17 @@ class MarketCard(Card):
         self.chart.set_precision(self._sz_decimals)
         self.search.setVisible(market is None)
         self.timeframes.setVisible(market is not None)
+        self.trade_form.setVisible(market is not None)
         if market is None:
             self.chart.set_series(())
             self.set_placeholder("search a market above")
             self.price.setText("—")
+            self.trade_form.set_price(None)
 
     def apply_mid(self, price: float) -> None:
         self._has_mids = True
         self.price.setText(format_price(price, self._sz_decimals))
+        self.trade_form.set_price(price)
 
     def apply_candles(self, series: CandleSeries) -> None:
         if series.coin != self.coin or series.interval != self.interval:
@@ -1112,6 +1121,8 @@ class MarketCard(Card):
         # hundred bars, and the chart may be holding pages panned back to.
         self.chart.merge_series(series.candles)
         self.set_placeholder("waiting for candles…")
+        if series.candles:
+            self.trade_form.set_price(series.candles[-1].c)
         last = series.last_price
         if last is not None and not self._has_mids:
             self.price.setText(format_price(last, self._sz_decimals))

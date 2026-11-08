@@ -1357,6 +1357,61 @@ QPushButton#betDown {{
 QPushButton#betDown:hover {{
     border-color: {DOWN};
 }}
+/* The trade form under a market's chart. */
+#tradeForm {{
+    background-color: #141519;
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+}}
+QPushButton#buyButton {{
+    background-color: #13211a;
+    border: 1px solid {UP};
+    border-radius: 6px;
+    color: #5fe39a;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 11px 0;
+}}
+QPushButton#buyButton:hover {{
+    border-color: #5fe39a;
+    color: {TEXT};
+}}
+QPushButton#sellButton {{
+    background-color: #2a1517;
+    border: 1px solid {DOWN};
+    border-radius: 6px;
+    color: #ff8a8a;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 11px 0;
+}}
+QPushButton#sellButton:hover {{
+    border-color: #ff8a8a;
+    color: {TEXT};
+}}
+#positionRow {{
+    background-color: #1a1b20;
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+}}
+QLabel#positionText {{
+    color: {UP};
+}}
+QSlider#leverageSlider::groove:horizontal {{
+    height: 3px;
+    background: #2a2b31;
+    border-radius: 2px;
+}}
+QSlider#leverageSlider::sub-page:horizontal {{
+    background: {ACCENT};
+    border-radius: 2px;
+}}
+QSlider#leverageSlider::handle:horizontal {{
+    background: {ACCENT};
+    width: 12px;
+    margin: -5px 0;
+    border-radius: 6px;
+}}
 
 QCheckBox#overlayToggle {{
     color: {TEXT_MUTED};
