@@ -124,6 +124,8 @@ def builder(app: QApplication) -> None:
     _save(window.report, "part-report.png")
     window.report.set_view("compare")
     _settle(app)
+    window.report.compare.add_run(3.0, 0.5)
+    _settle(app)
     _save(window.report, "part-report-compare.png")
     window.report.set_view("overview")
     _settle(app)

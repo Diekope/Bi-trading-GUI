@@ -5,7 +5,7 @@ Inspired by the compare mock. Two things:
 - the three curves — strategy, a random-buy version and buy and hold — with a
   table of the same figures side by side;
 - a **walk-forward** count over four folds, and a **TP × SL sweep** drawn as a
-  heat-map grid.
+  heat-map grid, with a legend and a handle to promote a cell to a compared run.
 
 Everything is computed from the same tail of candles the report reads, by
 slicing it and running `lalala.formula_eval.backtest` on each part. It is a
@@ -14,7 +14,7 @@ read, not a promise: nothing is wired back to the run.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
@@ -34,7 +34,7 @@ from lalala.formula_eval import (
     curve_sharpe,
 )
 from lalala.strat_report import CurveChart
-from lalala.theme import ACCENT, BAND, TEXT_MUTED
+from lalala.theme import ACCENT, BAND, TEXT_FAINT, TEXT_MUTED
 
 # The TP / SL grid the sweep walks, and the columns of the compare table.
 SWEEP_TPS = (1.0, 1.5, 2.0, 3.0, 4.0)
@@ -43,7 +43,18 @@ SWEEP_SLS = (0.5, 1.0, 1.5, 2.0, 3.0)
 # The colours the sweep cells take, from worst to best.
 SWEEP_COLOURS = ("#8f3a40", "#5a2328", "#2a2b31", "#1f4a33", "#2a7a52")
 
+# What each colour band means, worst to best, for the legend.
+SWEEP_CAPTIONS = ("≤ -3%", "-1%", "0%", "+1%", "≥ +3%")
+
+# The colours extra runs take, in turn, so each one is told apart.
+RUN_COLOURS = ("#6fd3c7", "#c58cf0", "#f08a5d", "#8fd14f", "#e05c8a")
+
 FOLDS = 4
+
+# How much room the axis figures take around the sweep grid.
+GRID_LEFT = 30.0
+GRID_BOTTOM = 14.0
+GRID_GAP = 3.0
 
 
 def _segments(bars, parts: int) -> list[list]:
@@ -89,10 +100,13 @@ def _sweep_colour(value: float) -> str:
 class TagChip(QFrame):
     """A run beside its dot, as in the mock's row of compared runs."""
 
+    clicked = Signal()
+
     def __init__(self, label: str, colour: str | None, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("compareTag")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         row = QHBoxLayout(self)
         row.setContentsMargins(8, 4, 9, 4)
         row.setSpacing(6)
@@ -108,19 +122,40 @@ class TagChip(QFrame):
         text = QLabel(label, self)
         text.setObjectName("compareTagText" if colour else "compareTagAdd")
         self._label = label
+        self._text = text
         row.addWidget(text)
 
     def name(self) -> str:
         return self._label
 
+    def set_label(self, label: str) -> None:
+        self._label = label
+        self._text.setText(label)
+
+    def set_active(self, active: bool) -> None:
+        self.setProperty("active", active)
+        style = self.style()
+        style.unpolish(self)
+        style.polish(self)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
 
 class SweepHeatmap(QWidget):
-    """The TP × SL sweep as a grid of coloured cells."""
+    """The TP × SL sweep as a grid of coloured cells, labelled and clickable."""
+
+    cell_clicked = Signal(int, int)
+    cell_hovered = Signal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.values: list[list[float]] = []
-        self.setMinimumHeight(70)
+        self.hovered: tuple[int, int] | None = None
+        self.setMinimumHeight(94)
+        self.setMouseTracking(True)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
@@ -129,29 +164,129 @@ class SweepHeatmap(QWidget):
         self.values = values
         self.update()
 
+    def _cell_rect(self, row: int, column: int) -> QRectF:
+        rows = len(self.values)
+        columns = len(self.values[0]) if rows else 0
+        width = (self.width() - GRID_LEFT - GRID_GAP * (columns - 1)) / columns
+        height = (
+            self.height() - GRID_BOTTOM - GRID_GAP * (rows - 1)
+        ) / rows
+        return QRectF(
+            GRID_LEFT + column * (width + GRID_GAP),
+            row * (height + GRID_GAP),
+            width,
+            height,
+        )
+
+    def _cell_at(self, x: float, y: float) -> tuple[int, int] | None:
+        for row in range(len(self.values)):
+            for column in range(len(self.values[0])):
+                if self._cell_rect(row, column).contains(x, y):
+                    return row, column
+        return None
+
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rows = len(self.values)
         columns = len(self.values[0]) if rows else 0
         if not rows or not columns:
             return
-        gap = 3.0
-        width = (self.width() - gap * (columns - 1)) / columns
-        height = (self.height() - gap * (rows - 1)) / rows
+
+        painter.setFont(mono_font(7))
         for r, row in enumerate(self.values):
             for c, value in enumerate(row):
+                rect = self._cell_rect(r, c)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(_sweep_colour(value)))
-                painter.drawRoundedRect(
-                    QRectF(
-                        c * (width + gap),
-                        r * (height + gap),
-                        width,
-                        height,
-                    ),
-                    4,
-                    4,
+                painter.drawRoundedRect(rect, 4, 4)
+                if self.hovered == (r, c):
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QColor(TEXT_MUTED))
+                    painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5),
+                                            4, 4)
+
+        # SL down the left, TP under the columns.
+        painter.setPen(QColor(TEXT_FAINT))
+        for r, sl in enumerate(SWEEP_SLS):
+            rect = self._cell_rect(r, 0)
+            painter.drawText(
+                QRectF(0, rect.top(), GRID_LEFT - 5, rect.height()),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                f"{sl:g}",
+            )
+        last = rows - 1
+        for c, tp in enumerate(SWEEP_TPS):
+            rect = self._cell_rect(last, c)
+            painter.drawText(
+                QRectF(rect.left() - 8, rect.bottom() + 2,
+                       rect.width() + 16, GRID_BOTTOM - 2),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                f"{tp:g}",
+            )
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        cell = self._cell_at(event.position().x(), event.position().y())
+        if cell != self.hovered:
+            self.hovered = cell
+            self.update()
+            self.setCursor(
+                Qt.CursorShape.PointingHandCursor
+                if cell
+                else Qt.CursorShape.ArrowCursor
+            )
+            if cell:
+                row, column = cell
+                self.cell_hovered.emit(
+                    (SWEEP_TPS[column], SWEEP_SLS[row],
+                     self.values[row][column])
                 )
+            else:
+                self.cell_hovered.emit(None)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if self.hovered is not None:
+            self.hovered = None
+            self.update()
+            self.cell_hovered.emit(None)
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            cell = self._cell_at(event.position().x(), event.position().y())
+            if cell:
+                self.cell_clicked.emit(*cell)
+        super().mouseReleaseEvent(event)
+
+
+class SweepLegend(QWidget):
+    """A row of swatches naming each colour band of the sweep."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(16)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(mono_font(8))
+        step = self.width() / len(SWEEP_CAPTIONS)
+        for index, (colour, caption) in enumerate(
+            zip(SWEEP_COLOURS, SWEEP_CAPTIONS)
+        ):
+            left = index * step
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(colour))
+            painter.drawRoundedRect(QRectF(left, 2, 8, 8), 2, 2)
+            painter.setPen(QColor(TEXT_FAINT))
+            painter.drawText(
+                QRectF(left + 11, 0, step - 11, 12),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                caption,
+            )
 
 
 class ComparePage(QWidget):
@@ -166,6 +301,8 @@ class ComparePage(QWidget):
         self.report = None
         self.tp = 2.0
         self.sl = 1.0
+        self.runs: list[dict] = []
+        self.pick_mode = False
         self._dirty = True
 
         layout = QVBoxLayout(self)
@@ -173,19 +310,23 @@ class ComparePage(QWidget):
         layout.setSpacing(8)
 
         # The runs being compared, then where another could be added.
-        tags = QHBoxLayout()
-        tags.setContentsMargins(0, 0, 0, 0)
-        tags.setSpacing(6)
+        self.tag_row = QHBoxLayout()
+        self.tag_row.setContentsMargins(0, 0, 0, 0)
+        self.tag_row.setSpacing(6)
         self.tags = [
             TagChip("Strategy", ACCENT, self),
             TagChip("Random buy", BAND, self),
             TagChip("Buy & hold", TEXT_MUTED, self),
-            TagChip("+ Add", None, self),
         ]
         for chip in self.tags:
-            tags.addWidget(chip)
-        tags.addStretch(1)
-        layout.addLayout(tags)
+            self.tag_row.addWidget(chip)
+        self.add_chip = TagChip("+ Add", None, self)
+        self.add_chip.setToolTip("Add a run from the TP × SL sweep")
+        self.add_chip.clicked.connect(self.toggle_pick_mode)
+        self.tag_row.addWidget(self.add_chip)
+        self.tag_row.addStretch(1)
+        layout.addLayout(self.tag_row)
+        self.extra_chips: list[TagChip] = []
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -207,7 +348,7 @@ class ComparePage(QWidget):
         left.addLayout(self.table)
         body.addLayout(left, 1)
 
-        # Right: the folds, and the sweep.
+        # Right: the folds, then the sweep with its key and a hint.
         rail = QWidget(self)
         rail.setObjectName("resultsRail")
         rail.setFixedWidth(250)
@@ -217,18 +358,108 @@ class ComparePage(QWidget):
 
         self.folds_row = self._stat_row(rail, "Walk-forward (4)")
 
-        sweep_caption = QLabel("TP x SL sweep", rail)
-        sweep_caption.setObjectName("panelTitle")
-        rail_layout.addWidget(sweep_caption)
+        self.sweep_caption = QLabel("TP × SL sweep", rail)
+        self.sweep_caption.setObjectName("panelTitle")
+        rail_layout.addWidget(self.sweep_caption)
+
+        self.sweep_hint = QLabel("SL down · TP across", rail)
+        self.sweep_hint.setObjectName("sweepHint")
+        rail_layout.addWidget(self.sweep_hint)
+
         self.heatmap = SweepHeatmap(rail)
+        self.heatmap.cell_clicked.connect(self._cell_clicked)
+        self.heatmap.cell_hovered.connect(self._cell_hovered)
         rail_layout.addWidget(self.heatmap)
+
+        self.legend = SweepLegend(rail)
+        rail_layout.addWidget(self.legend)
         rail_layout.addStretch(1)
         body.addWidget(rail, 0)
+
+    # -- the chips and the pick mode ---------------------------------------
+
+    def toggle_pick_mode(self) -> None:
+        """Arm or disarm the sweep: a click adds that cell as a run."""
+        self.pick_mode = not self.pick_mode
+        self.add_chip.set_active(self.pick_mode)
+        self.sweep_hint.setText(
+            "Click a cell to add it"
+            if self.pick_mode
+            else "SL down · TP across"
+        )
+
+    def _cell_hovered(self, cell) -> None:
+        if cell is None:
+            self.sweep_hint.setText(
+                "Click a cell to add it"
+                if self.pick_mode
+                else "SL down · TP across"
+            )
+            return
+        tp, sl, value = cell
+        self.sweep_hint.setText(
+            f"TP {tp:g} / SL {sl:g} · {value * 100:+,.2f}%"
+        )
+
+    def _cell_clicked(self, row: int, column: int) -> None:
+        if not self.pick_mode:
+            return
+        self.add_run(SWEEP_TPS[column], SWEEP_SLS[row])
+
+    def add_run(self, tp: float, sl: float) -> None:
+        """Compare the rule at one more TP / SL pair, from the same bars."""
+        if not self._ready():
+            return
+        if any(run["tp"] == tp and run["sl"] == sl for run in self.runs):
+            return
+        report = backtest(self.bars, self.entry, self.exit, tp=tp, sl=sl)
+        colour = RUN_COLOURS[len(self.runs) % len(RUN_COLOURS)]
+        label = f"TP {tp:g} / SL {sl:g}"
+        self.runs.append(
+            {"label": label, "colour": colour, "tp": tp, "sl": sl,
+             "report": report}
+        )
+
+        chip = TagChip(label, colour, self)
+        chip.setToolTip("Click to remove this run")
+        chip.clicked.connect(lambda chip=chip: self.remove_run(chip))
+        self.tag_row.insertWidget(self.tag_row.indexOf(self.add_chip), chip)
+        self.extra_chips.append(chip)
+
+        self.pick_mode = False
+        self.add_chip.set_active(False)
+        self.sweep_hint.setText("SL down · TP across")
+        self._rebuild_table()
+        self._fill_table(self.report)
+        self.chart.set_extra(
+            [(run["colour"], run["report"].strategy) for run in self.runs]
+        )
+
+    def remove_run(self, chip: TagChip) -> None:
+        index = self.extra_chips.index(chip)
+        self.extra_chips.pop(index)
+        self.runs.pop(index)
+        self.tag_row.removeWidget(chip)
+        chip.setParent(None)
+        chip.deleteLater()
+        self._rebuild_table()
+        self._fill_table(self.report)
+        self.chart.set_extra(
+            [(run["colour"], run["report"].strategy) for run in self.runs]
+        )
 
     # -- the table ---------------------------------------------------------
 
     def _build_table(self) -> None:
+        while self.table.count():
+            item = self.table.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._cells = {}
         headers = ("Metric", "Strategy", "Random", "Hold")
+        headers += tuple(run["label"] for run in self.runs)
         for column, title in enumerate(headers):
             label = QLabel(title, self)
             label.setObjectName("tableHead")
@@ -237,14 +468,18 @@ class ComparePage(QWidget):
             caption = QLabel(name, self)
             caption.setObjectName("tableMetric")
             self.table.addWidget(caption, row, 0)
-            for column in range(1, 4):
+            for column in range(1, len(headers)):
                 cell = QLabel("—", self)
                 cell.setObjectName("tableCell")
                 cell.setFont(mono_font(9))
                 self.table.addWidget(cell, row, column)
                 self._cells[(row, column)] = cell
-        for column in range(4):
+        for column in range(len(headers)):
             self.table.setColumnStretch(column, 1)
+
+    def _rebuild_table(self) -> None:
+        self._build_table()
+        self._fill_table(self.report)
 
     def _stat_row(self, parent: QWidget, caption: str) -> QLabel:
         row = QHBoxLayout()
@@ -271,9 +506,23 @@ class ComparePage(QWidget):
         self.report = report
         self.tp = tp
         self.sl = sl
+        self._clear_runs()
         self._dirty = True
         if self.isVisible():
             self.recompute()
+
+    def _clear_runs(self) -> None:
+        while self.extra_chips:
+            chip = self.extra_chips.pop()
+            self.tag_row.removeWidget(chip)
+            chip.setParent(None)
+            chip.deleteLater()
+        self.runs.clear()
+        self.pick_mode = False
+        self.add_chip.set_active(False)
+        self.sweep_hint.setText("SL down · TP across")
+        self._rebuild_table()
+        self.chart.set_extra([])
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
@@ -283,6 +532,9 @@ class ComparePage(QWidget):
     def recompute(self) -> None:
         self._dirty = False
         self.chart.set_report(self.report)
+        self.chart.set_extra(
+            [(run["colour"], run["report"].strategy) for run in self.runs]
+        )
         self._fill_table(self.report)
         self._update_folds()
         self._update_sweep()
@@ -306,7 +558,7 @@ class ComparePage(QWidget):
             return f"{wins / count * 100:,.0f}%"
 
         random_curve, hold_curve = report.random, report.hold
-        rows = [
+        base = [
             ("PnL",
              percent(report.pnl),
              percent(report.return_of(random_curve)),
@@ -324,14 +576,31 @@ class ComparePage(QWidget):
              win_rate(report.random_trades, report.random_wins),
              "—"),
         ]
-        for index, (_key, strategy, random_value, hold) in enumerate(rows, 1):
-            for column, text in enumerate((strategy, random_value, hold), 1):
+        rows = [
+            (index, values[1:] + tuple(self._run_text(index, run["report"])
+                                       for run in self.runs))
+            for index, values in enumerate(base, 1)
+        ]
+        for index, values in rows:
+            for column, text in enumerate(values, 1):
                 cell = self._cells[(index, column)]
                 cell.setText(text)
                 cell.setProperty("tone", self._tone(index, text))
                 style = cell.style()
                 style.unpolish(cell)
                 style.polish(cell)
+
+    @staticmethod
+    def _run_text(row: int, run) -> str:
+        if row == 1:
+            return f"{run.pnl * 100:+,.2f}%"
+        if row == 2:
+            return f"{curve_sharpe(run.strategy):,.2f}"
+        if row == 3:
+            return f"{curve_drawdown(run.strategy, run.capital) * 100:+,.2f}%"
+        return (
+            f"{run.wins / run.trades * 100:,.0f}%" if run.trades else "—"
+        )
 
     @staticmethod
     def _tone(row: int, text: str) -> str:
@@ -368,6 +637,7 @@ class ComparePage(QWidget):
 __all__ = [
     "ComparePage",
     "SweepHeatmap",
+    "SweepLegend",
     "TagChip",
     "sweep_returns",
     "walk_forward",

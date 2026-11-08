@@ -221,7 +221,7 @@ def test_the_tile_has_overview_and_compare(app: QApplication) -> None:
     compare = tile.pages.currentWidget()
     assert compare is tile.compare
     assert compare.isAncestorOf(compare.chart)
-    assert [chip.name() for chip in compare.tags] == [
+    assert [chip.name() for chip in compare.tags + [compare.add_chip]] == [
         "Strategy", "Random buy", "Buy & hold", "+ Add",
     ]
     assert picked == ["compare"]

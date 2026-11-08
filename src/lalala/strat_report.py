@@ -154,6 +154,7 @@ class CurveChart(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.report = None
+        self.extra: list = []
         self.message = "nothing to show yet"
         self.setMinimumHeight(140)
         self.setSizePolicy(
@@ -162,6 +163,11 @@ class CurveChart(QWidget):
 
     def set_report(self, report) -> None:
         self.report = report
+        self.update()
+
+    def set_extra(self, curves) -> None:
+        """Runs added from the sweep: (colour, curve) pairs."""
+        self.extra = list(curves or [])
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -188,9 +194,15 @@ class CurveChart(QWidget):
         strategy = _returns(report.strategy)
         random_buy = _returns(report.random)
         hold = _returns(report.hold)
-        # The scale fits all three curves, so every line is in view.
-        low = min(strategy + random_buy + hold + [0.0])
-        high = max(strategy + random_buy + hold + [0.0])
+        extras = [
+            (colour, _returns(curve)) for colour, curve in self.extra
+        ]
+        # The scale fits every curve, so no line runs out of view.
+        every = strategy + random_buy + hold + [0.0]
+        for _colour, curve in extras:
+            every.extend(curve)
+        low = min(every)
+        high = max(every)
         span = max(high - low, MIN_SPAN)
         low -= span * PAD
         high += span * PAD
@@ -220,13 +232,25 @@ class CurveChart(QWidget):
         for curve, colour, style, weight in (
             (hold, HOLD_COLOUR, Qt.PenStyle.DashLine, 1.0),
             (random_buy, RANDOM_COLOUR, Qt.PenStyle.SolidLine, 1.2),
-            (strategy, STRATEGY_COLOUR, Qt.PenStyle.SolidLine, 1.6),
         ):
             if len(curve) < 2:
                 continue
             painter.setPen(QPen(QColor(colour), weight, style))
             painter.drawPolyline(
                 [QPointF(x_of(i), y_of(v)) for i, v in enumerate(curve)]
+            )
+        # Any runs added from the sweep, behind the main strategy line.
+        for colour, curve in extras:
+            if len(curve) < 2:
+                continue
+            painter.setPen(QPen(QColor(colour), 1.2))
+            painter.drawPolyline(
+                [QPointF(x_of(i), y_of(v)) for i, v in enumerate(curve)]
+            )
+        if len(strategy) >= 2:
+            painter.setPen(QPen(QColor(STRATEGY_COLOUR), 1.6))
+            painter.drawPolyline(
+                [QPointF(x_of(i), y_of(v)) for i, v in enumerate(strategy)]
             )
 
 
