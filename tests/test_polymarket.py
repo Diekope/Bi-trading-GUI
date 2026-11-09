@@ -1136,3 +1136,33 @@ def test_the_panel_paints_before_and_after_data(window: MainWindow) -> None:
     painted = panel.grab().toImage()
     assert not painted.isNull()
     assert painted != empty
+
+
+# -- placing a bet ---------------------------------------------------------
+
+
+def test_a_bet_is_refused_until_connected(window: MainWindow, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    window.polymarket.set_market(market_from_gamma())
+    window.strategy_bar.size.setText("$25")
+
+    window.strategy_bar.bet.emit("up")
+
+    assert "connect" in window.strategy_bar.status.text().lower()
+
+
+def test_a_bet_is_capped_at_the_max_stake(window: MainWindow, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    market = market_from_gamma()
+    window.polymarket.set_market(market)
+    # Give the outcome a price so the bet gets as far as the cap.
+    window.polymarket.apply_book(parse_book(book_payload(UP_TOKEN)))
+    window.strategy_bar.size.setText("$10,000")
+
+    window.strategy_bar.bet.emit("up")
+
+    # Clamped to the default $100 max stake before the connection check.
+    assert window.strategy_bar.size.text() == "$100"
+

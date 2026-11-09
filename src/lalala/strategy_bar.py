@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from lalala.cards import mono_font
 from lalala.panels import Card
+from lalala.theme import DOWN_SOFT, TEXT_MUTED, UP
 
 STRATEGIES = ("Bollinger reversion", "Random buy")
 
@@ -87,6 +88,16 @@ class StrategyBar(Card):
         row.addWidget(self.bet_down)
 
         self.body.addLayout(row)
+
+        self.status = QLabel("")
+        self.status.setObjectName("gl")
+        self.status.setWordWrap(True)
+        self.body.addWidget(self.status)
+
+    def set_status(self, text: str, tone: str = "info") -> None:
+        self.status.setText(text)
+        colour = {"ok": UP, "error": DOWN_SOFT}.get(tone, TEXT_MUTED)
+        self.status.setStyleSheet(f"color: {colour};")
 
     def _reading(self, caption: str, value: str, layout: QHBoxLayout) -> QLabel:
         box = QHBoxLayout()

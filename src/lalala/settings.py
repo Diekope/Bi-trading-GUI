@@ -79,6 +79,7 @@ TEMPLATE = {
         "daily_loss_limit": 200.0,
         "confirm_orders": True,
         "auto_bet": False,
+        "live_orders": False,
     },
     "general": {
         "_comment": "start_page = home | live | builder | backtest; an empty data_folder uses data/candles in the repo",
@@ -187,6 +188,7 @@ class TradingDefaults:
     daily_loss_limit: float = 200.0    # stop after this much is lost
     confirm_orders: bool = True
     auto_bet: bool = False
+    live_orders: bool = False          # off: orders are paper only
 
     @classmethod
     def load(
@@ -226,6 +228,7 @@ class TradingDefaults:
                 values.get("confirm_orders"), defaults.confirm_orders
             ),
             auto_bet=_flag(values.get("auto_bet"), defaults.auto_bet),
+            live_orders=_flag(values.get("live_orders"), defaults.live_orders),
         )
 
 
@@ -424,6 +427,7 @@ def save_trading_defaults(
         "daily_loss_limit": defaults.daily_loss_limit,
         "confirm_orders": defaults.confirm_orders,
         "auto_bet": defaults.auto_bet,
+        "live_orders": defaults.live_orders,
     }
     save_raw(raw, path)
 

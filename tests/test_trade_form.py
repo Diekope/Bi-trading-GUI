@@ -65,3 +65,49 @@ def test_the_shortcuts_set_the_size(app: QApplication) -> None:
     form = TradeForm()
     form.set_size_share(50)
     assert form.size.text() == "$5,000"
+
+
+# -- placing a real order --------------------------------------------------
+
+
+def test_the_form_stays_paper_when_not_connected(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    form = TradeForm()
+    form.set_price(100.0)
+    form.size.setText("$1,000")
+
+    form._trade("LONG")
+
+    assert form.position() is not None  # the paper fallback
+    assert "not connected" in form.status_label.text().lower()
+
+
+def test_the_form_is_a_dry_run_when_connected_but_not_armed(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    from lalala.accounts import (
+        Accounts,
+        HL_KEY,
+        HyperliquidAccount,
+        save_accounts,
+        set_secret,
+    )
+
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    set_secret(HL_KEY, "0x" + "ab" * 32)
+    save_accounts(
+        Accounts(hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20))
+    )
+
+    form = TradeForm()
+    form.set_price(100.0)
+    form.size.setText("$1,000")
+
+    form._trade("LONG")
+
+    assert form.position() is not None  # still paper
+    assert "dry run" in form.status_label.text().lower()

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -44,6 +45,15 @@ log = logging.getLogger(__name__)
 # Latency colour thresholds, milliseconds.
 FAST_MS = 120.0
 OK_MS = 300.0
+
+
+def _stake(text: str) -> float:
+    """Dollars from the stake field: `$20`, `20`, `1,000` all read."""
+    cleaned = text.replace("$", "").replace(",", "").strip()
+    try:
+        return max(0.0, float(cleaned))
+    except ValueError:
+        return 0.0
 
 
 class MainWindow(QMainWindow):
@@ -135,6 +145,8 @@ class MainWindow(QMainWindow):
 
         # The bar under it: the armed strategy, its reading, and the two bets.
         self.strategy_bar = StrategyBar(canvas)
+        self.strategy_bar.bet.connect(self._place_bet)
+        self._bet_wired = False
         layout.addWidget(self.strategy_bar)
         self.setCentralWidget(canvas)
         self.installEventFilter(self)
@@ -274,6 +286,88 @@ class MainWindow(QMainWindow):
         bar.set_bets(
             self.polymarket.up_tile.price, self.polymarket.down_tile.price
         )
+
+    # -- betting -----------------------------------------------------------
+
+    def _bet_price(self, outcome) -> float | None:
+        """The ask you would pay: the live book first, Gamma's quote after."""
+        book = self.polymarket.books.get(outcome.token_id)
+        if book is not None and book.best_ask is not None:
+            return float(book.best_ask)
+        if outcome.best_ask is not None:
+            return float(outcome.best_ask)
+        if outcome.mid is not None:
+            return float(outcome.mid)
+        return None
+
+    def _place_bet(self, side: str) -> None:
+        """A Polymarket bet: real when armed and connected, dry run otherwise."""
+        from lalala.orders import armed, config_for, service
+        from lalala.settings import Settings
+
+        bar = self.strategy_bar
+        market = self.polymarket.market
+        if market is None or len(market.outcomes) < 2:
+            bar.set_status("no market yet")
+            return
+        outcome = market.outcomes[0 if side == "up" else 1]
+        price = self._bet_price(outcome)
+        if not price or price <= 0:
+            bar.set_status("no price yet")
+            return
+
+        trading = Settings.load().trading
+        stake = _stake(bar.bet_size())
+        if stake <= 0:
+            bar.set_status("enter a stake")
+            return
+        if trading.max_stake > 0 and stake > trading.max_stake:
+            stake = trading.max_stake
+            bar.size.setText(f"${stake:,.0f}")
+
+        if config_for("polymarket") is None:
+            bar.set_status("not connected — connect in Settings")
+            return
+        if not armed():
+            bar.set_status("dry run — arm live orders in Settings")
+            return
+        if trading.confirm_orders:
+            answer = QMessageBox.question(
+                self,
+                "Place a real bet",
+                f"Buy {stake / price:g} {outcome.name} shares for ${stake:,.0f} "
+                f"at {price * 100:.0f}¢?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        from lalala.venues.base import Instrument, OrderRequest
+
+        order = OrderRequest(
+            instrument=Instrument(
+                venue="polymarket", symbol=outcome.token_id, tick=0.01, size_step=0.01
+            ),
+            side="buy",
+            price=round(price, 2),
+            size=round(stake / price, 2),
+        )
+        bar.set_status("sending…")
+        svc = service()
+        if not self._bet_wired:
+            svc.placed.connect(self._on_bet_placed)
+            svc.failed.connect(self._on_bet_failed)
+            self._bet_wired = True
+        svc.submit("polymarket", order, config_for("polymarket"))
+
+    def _on_bet_placed(self, venue: str, summary: str) -> None:
+        if venue == "polymarket":
+            self.strategy_bar.set_status(f"filled · {summary}", "ok")
+
+    def _on_bet_failed(self, venue: str, reason: str) -> None:
+        if venue == "polymarket":
+            self.strategy_bar.set_status(reason, "error")
 
     def _on_card_history(self, coin: str, interval: str, before_ms: int) -> None:
         # The main card exists before the feed, so this indirection keeps the

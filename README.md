@@ -49,10 +49,22 @@ The hub's Settings view (the gear in the rail) is live:
   the key and the address and saves.
 - **Backtest defaults** — capital, sizing, TP/SL, cash cap, timeframe and span,
   fees, and Dynamic TP. These seed the backtest window.
-- **Trading defaults** — the trade form's size and leverage.
+- **Trading defaults** — the trade form's size and leverage, the confirm/stake
+  limits, and **live orders** (off by default — see below).
 - **General** — the hub's start page and where downloaded candles live.
 
 `settings.json` is safe to read and sync; the keys never touch it.
+
+### Trading
+
+Orders are **dry-run by default**. The trade form's Buy / Sell and the
+Polymarket column's bet buttons keep a paper position unless you turn on
+**Place real orders** in Settings → Trading defaults *and* the venue is
+connected. With it on, an order still waits for the confirm dialog (unless you
+turn that off), stakes are capped at the max stake, and the order is signed and
+submitted through the venue adapter on a worker thread — the same adapters the
+Connection test uses. The result (fill, rejection, or the reason) shows under
+the buttons. Wiring is in `lalala/orders.py`.
 
 ### Saved state
 
@@ -264,8 +276,8 @@ backfills the line across the visible span; live BTC quotes come from the
 `bbo` channel, because
 `allMids` can be several seconds apart on a quiet book. Books and the tape are
 cleared when the window rolls; the price line keeps rolling. The socket
-reconnects within the same window on a drop. Order placement is deliberately
-not wired — the column is read-only.
+reconnects within the same window on a drop. Bets are placed from the stake row
+under the outcome tiles — dry-run unless live orders are armed (see Trading).
 
 The target is the open of the Hyperliquid bar at the window start. Polymarket
 resolves on Chainlink's BTC/USD TWAP, not on Hyperliquid, so within a few
@@ -305,6 +317,7 @@ src/lalala/
   settings_widgets.py  the Settings builders and the venue connection tester
   settings.py      chart feel from ~/.config/lalala/settings.json + env overrides
   accounts.py      public account settings + the private keys, in the keychain
+  orders.py        placing orders: the worker, the arming gate, the adapters
   positions.py     the one open paper position, shared across the hub's views
   trade_form.py    the size / leverage / buy-sell form under a market's chart
   strat.py         entry point for the blank backtest/strategy window

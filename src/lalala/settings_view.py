@@ -416,11 +416,13 @@ class SettingsView(QWidget):
 
         self._td_confirm = _check("Confirm before placing an order", True)
         self._td_auto = _check("Auto-bet when a strategy is armed", False)
+        self._td_live = _check("Place real orders (off = dry run)", False)
         checks = QHBoxLayout()
         checks.setContentsMargins(0, 0, 0, 0)
         checks.setSpacing(24)
         checks.addWidget(self._td_confirm)
         checks.addWidget(self._td_auto)
+        checks.addWidget(self._td_live)
         checks.addStretch(1)
         body.addLayout(checks)
         return card
@@ -552,6 +554,7 @@ class SettingsView(QWidget):
         self._bt_dynamic.box.toggled.connect(self._mark_dirty)
         self._td_confirm.box.toggled.connect(self._mark_dirty)
         self._td_auto.box.toggled.connect(self._mark_dirty)
+        self._td_live.box.toggled.connect(self._mark_dirty)
 
     def _fill_backtest(self, defaults: BacktestDefaults) -> None:
         self._bt_capital.edit.setText(_number_text(defaults.initial_capital))
@@ -581,6 +584,7 @@ class SettingsView(QWidget):
         self._td_loss.edit.setText(_number_text(defaults.daily_loss_limit))
         self._td_confirm.box.setChecked(defaults.confirm_orders)
         self._td_auto.box.setChecked(defaults.auto_bet)
+        self._td_live.box.setChecked(defaults.live_orders)
 
     def _fill_general(self, settings: GeneralSettings) -> None:
         self._gen_start.combo.setCurrentText(
@@ -689,6 +693,7 @@ class SettingsView(QWidget):
             ),
             confirm_orders=self._td_confirm.box.isChecked(),
             auto_bet=self._td_auto.box.isChecked(),
+            live_orders=self._td_live.box.isChecked(),
         )
 
     def _general_values(self) -> GeneralSettings:
