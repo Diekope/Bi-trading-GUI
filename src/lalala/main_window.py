@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,

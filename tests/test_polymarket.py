@@ -952,7 +952,7 @@ def test_a_new_window_clears_the_book_and_tape_but_keeps_the_line(
     panel.set_window_prices(78_000.0, (PricePoint(first.start_ms, 78_000.0),))
     panel.set_btc(78_100.0)
     assert panel.points
-    points, target = panel.points, panel.target
+    points = panel.points
 
     second = market_from_gamma(slug="btc-updown-5m-1793734500")
     panel.set_market(second)

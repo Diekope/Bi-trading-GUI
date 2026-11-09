@@ -14,8 +14,6 @@ from PySide6.QtWidgets import (  # noqa: E402
     QComboBox,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
     QScrollArea,
 )
 

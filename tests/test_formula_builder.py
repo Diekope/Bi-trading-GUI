@@ -681,7 +681,7 @@ def test_a_long_line_wraps_instead_of_clipping(
 
 
 def test_the_chip_carries_its_token() -> None:
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     builder = FormulaBuilder()
     chip = Chip("close", builder)
     assert chip.token == "close"

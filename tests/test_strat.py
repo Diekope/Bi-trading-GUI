@@ -379,7 +379,6 @@ def test_the_strategy_tile_lists_saved_strategies(
 ) -> None:
     import json
 
-    from lalala import strategies
 
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
     (tmp_path / "strategies.json").write_text(
@@ -630,7 +629,6 @@ def test_the_gallery_wraps_by_width(app: QApplication) -> None:
         NARROW_COLUMNS,
         WIDE_AT,
         WIDE_COLUMNS,
-        ParamsTile,
     )
 
     # The wrapping is the tile's own, so test it on a tile of its own — in the
@@ -717,4 +715,21 @@ def test_the_reverse_field_follows_the_dynamic_switch(window) -> None:
     assert tile.reverse_element.isEnabled() is True
     assert tile.params()["dynamic_tp"] is True
     assert tile.params()["dyn_tp_reverse"] == 0.5
+
+
+def test_every_input_marks_the_tile_changed(window) -> None:
+    # The run reads the tile's values only when `changed` fires; a field that
+    # stays silent leaves the run pointed at a stale value.
+    tile = window.params
+    seen = []
+    tile.changed.connect(lambda: seen.append(1))
+
+    tile.fee_field.setText("0.5")
+    assert len(seen) == 1
+
+    tile.reverse_field.setText("3")
+    assert len(seen) == 2
+
+    tile.dynamic_tp.setChecked(True)
+    assert len(seen) == 3
 

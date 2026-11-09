@@ -9,29 +9,71 @@ column tracks the current Polymarket five-minute BTC up/down market.
 
 ```sh
 uv sync          # PySide6, httpx, websockets
-uv run lalala
+uv run lalala-hub
 ```
 
-A second window, split in two empty halves, is set aside for the
-backtest/strategy work:
+`lalala-hub` is the entry point: one window with a folded icon rail down the
+left and, on the right, whichever view the rail has selected — Home, Live, the
+strategy builder, the backtest engine or Settings. The rail swaps the view
+**in place** (the old one is destroyed, a new one built), so Live, the builder
+and the backtest (and Settings) run inside the hub rather than in extra
+top-level windows. Colour-coded venue dots sit at the bottom of the rail, over
+a light-red quit button.
+
+The other windows can still be launched on their own:
 
 ```sh
-uv run lalala-strat
+uv run lalala          # the terminal alone (Polymarket column + Hyperliquid candles)
+uv run lalala-strat    # the backtest/strategy window
+uv run lalala-builder  # the strategy builder
 ```
 
-The strategy builder is a third window for now, split into three vertical tiles
-at 21 / 47 / 32 of the width and launched on its own so it can be worked on
-without the backtest window:
+The venue SDKs — needed only to place orders or test a connection — stay out of
+the default install, so the GUI opens with no credentials, network or wallet
+keys present. Add them when you want them:
 
 ```sh
-uv run lalala-builder
+uv sync --extra venues   # hyperliquid-python-sdk, py-clob-client, eth-account
 ```
+
+### Settings
+
+The hub's Settings view (the gear in the rail) is live:
+
+- **Accounts** — a Hyperliquid API-wallet address + key, and a Polymarket key +
+  funder address. Addresses, network and signature type go to
+  `~/.config/lalala/settings.json`; private keys go to the **macOS Keychain**
+  (a `0600` `secrets.json` is the fallback elsewhere, and in tests). **Test
+  connection** really connects through the venue adapters and reports the
+  balance or the reason it failed. **Disconnect** signs a venue out — it drops
+  the key and the address and saves.
+- **Backtest defaults** — capital, sizing, TP/SL, cash cap, timeframe and span,
+  fees, and Dynamic TP. These seed the backtest window.
+- **Trading defaults** — the trade form's size and leverage.
+- **General** — the hub's start page and where downloaded candles live.
+
+`settings.json` is safe to read and sync; the keys never touch it.
+
+### Saved state
+
+`~/.config/lalala/` holds `settings.json`, `strategies.json`, `runs.json` and
+the key store. Point these elsewhere with `LALALA_SETTINGS`, `LALALA_SECRETS`,
+`LALALA_STRATEGIES` and `LALALA_RUNS`; `LALALA_KEYCHAIN=0` forces the file
+store, and `LALALA_DATA` overrides the candle folder.
 
 Tests (headless, no network, no sockets):
 
 ```sh
 uv run pytest -q
 ```
+
+Lint and tests, exactly as CI runs them:
+
+```sh
+uv run ruff check src tests
+uv run pytest -q
+```
+
 
 The images in this file live in `docs/images/`; regenerate them offscreen with:
 
@@ -254,7 +296,17 @@ dependency.
 src/lalala/
   app.py           QApplication bootstrap
   theme.py         colours + the whole stylesheet (app-level, so popups inherit)
+  palette.py       the hub's palette (shared by the hub and Settings)
+  fonts.py         the bundled Inter / JetBrains Mono, registered at startup
   logs.py          the silent log: a rotating file, never the console
+  main_hub.py      the hub window: rail, in-place views, feed wiring
+  hub_widgets.py   the hub's small builders and paint-it-yourself widgets
+  settings_view.py the Settings screen: accounts, defaults, safety limits
+  settings_widgets.py  the Settings builders and the venue connection tester
+  settings.py      chart feel from ~/.config/lalala/settings.json + env overrides
+  accounts.py      public account settings + the private keys, in the keychain
+  positions.py     the one open paper position, shared across the hub's views
+  trade_form.py    the size / leverage / buy-sell form under a market's chart
   strat.py         entry point for the blank backtest/strategy window
   strat_window.py  second window: run + inputs on top, results below
   strat_tiles.py   the history tile: span picker, resolution, coverage, actions
@@ -268,6 +320,7 @@ src/lalala/
   formula.py       the entry/exit formula language: parse and check (no Qt)
   formula_eval.py  run a formula over bars: indicators, signals, the walk
   formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
+  formula_palettes.py the builder's palettes: the sources you drag from
   strat_report.py the right rail: the rule run over the candles on disk
   strategies.py    saved strategies: one JSON file, read and replaced by name
   runs.py          saved backtest runs: span, params, strategy and trades
@@ -289,7 +342,7 @@ src/lalala/
     hyperliquid.py  authenticated REST/WS adapter (orders, balances)
     polymarket.py   CLOB adapter (orders, books)
     runner.py       asyncio loop on a worker thread
-tests/             430 tests: parsing/search/aliases, slug math, candle + book
+tests/             ~520 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
                    strategy window and its tiles, the streaming walk over a
@@ -300,7 +353,9 @@ tests/             430 tests: parsing/search/aliases, slug math, candle + book
                    saves a draft, the saved strategies file, the drag-and-drop
                    formula builder, the formula language, its evaluator, the
                    results tile, the chart and backtest settings, the silent
-                   log, and the candle store and downloader
+                   log, and the candle store and downloader, the hub and its
+                   in-place navigation, the paper position, and the Settings
+                   screen and its account store
 
 Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
 `BTC-<year>-1m.csv`, with a header row and columns

@@ -21,9 +21,6 @@ from dataclasses import dataclass, field
 
 from lalala.formula import (
     ENTRY_FIELDS,
-    EXIT_FIELDS,
-    FIELDS,
-    FUNCTIONS,
     Assignment,
     Binary,
     Call,
@@ -292,7 +289,6 @@ def _constant(value: float, length: int):
 
 
 def _arity(node) -> int:
-    name = node.func
     return len(node.args)
 
 

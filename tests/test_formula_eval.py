@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FIELDS, FUNCTIONS, parse
+from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FUNCTIONS, parse
 from lalala.formula_eval import (
     backtest,
     bar_context,

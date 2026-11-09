@@ -35,4 +35,21 @@ packages = ["src/lalala"]
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+exclude = ["rust", "src/lalala/fonts"]
+
+[tool.ruff.lint]
+# A conservative set: real errors (undefined names, unused imports, bad syntax)
+# without demanding a restyle of a hand-written codebase.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E501", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

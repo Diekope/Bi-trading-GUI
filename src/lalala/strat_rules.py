@@ -31,18 +31,13 @@ from lalala.autocomplete import CodeEdit, vocabulary
 from lalala.syntax import FormulaHighlighter, defined_names
 from lalala.formula import (
     ENTRY_FIELDS,
-    EXIT_FIELDS,
-    EXIT_FUNCTIONS,
-    FIELDS,
     FIELD_NOTES,
     FUNCTIONS,
     FUNCTION_NOTES,
     FormulaError,
 )
 from lalala.formula_builder import (
-    EXIT_PALETTES,
     PALETTES,
-    FlowHolder,
     FormulaBuilder,
 )
 from lalala.panels import Card

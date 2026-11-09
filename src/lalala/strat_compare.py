@@ -35,7 +35,6 @@ from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FormulaError, parse
 from lalala.formula_eval import (
     backtest,
     curve_drawdown,
-    curve_return,
     curve_sharpe,
 )
 from lalala.strat_report import CurveChart

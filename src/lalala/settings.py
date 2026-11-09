@@ -121,10 +121,10 @@ class BacktestDefaults:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
-        for field in fields(cls):
-            override = environment.get(f"LALALA_BACKTEST_{field.name.upper()}")
+        for spec in fields(cls):
+            override = environment.get(f"LALALA_BACKTEST_{spec.name.upper()}")
             if override is not None:
-                values[field.name] = override
+                values[spec.name] = override
 
         defaults = cls()
         latest = datetime.now(tz=timezone.utc).year
@@ -197,10 +197,10 @@ class TradingDefaults:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
-        for field in fields(cls):
-            override = environment.get(f"LALALA_TRADING_{field.name.upper()}")
+        for spec in fields(cls):
+            override = environment.get(f"LALALA_TRADING_{spec.name.upper()}")
             if override is not None:
-                values[field.name] = override
+                values[spec.name] = override
 
         defaults = cls()
         return cls(
@@ -245,10 +245,10 @@ class GeneralSettings:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
-        for field in fields(cls):
-            override = environment.get(f"LALALA_GENERAL_{field.name.upper()}")
+        for spec in fields(cls):
+            override = environment.get(f"LALALA_GENERAL_{spec.name.upper()}")
             if override is not None:
-                values[field.name] = override
+                values[spec.name] = override
 
         defaults = cls()
         page = str(values.get("start_page", defaults.start_page)).strip().lower()
@@ -303,20 +303,20 @@ class Settings:
         if isinstance(loaded, dict):
             values.update(loaded)
 
-        for field in fields(cls):
-            if field.name in NESTED_SECTIONS:
+        for spec in fields(cls):
+            if spec.name in NESTED_SECTIONS:
                 continue
-            override = environment.get(f"LALALA_{field.name.upper()}")
+            override = environment.get(f"LALALA_{spec.name.upper()}")
             if override is not None:
-                values[field.name] = override
+                values[spec.name] = override
 
         defaults = cls()
         numbers: dict[str, float] = {}
-        for field in fields(cls):
-            if field.name in NESTED_SECTIONS:
+        for spec in fields(cls):
+            if spec.name in NESTED_SECTIONS:
                 continue
-            numbers[field.name] = _number(
-                values.get(field.name), getattr(defaults, field.name)
+            numbers[spec.name] = _number(
+                values.get(spec.name), getattr(defaults, spec.name)
             )
 
         # Dependent bounds, applied after the individual clamps.

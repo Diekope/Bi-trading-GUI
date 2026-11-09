@@ -360,6 +360,8 @@ class Playback:
         total: int | None = None,
         stride: int = 1,
         entries=None,
+        dynamic_tp: bool = False,
+        reverse: float = 0.0,
     ) -> None:
         self._feed_factory = _feed_factory(candles)
         if total is None:
@@ -380,6 +382,8 @@ class Playback:
         self.rule = rule
         self.seed = seed
         self.entry_chance = entry_chance
+        self.dynamic_tp = dynamic_tp
+        self.reverse = reverse
         self.reset()
 
     # -- state -------------------------------------------------------------
@@ -398,6 +402,7 @@ class Playback:
         self.entry_notional = 0.0
         self.entry_fee = 0.0
         self.entry_cost = 0.0
+        self._peak = 0.0
         self._path: list[float] = []
         self.peak = self.capital
         self.max_drawdown = 0.0
@@ -666,6 +671,12 @@ class Playback:
         deployable = min(self.cash, self.max_cash)
         if self.sizing == "fixed":
             return max(0.0, min(self.position, deployable))
+        if self.sizing == "risk":
+            # A stop-out should cost `position` percent of the cash in play.
+            if self.sl > 0:
+                risk = deployable * max(0.0, self.position) / self.sl
+                return max(0.0, min(risk, deployable))
+            return deployable
         return deployable * max(0.0, self.position) / 100.0
 
     def _enter(self, candle: Candle) -> None:
@@ -682,6 +693,7 @@ class Playback:
         self.entry_notional = notional
         self.entry_fee = cost
         self.entry_cost = notional + cost
+        self._peak = candle.high
         self._path = [candle.close]
         self.markers.append((self.index, "in", candle.close))
 
@@ -689,6 +701,9 @@ class Playback:
         self._path.append(candle.close)
         target = self.entry_price * (1.0 + self.tp / 100.0)
         stop = self.entry_price * (1.0 - self.sl / 100.0)
+        if self.dynamic_tp and self.reverse > 0.0:
+            self._peak = max(self._peak, candle.high)
+        trail = self._peak * (1.0 - self.reverse / 100.0) if self._peak else 0.0
         price: float | None = None
         reason = "time"
         if self.tp > 0 and candle.high >= target:
@@ -697,6 +712,14 @@ class Playback:
         elif self.sl > 0 and candle.low <= stop:
             price = stop
             reason = "sl"
+        elif (
+            self.dynamic_tp
+            and self.reverse > 0
+            and self._peak > self.entry_price
+            and candle.low <= trail
+        ):
+            price = trail
+            reason = "tp"
         elif self.index - self.entry_index >= self.max_hold:
             price = candle.close
             reason = "time"
@@ -977,6 +1000,7 @@ class BacktestSession:
                 list(entries[:target]),
                 s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
                 s["max_cash"], s["fee"], 90,
+                s.get("dynamic_tp", False), s.get("reverse", 0.0),
             )
 
         strategy_trades, strategy_equity = run(self.strategy_entries)
@@ -1006,6 +1030,8 @@ def _walk_settings(params: dict) -> dict:
         "max_cash": float(params["cash"] or 0.0),
         # The tile takes a percent; the walk a fraction per side.
         "fee": float(params.get("fee") or 0.0) / 100.0,
+        "dynamic_tp": bool(params.get("dynamic_tp")),
+        "reverse": float(params.get("dyn_tp_reverse") or 0.0),
     }
 
 

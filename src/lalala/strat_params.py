@@ -163,12 +163,15 @@ class ParamsTile(Card):
 
         self.sizing.currentTextChanged.connect(self._on_sizing_changed)
         self.dynamic_tp.toggled.connect(self._apply_dynamic)
+        self.dynamic_tp.toggled.connect(self.changed)
         for field in (
             self.initial_capital,
             self.position,
             self.tp_field,
             self.sl_field,
             self.cash_field,
+            self.fee_field,
+            self.reverse_field,
         ):
             field.textChanged.connect(self.changed)
 

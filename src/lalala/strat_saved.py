@@ -38,7 +38,6 @@ from lalala.formula_eval import backtest
 from lalala.panels import Card
 from lalala.strat_report import PREVIEW_SL, PREVIEW_TP, load_bars
 from lalala.strategies import SavedStrategy
-from lalala.theme import DOWN, UP
 
 # How a row's badge reads when the draft has not been saved yet.
 DRAFT_BADGE = "draft"

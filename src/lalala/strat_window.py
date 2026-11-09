@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lalala.panels import Card
 from lalala.strat_params import ParamsTile
 from lalala.strat_playback import PlaybackTile
 from lalala.strat_results import ResultsTile

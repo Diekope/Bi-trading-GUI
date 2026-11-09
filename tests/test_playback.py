@@ -231,8 +231,7 @@ def test_the_window_never_grows_past_the_chart() -> None:
 
 
 def test_the_core_drives_a_seek_like_the_python_walk() -> None:
-    from lalala import core
-    from lalala.strat_playback import Playback, build_session, sample_candles
+    from lalala.strat_playback import build_session
 
     params = {
         "initial_capital": 10_000.0, "tp": 2.0, "sl": 1.0, "position": 10.0,

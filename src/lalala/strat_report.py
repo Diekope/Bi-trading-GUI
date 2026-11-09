@@ -49,7 +49,6 @@ from lalala.theme import (
     BORDER,
     DOWN,
     PANEL_ALT,
-    TEXT,
     TEXT_FAINT,
     TEXT_MUTED,
     UP,
