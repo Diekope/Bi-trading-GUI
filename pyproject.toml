@@ -21,6 +21,7 @@ venues = [
 
 [project.scripts]
 lalala = "lalala.__main__:main"
+lalala-hub = "lalala.main_hub:run"
 lalala-strat = "lalala.strat:run"
 lalala-builder = "lalala.strat_builder:run"
 

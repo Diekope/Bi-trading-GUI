@@ -32,6 +32,8 @@ UP = "#3ddc84"
 DOWN = "#ff5c5c"
 DOWN_DIM = "#5a2626"    # red border for a destructive control
 DOWN_BG = "#2a1414"     # red fill for the same
+DOWN_SOFT = "#ff8a8a"   # light red: the exit affordance, softer than DOWN
+DOWN_SOFT_BG = "#2c1a1a"  # light-red tint behind a hovered exit control
 BAND = "#6f7bd8"        # Bollinger bands, deliberately quieter than ACCENT
 
 STYLESHEET = f"""
@@ -1440,9 +1442,20 @@ QCheckBox#overlayToggle::indicator:checked {{
 
 def apply_dark_theme(app: QApplication) -> None:
     """Apply palette and stylesheet to an application instance."""
+    # The design's two families ship with the package (see lalala.fonts):
+    # Inter for the interface, JetBrains Mono for the numbers. Register them
+    # and make Inter the default face.
+    from lalala.fonts import UI_FAMILY, load_fonts
+
+    load_fonts()
+
     # Fusion is the only built-in style that honours a custom palette on macOS;
     # the native style ignores most colour roles.
     app.setStyle("Fusion")
+
+    base = app.font()
+    base.setFamily(UI_FAMILY)
+    app.setFont(base)
 
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(CANVAS))

@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lalala.cards import mono_font
+from lalala.cards import mono_font, ui_font
 from lalala.panels import Card
 from lalala.settings import Settings
 from lalala.polymarket_data import (
@@ -343,7 +343,7 @@ class PriceChart(QWidget):
         width = float(self.width())
         height = float(self.height())
 
-        painter.setFont(mono_font(8, bold=True))
+        painter.setFont(ui_font(8, bold=True))
         painter.setPen(QColor(TEXT_FAINT))
         painter.drawText(
             QRectF(0, 0, width, 14),
@@ -598,7 +598,7 @@ class TradeTape(QWidget):
         width = float(self.width())
         height = float(self.height())
 
-        painter.setFont(mono_font(8, bold=True))
+        painter.setFont(ui_font(8, bold=True))
         painter.setPen(QColor(TEXT_FAINT))
         painter.drawText(
             QRectF(0, 0, width, 14),
@@ -687,7 +687,7 @@ class PolymarketPanel(Card):
         header.setSpacing(6)
 
         self.title_label = QLabel("POLYMARKET")
-        title_font = QFont(mono_font(8, bold=True))
+        title_font = QFont(ui_font(8, bold=True))
         title_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
         self.title_label.setFont(title_font)
         self.title_label.setStyleSheet(f"color: {TEXT_MUTED}; background: transparent;")
@@ -734,7 +734,7 @@ class PolymarketPanel(Card):
         )
 
         close_caption = QLabel("closes in")
-        close_caption.setFont(mono_font(8))
+        close_caption.setFont(ui_font(8))
         close_caption.setStyleSheet(
             f"color: {TEXT_FAINT}; background: transparent;"
         )
@@ -851,7 +851,7 @@ class PolymarketPanel(Card):
         grid: QGridLayout, row: int, column: int, caption: str
     ) -> QLabel:
         label = QLabel(caption)
-        label.setFont(mono_font(7))
+        label.setFont(ui_font(7))
         label.setStyleSheet(f"color: {TEXT_FAINT}; background: transparent;")
         value = QLabel("—")
         value.setFont(mono_font(9, bold=True))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -27,6 +28,20 @@ def test_size_and_leverage_give_the_margin(app: QApplication) -> None:
     assert form.margin() == pytest.approx(1_000.0)
     assert form.leverage_value.text() == "4×"
     assert "1,000" in form.margin_label.text()
+
+
+def test_the_form_starts_from_the_saved_trading_defaults(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"trading": {"size": 1_500, "leverage": 7}}))
+    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+
+    form = TradeForm()
+
+    assert form.size.text() == "$1,500"
+    assert form.leverage.value() == 7
+    assert form.leverage_value.text() == "7×"
 
 
 def test_a_position_follows_the_price(app: QApplication) -> None:

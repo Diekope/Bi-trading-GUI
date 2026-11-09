@@ -18,13 +18,20 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
+from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_PATH = "~/.config/lalala/settings.json"
 
 # Position sizing modes; the tile reads the value as whatever this names.
 SIZING_MODES = ("balance", "fixed", "risk")
+
+# Resolutions the backtest compactor can produce (1m bars on disk).
+TIMEFRAMES: tuple[str, ...] = ("1m", "3m", "5m", "15m", "30m", "1h")
+
+# History starts here: the venues' pre-2017 coverage is thin.
+FIRST_YEAR = 2017
 
 # A file in this shape is written when none exists. The underscore keys are
 # ignored by the loader; they are there for the human who opens the file.
@@ -53,6 +60,30 @@ TEMPLATE = {
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "sizing": "balance",
+        "timeframe": "1m",
+        "start_year": FIRST_YEAR,
+        "end_year": datetime.now(tz=timezone.utc).year,
+    },
+    "accounts": {
+        "_comment": "Public addresses only; private keys live in the system keychain (see Settings).",
+        "hyperliquid": {"address": "", "testnet": False},
+        "polymarket": {"address": "", "signature_type": 0},
+    },
+    "trading": {
+        "_comment": "The trade form's starting values; margin = isolated | cross",
+        "leverage": 5,
+        "margin_mode": "isolated",
+        "size": 3_780.0,
+        "polymarket_stake": 20.0,
+        "max_stake": 100.0,
+        "daily_loss_limit": 200.0,
+        "confirm_orders": True,
+        "auto_bet": False,
+    },
+    "general": {
+        "_comment": "start_page = home | live | builder | backtest; an empty data_folder uses data/candles in the repo",
+        "start_page": "home",
+        "data_folder": "",
     },
 }
 
@@ -75,6 +106,11 @@ class BacktestDefaults:
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     sizing: str = "balance"            # balance % | fixed $ | risk %
+    timeframe: str = "1m"              # resolution the 1m bars compact to
+    start_year: int = FIRST_YEAR       # first year of history
+    end_year: int = field(
+        default_factory=lambda: datetime.now(tz=timezone.utc).year
+    )
 
     @classmethod
     def load(
@@ -91,6 +127,28 @@ class BacktestDefaults:
                 values[field.name] = override
 
         defaults = cls()
+        latest = datetime.now(tz=timezone.utc).year
+        start = int(
+            _clamp(
+                _number(values.get("start_year"), defaults.start_year),
+                FIRST_YEAR,
+                latest,
+            )
+        )
+        end = int(
+            _clamp(
+                _number(values.get("end_year"), defaults.end_year),
+                FIRST_YEAR,
+                latest,
+            )
+        )
+        if start > end:
+            start, end = end, start
+
+        timeframe = values.get("timeframe")
+        if timeframe not in TIMEFRAMES:
+            timeframe = defaults.timeframe
+
         return cls(
             initial_capital=_clamp(
                 _number(values.get("initial_capital"), defaults.initial_capital),
@@ -111,7 +169,102 @@ class BacktestDefaults:
                 100.0,
             ),
             sizing=_choice(values.get("sizing"), defaults.sizing),
+            timeframe=timeframe,
+            start_year=start,
+            end_year=end,
         )
+
+
+@dataclass(frozen=True)
+class TradingDefaults:
+    """What the trade form opens with. Nothing sends orders yet."""
+
+    leverage: int = 5
+    margin_mode: str = "isolated"      # isolated | cross
+    size: float = 3_780.0              # default order size, USD
+    polymarket_stake: float = 20.0     # dollars per bet
+    max_stake: float = 100.0           # most per bet
+    daily_loss_limit: float = 200.0    # stop after this much is lost
+    confirm_orders: bool = True
+    auto_bet: bool = False
+
+    @classmethod
+    def load(
+        cls,
+        raw: object,
+        environment: dict[str, str] | None = None,
+    ) -> "TradingDefaults":
+        environment = os.environ if environment is None else environment
+        values = dict(raw) if isinstance(raw, dict) else {}
+
+        for field in fields(cls):
+            override = environment.get(f"LALALA_TRADING_{field.name.upper()}")
+            if override is not None:
+                values[field.name] = override
+
+        defaults = cls()
+        return cls(
+            leverage=int(
+                _clamp(_number(values.get("leverage"), defaults.leverage), 1, 20)
+            ),
+            margin_mode=_margin(values.get("margin_mode"), defaults.margin_mode),
+            size=_clamp(_number(values.get("size"), defaults.size), 0.0, 1e12),
+            polymarket_stake=_clamp(
+                _number(values.get("polymarket_stake"), defaults.polymarket_stake),
+                0.0,
+                1e12,
+            ),
+            max_stake=_clamp(
+                _number(values.get("max_stake"), defaults.max_stake), 0.0, 1e12
+            ),
+            daily_loss_limit=_clamp(
+                _number(values.get("daily_loss_limit"), defaults.daily_loss_limit),
+                0.0,
+                1e12,
+            ),
+            confirm_orders=_flag(
+                values.get("confirm_orders"), defaults.confirm_orders
+            ),
+            auto_bet=_flag(values.get("auto_bet"), defaults.auto_bet),
+        )
+
+
+@dataclass(frozen=True)
+class GeneralSettings:
+    """The start page and where the downloaded candles live."""
+
+    start_page: str = "home"           # home | live | builder | backtest
+    data_folder: str = ""              # empty = data/candles in the repo
+
+    @classmethod
+    def load(
+        cls,
+        raw: object,
+        environment: dict[str, str] | None = None,
+    ) -> "GeneralSettings":
+        environment = os.environ if environment is None else environment
+        values = dict(raw) if isinstance(raw, dict) else {}
+
+        for field in fields(cls):
+            override = environment.get(f"LALALA_GENERAL_{field.name.upper()}")
+            if override is not None:
+                values[field.name] = override
+
+        defaults = cls()
+        page = str(values.get("start_page", defaults.start_page)).strip().lower()
+        if page not in START_PAGES:
+            page = defaults.start_page
+        folder = values.get("data_folder", defaults.data_folder)
+        return cls(
+            start_page=page,
+            data_folder=folder.strip() if isinstance(folder, str) else "",
+        )
+
+
+START_PAGES = ("home", "live", "builder", "backtest")
+
+# Sub-sections with their own loader; the top-level numeric pass skips them.
+NESTED_SECTIONS = ("backtest", "trading", "general")
 
 
 @dataclass(frozen=True)
@@ -126,6 +279,8 @@ class Settings:
     ease_range: float = 0.08        # per-frame glide of the y-scale
     frame_ms: int = 33              # repaint interval (~30 fps)
     backtest: BacktestDefaults = BacktestDefaults()
+    trading: TradingDefaults = TradingDefaults()
+    general: GeneralSettings = GeneralSettings()
 
     def edge_px_per_s(self, width_px: float) -> float:
         """How fast the live edge travels, for a given plot width."""
@@ -149,7 +304,7 @@ class Settings:
             values.update(loaded)
 
         for field in fields(cls):
-            if field.name == "backtest":
+            if field.name in NESTED_SECTIONS:
                 continue
             override = environment.get(f"LALALA_{field.name.upper()}")
             if override is not None:
@@ -158,7 +313,7 @@ class Settings:
         defaults = cls()
         numbers: dict[str, float] = {}
         for field in fields(cls):
-            if field.name == "backtest":
+            if field.name in NESTED_SECTIONS:
                 continue
             numbers[field.name] = _number(
                 values.get(field.name), getattr(defaults, field.name)
@@ -196,6 +351,8 @@ class Settings:
             ease_range=numbers["ease_range"],
             frame_ms=int(numbers["frame_ms"]),
             backtest=BacktestDefaults.load(values.get("backtest"), environment),
+            trading=TradingDefaults.load(values.get("trading"), environment),
+            general=GeneralSettings.load(values.get("general"), environment),
         )
 
 
@@ -210,6 +367,85 @@ def ensure_file(path: Path | str | None = None) -> Path:
     except OSError:
         pass  # a read-only home is not a reason to refuse to start
     return target
+
+
+def load_raw(path: Path | str | None = None) -> dict[str, object]:
+    """The settings file as a dictionary; broken files read as empty."""
+    target = settings_path() if path is None else Path(path)
+    try:
+        loaded = json.loads(target.read_text())
+    except (OSError, ValueError):
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def save_raw(raw: dict[str, object], path: Path | str | None = None) -> None:
+    """Write the dictionary atomically, creating its folder if needed."""
+    target = settings_path() if path is None else Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp = target.with_suffix(target.suffix + ".tmp")
+    temp.write_text(json.dumps(raw, indent=2) + "\n")
+    os.replace(temp, target)
+
+
+def save_backtest_defaults(
+    defaults: BacktestDefaults, path: Path | str | None = None
+) -> None:
+    """Persist the backtest card, preserving the rest of the file."""
+    raw = load_raw(path)
+    raw["backtest"] = {
+        "initial_capital": defaults.initial_capital,
+        "tp": defaults.tp,
+        "sl": defaults.sl,
+        "position": defaults.position,
+        "cash": defaults.cash,
+        "fee": defaults.fee,
+        "dynamic_tp": defaults.dynamic_tp,
+        "dyn_tp_reverse": defaults.dyn_tp_reverse,
+        "sizing": defaults.sizing,
+        "timeframe": defaults.timeframe,
+        "start_year": defaults.start_year,
+        "end_year": defaults.end_year,
+    }
+    save_raw(raw, path)
+
+
+def save_trading_defaults(
+    defaults: TradingDefaults, path: Path | str | None = None
+) -> None:
+    """Persist the trading card, preserving the rest of the file."""
+    raw = load_raw(path)
+    raw["trading"] = {
+        "leverage": defaults.leverage,
+        "margin_mode": defaults.margin_mode,
+        "size": defaults.size,
+        "polymarket_stake": defaults.polymarket_stake,
+        "max_stake": defaults.max_stake,
+        "daily_loss_limit": defaults.daily_loss_limit,
+        "confirm_orders": defaults.confirm_orders,
+        "auto_bet": defaults.auto_bet,
+    }
+    save_raw(raw, path)
+
+
+def save_general(general: GeneralSettings, path: Path | str | None = None) -> None:
+    """Persist the general card, preserving the rest of the file."""
+    raw = load_raw(path)
+    raw["general"] = {
+        "start_page": general.start_page,
+        "data_folder": general.data_folder,
+    }
+    save_raw(raw, path)
+
+
+def configured_data_folder() -> str:
+    """`general.data_folder`, or an empty string for the built-in location."""
+    general = load_raw().get("general")
+    if isinstance(general, dict):
+        value = general.get("data_folder")
+        if isinstance(value, str):
+            return value.strip()
+    return ""
 
 
 def _number(value: object, fallback: float) -> float:
@@ -231,6 +467,10 @@ def _flag(value: object, fallback: bool) -> bool:
 
 def _choice(value: object, fallback: str) -> str:
     return value if value in SIZING_MODES else fallback
+
+
+def _margin(value: object, fallback: str) -> str:
+    return value.lower() if isinstance(value, str) and value.lower() in ("isolated", "cross") else fallback
 
 
 def _clamp(value: float, low: float, high: float) -> float:

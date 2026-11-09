@@ -14,7 +14,6 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QFontDatabase,
     QPainter,
     QPen,
     QPolygonF,
@@ -45,6 +44,7 @@ from lalala.market_data import (
 )
 from lalala.trade_form import TradeForm
 from lalala.panels import Card
+from lalala.fonts import MONO_FAMILY, UI_FAMILY
 from lalala.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, UP
 
 
@@ -56,17 +56,32 @@ def format_axis_time(stamp_ms: int, interval: str) -> str:
     return moment.strftime("%H:%M")
 
 
-_FONTS: dict[tuple[int, bool], QFont] = {}
+_FONTS: dict[tuple, QFont] = {}
 
 
 def mono_font(points: int = 12, bold: bool = False) -> QFont:
-    """Cached fixed-width font. Callers must `QFont(font)` before mutating it."""
+    """Cached JetBrains Mono, for numbers. Callers must `QFont(font)` first."""
     key = (points, bold)
     font = _FONTS.get(key)
     if font is None:
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font = QFont(MONO_FAMILY)
+        font.setStyleHint(QFont.StyleHint.Monospace)
         font.setPointSize(points)
         font.setBold(bold)
+        _FONTS[key] = font
+    return font
+
+
+def ui_font(points: int = 12, bold: bool = False) -> QFont:
+    """Cached Inter, for painted interface text (titles, captions)."""
+    key = ("ui", points, bold)
+    font = _FONTS.get(key)
+    if font is None:
+        font = QFont(UI_FAMILY)
+        font.setPointSize(points)
+        font.setWeight(
+            QFont.Weight.DemiBold if bold else QFont.Weight.Normal
+        )
         _FONTS[key] = font
     return font
 

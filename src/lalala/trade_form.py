@@ -44,7 +44,9 @@ class TradeForm(QWidget):
         self.setObjectName("tradeForm")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         from lalala.cards import mono_font
+        from lalala.settings import Settings
 
+        defaults = Settings.load().trading
         self.price: float | None = None
         self._position: dict | None = None
 
@@ -59,7 +61,7 @@ class TradeForm(QWidget):
 
         size_label = QLabel("Size (USD)")
         size_label.setObjectName("gl")
-        self.size = QLineEdit("$3,780")
+        self.size = QLineEdit(f"${defaults.size:,.0f}")
         self.size.setObjectName("numberEdit")
         self.size.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.size.textChanged.connect(self._refresh)
@@ -83,7 +85,9 @@ class TradeForm(QWidget):
         leverage_row.setContentsMargins(0, 0, 0, 0)
         lev_label = QLabel("Leverage")
         lev_label.setObjectName("gl")
-        self.leverage_value = QLabel("5×")
+        self.leverage_value = QLabel(
+            f"{max(1, min(MAX_LEVERAGE, defaults.leverage))}×"
+        )
         self.leverage_value.setObjectName("readingValue")
         self.leverage_value.setFont(mono_font(10, bold=True))
         leverage_row.addWidget(lev_label)
@@ -94,7 +98,7 @@ class TradeForm(QWidget):
         self.leverage = QSlider(Qt.Orientation.Horizontal)
         self.leverage.setObjectName("leverageSlider")
         self.leverage.setRange(1, MAX_LEVERAGE)
-        self.leverage.setValue(5)
+        self.leverage.setValue(max(1, min(MAX_LEVERAGE, defaults.leverage)))
         self.leverage.valueChanged.connect(self._refresh)
         top.addWidget(self.leverage, 1, 2)
 

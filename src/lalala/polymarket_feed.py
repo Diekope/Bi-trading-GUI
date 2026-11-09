@@ -65,6 +65,7 @@ class PolymarketFeed(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._runner = AsyncRunner("pm-feed")
+        self._market: PolymarketMarket | None = None
         # Only touched on the asyncio thread (or directly in tests).
         self._books: dict[str, TokenBook] = {}
         # Insertion-ordered so a flush emits each token once, in arrival order.
@@ -82,6 +83,10 @@ class PolymarketFeed(QObject):
     def stop(self) -> None:
         self._stopping = True
         self._runner.stop()
+
+    def market(self) -> PolymarketMarket | None:
+        """The market on show, for a late-joining consumer."""
+        return self._market
 
     # -- asyncio side ------------------------------------------------------
 
@@ -105,6 +110,7 @@ class PolymarketFeed(QObject):
 
                     self._books.clear()
                     self._dirty.clear()
+                    self._market = market
                     self.market_ready.emit(market)
                     await self._watch(http, market)
             finally:

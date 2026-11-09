@@ -107,6 +107,39 @@ class HyperliquidVenue:
             )
         ]
 
+    async def signer_address(self) -> str | None:
+        """The address the private key signs as (an EOA or an API wallet)."""
+        if not self.private_key:
+            return None
+        try:
+            from eth_account import Account
+        except ModuleNotFoundError:  # noqa: BLE001 - optional extra
+            return None
+        try:
+            return await asyncio.to_thread(
+                lambda: Account.from_key(self.private_key).address
+            )
+        except Exception:
+            return None
+
+    async def authorized_agents(self) -> list[str]:
+        """API wallets approved to trade this account."""
+        await self.connect()
+        if not self.account_address:
+            return []
+        try:
+            rows = await asyncio.to_thread(
+                self._info.extra_agents, self.account_address
+            )
+        except Exception:
+            return []
+        agents: list[str] = []
+        for row in rows or []:
+            address = row.get("address") if isinstance(row, dict) else row
+            if isinstance(address, str):
+                agents.append(address)
+        return agents
+
     async def quotes(self, instrument: Instrument) -> AsyncIterator[Quote]:
         """Stream L2 book updates over the public WebSocket."""
         await self.connect()

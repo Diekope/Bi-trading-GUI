@@ -42,8 +42,21 @@ COMPLETE_STATE = "complete"
 
 
 def candles_dir() -> Path:
-    """Where the OHLCV files live. `LALALA_DATA` overrides the default."""
-    return Path(os.environ.get("LALALA_DATA", REPO_ROOT / "data" / "candles"))
+    """Where the OHLCV files live. `LALALA_DATA` overrides the setting."""
+    override = os.environ.get("LALALA_DATA")
+    if override:
+        return Path(override)
+    from lalala.settings import configured_data_folder
+
+    folder = configured_data_folder()
+    if folder:
+        return Path(folder).expanduser()
+    return default_candles_dir()
+
+
+def default_candles_dir() -> Path:
+    """The candle store inside the repo, used when no folder is configured."""
+    return REPO_ROOT / "data" / "candles"
 
 
 def candle_file(year: int, resolution: str = RESOLUTION) -> Path:

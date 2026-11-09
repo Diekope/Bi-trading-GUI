@@ -18,3 +18,7 @@ os.environ["LALALA_SETTINGS"] = os.path.join(
 os.environ["LALALA_STRATEGIES"] = os.path.join(
     tempfile.mkdtemp(prefix="lalala-tests-"), "strategies.json"
 )
+# Secrets stay in the throwaway folder instead of the developer's keychain.
+os.environ["LALALA_SECRETS"] = os.path.join(
+    os.environ["LALALA_SETTINGS"].rsplit("/", 1)[0], "secrets.json"
+)

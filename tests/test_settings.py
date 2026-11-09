@@ -9,8 +9,14 @@ import pytest
 
 from lalala.settings import (
     BacktestDefaults,
+    GeneralSettings,
     Settings,
+    TradingDefaults,
+    configured_data_folder,
     ensure_file,
+    save_backtest_defaults,
+    save_general,
+    save_trading_defaults,
     settings_path,
 )
 
@@ -94,12 +100,18 @@ def test_the_first_launch_leaves_a_file_to_edit(tmp_path) -> None:
     loaded = Settings.load(path=path, environ={})
     for field in fields(Settings):
         assert field.name in values
-        if field.name == "backtest":
+        if field.name in ("backtest", "trading", "general"):
             continue
         assert getattr(loaded, field.name) == pytest.approx(values[field.name])
     for field in fields(BacktestDefaults):
         assert field.name in values["backtest"]
         assert getattr(loaded.backtest, field.name) == values["backtest"][field.name]
+    for field in fields(TradingDefaults):
+        assert field.name in values["trading"]
+        assert getattr(loaded.trading, field.name) == values["trading"][field.name]
+    for field in fields(GeneralSettings):
+        assert field.name in values["general"]
+        assert getattr(loaded.general, field.name) == values["general"][field.name]
 
 
 # -- backtest defaults -----------------------------------------------------
@@ -175,6 +187,146 @@ def test_a_broken_backtest_section_falls_back(tmp_path) -> None:
     path.write_text(json.dumps({"backtest": "not a section"}))
 
     assert Settings.load(path=path, environ={}).backtest == BacktestDefaults()
+
+
+def test_the_backtest_span_and_timeframe_load_from_the_file(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backtest": {
+                    "timeframe": "15m",
+                    "start_year": 2020,
+                    "end_year": 2024,
+                }
+            }
+        )
+    )
+
+    backtest = Settings.load(path=path, environ={}).backtest
+
+    assert backtest.timeframe == "15m"
+    assert backtest.start_year == 2020
+    assert backtest.end_year == 2024
+
+
+def test_the_span_is_ordered_and_an_unknown_timeframe_falls_back(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backtest": {
+                    "timeframe": "7m",
+                    "start_year": 2024,
+                    "end_year": 2020,
+                }
+            }
+        )
+    )
+
+    backtest = Settings.load(path=path, environ={}).backtest
+
+    assert backtest.timeframe == BacktestDefaults().timeframe
+    assert backtest.start_year == 2020
+    assert backtest.end_year == 2024
+
+
+def test_saving_backtest_defaults_preserves_the_rest_of_the_file(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"accounts": {"hyperliquid": {"address": "0xabc"}}})
+    )
+    defaults = BacktestDefaults(
+        initial_capital=25_000.0,
+        sizing="risk",
+        timeframe="1h",
+        start_year=2021,
+        end_year=2023,
+    )
+
+    save_backtest_defaults(defaults, path)
+
+    raw = json.loads(path.read_text())
+    assert raw["accounts"]["hyperliquid"]["address"] == "0xabc"
+    assert raw["backtest"]["timeframe"] == "1h"
+    assert raw["backtest"]["start_year"] == 2021
+    assert Settings.load(path=path, environ={}).backtest == defaults
+
+
+def test_trading_defaults_load_and_clamp(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "trading": {
+                    "leverage": 50,
+                    "margin_mode": "CROSS",
+                    "size": 1_500,
+                    "polymarket_stake": 30,
+                    "max_stake": 80,
+                    "daily_loss_limit": 250,
+                    "confirm_orders": False,
+                    "auto_bet": True,
+                }
+            }
+        )
+    )
+
+    trading = Settings.load(path=path, environ={}).trading
+
+    assert trading.leverage == 20  # clamped to the slider's top
+    assert trading.margin_mode == "cross"
+    assert trading.size == pytest.approx(1_500.0)
+    assert trading.polymarket_stake == pytest.approx(30.0)
+    assert trading.max_stake == pytest.approx(80.0)
+    assert trading.daily_loss_limit == pytest.approx(250.0)
+    assert trading.confirm_orders is False
+    assert trading.auto_bet is True
+
+
+def test_general_settings_load_and_fall_back(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {"general": {"start_page": "Backtest", "data_folder": "  /tmp/bars  "}}
+        )
+    )
+
+    general = Settings.load(path=path, environ={}).general
+
+    assert general.start_page == "backtest"
+    assert general.data_folder == "/tmp/bars"
+
+    path.write_text(json.dumps({"general": {"start_page": "moon"}}))
+    assert Settings.load(path=path, environ={}).general.start_page == "home"
+
+
+def test_saving_trading_and_general_preserves_the_rest(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"accounts": {"polymarket": {"address": "0xabc"}}}))
+
+    save_trading_defaults(
+        TradingDefaults(leverage=8, margin_mode="cross", size=500.0), path
+    )
+    save_general(
+        GeneralSettings(start_page="live", data_folder="/tmp/bars"), path
+    )
+
+    raw = json.loads(path.read_text())
+    assert raw["accounts"]["polymarket"]["address"] == "0xabc"
+    assert raw["trading"]["leverage"] == 8
+    assert raw["general"]["start_page"] == "live"
+
+    assert Settings.load(path=path, environ={}).trading.leverage == 8
+    assert Settings.load(path=path, environ={}).general.data_folder == "/tmp/bars"
+
+
+def test_the_configured_data_folder_is_read(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"general": {"data_folder": "~/bars"}}))
+    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+
+    assert configured_data_folder() == "~/bars"
 
 
 def test_the_path_can_be_redirected(monkeypatch, tmp_path) -> None:

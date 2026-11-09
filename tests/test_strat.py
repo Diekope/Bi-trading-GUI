@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 
@@ -134,6 +135,32 @@ def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:
     assert tile.start_year.currentText() == str(FIRST_YEAR)
     assert tile.end_year.currentText() == str(this_year)
     assert tile.span() == (FIRST_YEAR, this_year, "1m")
+
+
+def test_the_history_tile_starts_from_the_saved_defaults(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "backtest": {
+                    "timeframe": "1h",
+                    "start_year": 2021,
+                    "end_year": 2022,
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+
+    tile = DownloadTile()
+    tile.show()
+    app.processEvents()
+    try:
+        assert tile.span() == (2021, 2022, "1h")
+    finally:
+        tile.close()
 
 
 def test_the_resolution_picker_is_exclusive(app: QApplication, window) -> None:

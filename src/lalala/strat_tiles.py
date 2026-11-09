@@ -34,11 +34,9 @@ from lalala.candles import (
     format_years,
 )
 from lalala.panels import Card
+from lalala.settings import FIRST_YEAR, TIMEFRAMES, Settings
 
-# History starts here: the venues' pre-2017 coverage is thin, so the picker
-# should not imply it is there.
-FIRST_YEAR = 2017
-RESOLUTIONS = ("1m", "3m", "5m", "15m", "30m", "1h")
+RESOLUTIONS = TIMEFRAMES
 
 
 class ResolutionPicker(QWidget):
@@ -46,12 +44,19 @@ class ResolutionPicker(QWidget):
 
     changed = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, current: str = RESOLUTIONS[0], parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("resolutionPicker")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+
+        try:
+            selected = RESOLUTIONS.index(current)
+        except ValueError:
+            selected = 0
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
@@ -61,7 +66,7 @@ class ResolutionPicker(QWidget):
             button.setObjectName("resButton")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setChecked(index == 0)
+            button.setChecked(index == selected)
             button.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
@@ -88,8 +93,19 @@ class DownloadTile(Card):
         self._adjusting = False
         self._busy = False
         self._error: str | None = None
+        self._defaults = Settings.load().backtest
         this_year = datetime.now(tz=timezone.utc).year
         years = list(range(FIRST_YEAR, this_year + 1))
+        start = (
+            self._defaults.start_year
+            if FIRST_YEAR <= self._defaults.start_year <= this_year
+            else FIRST_YEAR
+        )
+        end = (
+            self._defaults.end_year
+            if FIRST_YEAR <= self._defaults.end_year <= this_year
+            else this_year
+        )
 
         title = QLabel("HISTORY")
         title.setObjectName("tileTitle")
@@ -97,8 +113,8 @@ class DownloadTile(Card):
 
         span = QHBoxLayout()
         span.setSpacing(6)
-        self.start_year = self._year_select(years, years[0])
-        self.end_year = self._year_select(years, years[-1])
+        self.start_year = self._year_select(years, start)
+        self.end_year = self._year_select(years, end)
         arrow = QLabel("→")
         arrow.setObjectName("spanArrow")
         span.addWidget(self.start_year, 1)
@@ -106,7 +122,7 @@ class DownloadTile(Card):
         span.addWidget(self.end_year, 1)
         self.body.addLayout(span)
 
-        self.resolution = ResolutionPicker()
+        self.resolution = ResolutionPicker(self._defaults.timeframe)
         self.resolution.setToolTip(
             "Bars are stored at 1m; this is what the run compacts them to"
         )

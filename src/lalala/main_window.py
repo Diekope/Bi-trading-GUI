@@ -46,8 +46,18 @@ OK_MS = 300.0
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, autostart: bool = True) -> None:
+    def __init__(
+        self,
+        autostart: bool = True,
+        feed: MarketFeed | None = None,
+        polymarket_feed: PolymarketFeed | None = None,
+        show_top_bar: bool = True,
+    ) -> None:
         super().__init__()
+        # A shell (the hub) can hand us feeds it already runs, so both read the
+        # same sockets; then we do not start or stop them ourselves.
+        self._owns_feed = feed is None
+        self._owns_polymarket = polymarket_feed is None
         self.setWindowTitle("lalala")
         self.setMinimumSize(620, 520)
         self.resize(1180, 760)
@@ -67,6 +77,7 @@ class MainWindow(QMainWindow):
         # -- top bar: venue latency --
         top_bar = QWidget(canvas)
         top_bar.setObjectName("topBar")
+        self.top_bar = top_bar
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(2, 0, 2, 0)
         top_layout.setSpacing(10)
@@ -85,6 +96,9 @@ class MainWindow(QMainWindow):
         self.pm_latency_label.setToolTip("Round-trip to the Polymarket feed")
         top_layout.addWidget(self.pm_latency_label)
         top_layout.addWidget(self.latency_label)
+        # Embedded in the hub, the rail already shows the title and the venue
+        # latencies, so the strip is hidden there.
+        top_bar.setVisible(show_top_bar)
         layout.addWidget(top_bar)
 
         # -- content --
@@ -122,7 +136,7 @@ class MainWindow(QMainWindow):
         self.cards.append(self.main_card)
 
         # -- feed --
-        self.feed = MarketFeed(self)
+        self.feed = feed if feed is not None else MarketFeed(self)
         self.feed.universe_ready.connect(self._on_universe)
         self.feed.mids_updated.connect(self._on_mids)
         self.feed.bbo_updated.connect(self._on_bbo)
@@ -138,19 +152,33 @@ class MainWindow(QMainWindow):
         self.feed.error.connect(self._on_error)
 
         self._sync_watches()
-        if autostart:
+        if autostart and self._owns_feed:
             self.feed.start()
+        # A shared feed may have loaded its universe before this window existed.
+        if not self._owns_feed:
+            snapshot = self.feed.markets()
+            if snapshot:
+                self._on_universe(snapshot)
 
         # -- polymarket feed (one five-minute BTC up/down market) --
-        self.polymarket_feed = PolymarketFeed(self)
+        self.polymarket_feed = (
+            polymarket_feed if polymarket_feed is not None else PolymarketFeed(self)
+        )
         self.polymarket_feed.market_ready.connect(self._on_polymarket_market)
         self.polymarket_feed.book_updated.connect(self.polymarket.apply_book)
         self.polymarket_feed.trade.connect(self.polymarket.apply_trade)
         self.polymarket_feed.status.connect(self.polymarket.set_status)
         self.polymarket_feed.latency.connect(self._on_pm_latency)
         self.polymarket_feed.error.connect(self._on_polymarket_error)
-        if autostart:
+        if autostart and self._owns_polymarket:
             self.polymarket_feed.start()
+        # Likewise, adopt the window already on show in a shared feed.
+        if not self._owns_polymarket:
+            shared = self.polymarket_feed.market()
+            if shared is not None:
+                self._on_polymarket_market(shared)
+                # The feed's own "live" status was emitted before we listened.
+                self.polymarket.set_status("live")
 
     # -- cards -------------------------------------------------------------
 
@@ -324,6 +352,8 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        self.feed.stop()
-        self.polymarket_feed.stop()
+        if self._owns_feed:
+            self.feed.stop()
+        if self._owns_polymarket:
+            self.polymarket_feed.stop()
         super().closeEvent(event)

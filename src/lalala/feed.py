@@ -106,6 +106,11 @@ class MarketFeed(QObject):
     def market(self, coin: str) -> Market | None:
         return self._markets.get(coin)
 
+    def markets(self) -> list[Market]:
+        """A snapshot of the loaded universe, for a late-joining consumer."""
+        with self._lock:
+            return list(self._markets.values())
+
     def track(self, coin: str) -> None:
         with self._lock:
             if coin in self._books:

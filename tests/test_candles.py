@@ -39,6 +39,21 @@ def test_files_are_one_per_year_at_one_minute() -> None:
     assert candle_file(2019).parent == candles.candles_dir()
 
 
+def test_the_settings_folder_is_used_when_the_environment_is_silent(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
+    monkeypatch.delenv("LALALA_DATA", raising=False)
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        json.dumps({"general": {"data_folder": str(tmp_path / "elsewhere")}})
+    )
+    monkeypatch.setenv("LALALA_SETTINGS", str(settings))
+
+    assert candles.candles_dir() == tmp_path / "elsewhere"
+
+
 def test_a_year_is_expected_from_the_calendar() -> None:
     assert expected_rows(2019, datetime(2020, 1, 1, tzinfo=timezone.utc)) == 365 * 1440
     # 2020 is a leap year.
