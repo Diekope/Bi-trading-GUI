@@ -64,6 +64,8 @@ class OrderService(QObject):
     placed = Signal(str, str)   # venue, a short human summary
     failed = Signal(str, str)   # venue, the reason
     busy = Signal(str, bool)    # venue, in-flight?
+    balance_ready = Signal(str, float)   # venue, free USDC
+    balance_failed = Signal(str, str)    # venue, the reason
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -73,6 +75,31 @@ class OrderService(QObject):
     def submit(self, venue: str, order: OrderRequest, config: dict) -> None:
         self.busy.emit(venue, True)
         self._runner.submit(self._place(venue, order, config))
+
+    def request_balance(self, venue: str) -> None:
+        """Ask a venue for its free collateral; the answer arrives by signal."""
+        config = config_for(venue)
+        if config is None:
+            self.balance_failed.emit(venue, "not connected")
+            return
+        self._runner.submit(self._fetch_balance(venue, config))
+
+    async def _fetch_balance(self, venue: str, config: dict) -> None:
+        adapter = None
+        try:
+            adapter = get_venue(venue, **config)
+            await adapter.connect()
+            balances = await adapter.balances()
+            free = balances[0].free if balances else 0.0
+            self.balance_ready.emit(venue, float(free))
+        except Exception as exc:  # the SDKs raise a wide variety of types
+            self.balance_failed.emit(venue, f"{type(exc).__name__}: {exc}"[:140])
+        finally:
+            if adapter is not None:
+                try:
+                    await adapter.close()
+                except Exception:
+                    pass
 
     async def _place(self, venue: str, order: OrderRequest, config: dict) -> None:
         adapter = None

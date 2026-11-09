@@ -181,3 +181,46 @@ def test_a_live_orders_flag_round_trips_through_settings(paths) -> None:
 
     raw = json.loads(paths[0].read_text())
     assert raw["trading"]["live_orders"] is True
+
+
+class _BalanceVenue:
+    def __init__(self, free: float, **config) -> None:
+        self.free = free
+
+    async def connect(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def balances(self):
+        from lalala.venues.base import Balance
+
+        return [Balance(asset="USDC", free=self.free)]
+
+
+def test_the_service_reports_a_balance(monkeypatch) -> None:
+    monkeypatch.setattr(orders, "get_venue", lambda name, **kw: _BalanceVenue(42.5))
+    svc = orders.OrderService()
+    seen: list[tuple[str, float]] = []
+    svc.balance_ready.connect(lambda venue, free: seen.append((venue, free)))
+
+    try:
+        asyncio.run(svc._fetch_balance("hyperliquid", {}))
+    finally:
+        svc.shutdown()
+
+    assert seen == [("hyperliquid", 42.5)]
+
+
+def test_a_balance_request_needs_a_connection(paths) -> None:
+    svc = orders.OrderService()
+    failed: list[tuple[str, str]] = []
+    svc.balance_failed.connect(lambda venue, reason: failed.append((venue, reason)))
+
+    try:
+        svc.request_balance("hyperliquid")
+    finally:
+        svc.shutdown()
+
+    assert failed == [("hyperliquid", "not connected")]

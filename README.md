@@ -20,6 +20,11 @@ and the backtest (and Settings) run inside the hub rather than in extra
 top-level windows. Colour-coded venue dots sit at the bottom of the rail, over
 a light-red quit button.
 
+Home's status row carries six cards: the active strategy, the last backtest,
+the open position, the next Polymarket market, and a **balance per provider**
+(Hyperliquid and Polymarket, with the current side) — refreshed from the venue
+every 30s when that account is connected.
+
 The other windows can still be launched on their own:
 
 ```sh

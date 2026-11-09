@@ -180,6 +180,8 @@ class MainHubWindow(QMainWindow):
         self._last_pm: int | None = None
         self._last_hl: float | None = None
         self._btc_price: float | None = None
+        self._balance_wired = False
+        self._online = autostart
 
         root = QWidget(self)
         root.setObjectName("hubRoot")
@@ -242,6 +244,12 @@ class MainHubWindow(QMainWindow):
         self._clock.setInterval(500)
         self._clock.timeout.connect(self._tick_countdown)
         self._clock.start()
+
+        # Balances move on their own; a slow poll keeps the cards honest.
+        self._balances_clock = QTimer(self)
+        self._balances_clock.setInterval(30_000)
+        self._balances_clock.timeout.connect(self._refresh_balances)
+        self._balances_clock.start()
 
     # -- navigation --------------------------------------------------------
 
@@ -506,6 +514,8 @@ class MainHubWindow(QMainWindow):
             ("Last backtest", "—", "—"),
             ("Open position", "—", "no position"),
             ("Next market", "—", "Polymarket BTC 5m"),
+            ("Hyperliquid balance", "—", "not connected"),
+            ("Polymarket balance", "—", "not connected"),
         )
         self._stat_values: dict[str, QLabel] = {}
         self._stat_subs: dict[str, QLabel] = {}
@@ -561,6 +571,7 @@ class MainHubWindow(QMainWindow):
             self._stat_subs["Last backtest"].setText("no run yet")
 
         self._refresh_position()
+        self._refresh_balances()
 
     def _refresh_position(self) -> None:
         """The Home card's open position, read from the shared store."""
@@ -591,6 +602,80 @@ class MainHubWindow(QMainWindow):
         value.setText(
             f'<span style="color:{colour}">{arrow}{sign}${abs(pnl):,.2f}</span>'
         )
+
+    # -- provider balances -------------------------------------------------
+
+    @staticmethod
+    def _side_for(venue: str) -> str:
+        """The current side for a venue: the paper position's, or flat."""
+        from lalala.positions import store
+
+        position = store().get()
+        if position is None:
+            return "flat"
+        return str(position.get("side", "flat")).lower()
+
+    def _refresh_balances(self) -> None:
+        """Ask each connected venue for its balance; show the side meanwhile."""
+        from lalala.orders import config_for, service
+
+        connected = [
+            venue
+            for venue, card in (
+                ("hyperliquid", "Hyperliquid balance"),
+                ("polymarket", "Polymarket balance"),
+            )
+            if config_for(venue) is not None and card in self._stat_values
+        ]
+        for venue, card in (
+            ("hyperliquid", "Hyperliquid balance"),
+            ("polymarket", "Polymarket balance"),
+        ):
+            value = self._stat_values.get(card)
+            sub = self._stat_subs.get(card)
+            if value is None or sub is None:
+                continue
+            if venue in connected:
+                sub.setText(f"USDC · {self._side_for(venue)}")
+            else:
+                value.setText("—")
+                sub.setText("not connected")
+        if not connected:
+            return
+
+        if not self._online:
+            # Headless (tests): keep the labels, skip the network.
+            for venue in connected:
+                self._stat_values[self._balance_card(venue)].setText("—")
+            return
+
+        svc = service()
+        if not self._balance_wired:
+            svc.balance_ready.connect(self._on_balance)
+            svc.balance_failed.connect(self._on_balance_failed)
+            self._balance_wired = True
+        for venue in connected:
+            self._stat_values[
+                "Hyperliquid balance" if venue == "hyperliquid"
+                else "Polymarket balance"
+            ].setText("…")
+            svc.request_balance(venue)
+
+    def _balance_card(self, venue: str) -> str:
+        return "Hyperliquid balance" if venue == "hyperliquid" else "Polymarket balance"
+
+    def _on_balance(self, venue: str, free: float) -> None:
+        card = self._balance_card(venue)
+        if card in self._stat_values:
+            self._stat_values[card].setText(f"${free:,.2f}")
+            self._stat_subs[card].setText(f"USDC · {self._side_for(venue)}")
+
+    def _on_balance_failed(self, venue: str, reason: str) -> None:
+        card = self._balance_card(venue)
+        if card not in self._stat_values:
+            return
+        self._stat_values[card].setText("—")
+        self._stat_subs[card].setText(reason[:48])
 
     def _parts(self) -> QHBoxLayout:
         row = QHBoxLayout()

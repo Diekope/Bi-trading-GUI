@@ -99,6 +99,52 @@ def test_the_hub_geometry_round_trips(monkeypatch, tmp_path) -> None:
 # -- the open position card ------------------------------------------------
 
 
+def test_the_home_shows_a_balance_card_per_provider(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    window = MainHubWindow(autostart=False)
+    try:
+        assert window._stat_values["Hyperliquid balance"].text() == "—"
+        assert window._stat_subs["Hyperliquid balance"].text() == "not connected"
+        assert window._stat_values["Polymarket balance"].text() == "—"
+        assert window._stat_subs["Polymarket balance"].text() == "not connected"
+    finally:
+        window.close()
+
+
+def test_a_connected_balance_card_shows_the_side(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    from lalala.accounts import (
+        Accounts,
+        HL_KEY,
+        HyperliquidAccount,
+        save_accounts,
+        set_secret,
+    )
+
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    set_secret(HL_KEY, "0x" + "ab" * 32)
+    save_accounts(
+        Accounts(hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20))
+    )
+
+    window = MainHubWindow(autostart=False)
+    try:
+        window._on_balance("hyperliquid", 1_234.5)
+        assert window._stat_values["Hyperliquid balance"].text() == "$1,234.50"
+        assert window._stat_subs["Hyperliquid balance"].text() == "USDC · flat"
+
+        store().set({"side": "LONG", "leverage": 5, "size": 100.0, "entry": 1.0})
+        window._on_balance("hyperliquid", 1_234.5)
+        assert window._stat_subs["Hyperliquid balance"].text() == "USDC · long"
+    finally:
+        window.close()
+
+
 def test_the_open_position_card_follows_the_shared_store(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:

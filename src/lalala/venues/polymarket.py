@@ -92,11 +92,20 @@ class PolymarketVenue:
 
     async def balances(self) -> list[Balance]:
         await self.connect()
-        # Collateral is USDC.e held by the funder address; the SDK exposes it
-        # through the data-api rather than the CLOB client itself.
-        raise NotImplementedError(
-            "wire balances to https://data-api.polymarket.com/positions"
-        )
+        from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+
+        def read() -> Any:
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            return self._client.get_balance_allowance(params)
+
+        try:
+            data = await asyncio.to_thread(read)
+        except Exception as exc:  # SDK raises a wide variety of types
+            raise VenueError(str(exc)) from exc
+        # The collateral balance comes back in USDC's 6-decimal base units.
+        raw = data.get("balance") if isinstance(data, dict) else None
+        free = float(raw) / 1e6 if raw is not None else 0.0
+        return [Balance(asset="USDC", free=free)]
 
     async def quotes(self, instrument: Instrument) -> AsyncIterator[Quote]:
         await self.connect()
