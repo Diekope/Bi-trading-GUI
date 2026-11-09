@@ -88,6 +88,7 @@ QLabel#big {{ font-family: {MONO}; font-size: 20px; font-weight: 600; }}
 QLabel#tileName {{ font-family: {MONO}; font-size: 11px; }}
 QLabel#tileValue {{ font-family: {MONO}; font-size: 18px; font-weight: 600; }}
 QLabel#railMs {{ font-family: {MONO}; font-size: 10px; color: {SOFT}; }}
+QLabel#railBalance {{ font-family: {MONO}; font-size: 9px; color: {MUTED}; }}
 
 /* The folded rail: icons only, one column, as lateral.html draws it. */
 QFrame#rail {{
@@ -153,6 +154,17 @@ RAIL_EXTRAS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _money_short(value: float) -> str:
+    """A balance small enough for the 56px rail: `$1.2k`, `$250`, `$12k`."""
+    if value >= 1_000_000:
+        return f"${value / 1_000_000:.1f}M"
+    if value >= 10_000:
+        return f"${value / 1_000:.0f}k"
+    if value >= 1_000:
+        return f"${value / 1_000:.1f}k"
+    return f"${value:,.0f}"
+
+
 
 # -- the window --------------------------------------------------------------
 
@@ -176,6 +188,7 @@ class MainHubWindow(QMainWindow):
         self._nav_buttons: dict[str, list[QPushButton]] = {}
         self._view: QWidget | None = None
         self._latency_labels: dict[str, QLabel] = {}
+        self._rail_balances: dict[str, QLabel] = {}
         self._market = None  # the live Polymarket market, for the Live card
         self._last_pm: int | None = None
         self._last_hl: float | None = None
@@ -415,6 +428,10 @@ class MainHubWindow(QMainWindow):
         value.setToolTip(tip)
         box.addWidget(value, 0, Qt.AlignmentFlag.AlignHCenter)
         self._latency_labels[key] = value
+        balance = _label("—", "railBalance")
+        balance.setToolTip(f"{name} balance")
+        box.addWidget(balance, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._rail_balances[key] = balance
         column.addLayout(box)
 
     def _on_hl_latency(self, milliseconds: float) -> None:
@@ -635,11 +652,14 @@ class MainHubWindow(QMainWindow):
             sub = self._stat_subs.get(card)
             if value is None or sub is None:
                 continue
+            rail = self._rail_balances.get(self._rail_key(venue))
             if venue in connected:
                 sub.setText(f"USDC · {self._side_for(venue)}")
             else:
                 value.setText("—")
                 sub.setText("not connected")
+                if rail is not None:
+                    rail.setText("—")
         if not connected:
             return
 
@@ -655,11 +675,16 @@ class MainHubWindow(QMainWindow):
             svc.balance_failed.connect(self._on_balance_failed)
             self._balance_wired = True
         for venue in connected:
-            self._stat_values[
-                "Hyperliquid balance" if venue == "hyperliquid"
-                else "Polymarket balance"
-            ].setText("…")
+            card = self._balance_card(venue)
+            self._stat_values[card].setText("…")
+            rail = self._rail_balances.get(self._rail_key(venue))
+            if rail is not None:
+                rail.setText("…")
             svc.request_balance(venue)
+
+    @staticmethod
+    def _rail_key(venue: str) -> str:
+        return "hl" if venue == "hyperliquid" else "pm"
 
     def _balance_card(self, venue: str) -> str:
         return "Hyperliquid balance" if venue == "hyperliquid" else "Polymarket balance"
@@ -669,6 +694,9 @@ class MainHubWindow(QMainWindow):
         if card in self._stat_values:
             self._stat_values[card].setText(f"${free:,.2f}")
             self._stat_subs[card].setText(f"USDC · {self._side_for(venue)}")
+        rail = self._rail_balances.get(self._rail_key(venue))
+        if rail is not None:
+            rail.setText(_money_short(free))
 
     def _on_balance_failed(self, venue: str, reason: str) -> None:
         card = self._balance_card(venue)
@@ -676,6 +704,9 @@ class MainHubWindow(QMainWindow):
             return
         self._stat_values[card].setText("—")
         self._stat_subs[card].setText(reason[:48])
+        rail = self._rail_balances.get(self._rail_key(venue))
+        if rail is not None:
+            rail.setText("—")
 
     def _parts(self) -> QHBoxLayout:
         row = QHBoxLayout()

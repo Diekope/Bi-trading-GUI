@@ -17,8 +17,10 @@ left and, on the right, whichever view the rail has selected — Home, Live, the
 strategy builder, the backtest engine or Settings. The rail swaps the view
 **in place** (the old one is destroyed, a new one built), so Live, the builder
 and the backtest (and Settings) run inside the hub rather than in extra
-top-level windows. Colour-coded venue dots sit at the bottom of the rail, over
-a light-red quit button.
+top-level windows. Colour-coded venue dots sit at the bottom of the rail — each
+with the venue's latest round trip and its **balance** (`$1.2k`), so the two
+balances are on screen on every view, not just Home — over a light-red quit
+button.
 
 Home's status row carries six cards: the active strategy, the last backtest,
 the open position, the next Polymarket market, and a **balance per provider**

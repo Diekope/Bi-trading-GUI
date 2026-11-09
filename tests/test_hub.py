@@ -145,6 +145,32 @@ def test_a_connected_balance_card_shows_the_side(
         window.close()
 
 
+def test_the_rail_shows_a_compact_balance_per_venue(
+    app: QApplication, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    window = MainHubWindow(autostart=False)
+    try:
+        assert set(window._rail_balances) == {"pm", "hl"}
+
+        window._on_balance("hyperliquid", 1_234.5)
+        window._on_balance("polymarket", 250.0)
+        assert window._rail_balances["hl"].text() == "$1.2k"
+        assert window._rail_balances["pm"].text() == "$250"
+    finally:
+        window.close()
+
+
+def test_money_short_reads_at_a_glance() -> None:
+    from lalala.main_hub import _money_short
+
+    assert _money_short(250.0) == "$250"
+    assert _money_short(1_234.5) == "$1.2k"
+    assert _money_short(12_345.0) == "$12k"
+    assert _money_short(2_400_000.0) == "$2.4M"
+
+
 def test_the_open_position_card_follows_the_shared_store(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
