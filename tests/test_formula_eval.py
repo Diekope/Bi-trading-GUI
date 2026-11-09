@@ -287,3 +287,46 @@ def test_a_run_with_no_bars_is_empty() -> None:
     assert report.pnl == 0.0
     assert report.win_rate == 0.0
     assert report.sharpe == 0.0
+
+
+def test_a_pnl_exit_names_take_profit_and_stop_loss() -> None:
+    # A rule written against pnl — no tp or sl token in sight — must still
+    # read as Take profit / Stop loss, not a bare Rule.
+    from lalala.formula_eval import _exit_reason
+
+    exit_ = parse("pnl >= 2 or pnl <= 0 - 2", EXIT_FIELDS, EXIT_FUNCTIONS)
+    profit = {"price": 105.0, "entry": 100.0, "tp": 2.0, "sl": 2.0, "pnl": 5.0, "bars": 3}
+    loss = {"price": 95.0, "entry": 100.0, "tp": 2.0, "sl": 2.0, "pnl": -5.0, "bars": 3}
+
+    assert _exit_reason(exit_, profit) == "Take profit"
+    assert _exit_reason(exit_, loss) == "Stop loss"
+
+
+def test_a_tp_sl_exit_still_names_the_reason() -> None:
+    from lalala.formula_eval import _exit_reason
+
+    exit_ = parse("pnl >= tp or pnl <= 0 - sl", EXIT_FIELDS, EXIT_FUNCTIONS)
+    profit = {"price": 105.0, "entry": 100.0, "tp": 2.0, "sl": 1.0, "pnl": 5.0, "bars": 3}
+    loss = {"price": 95.0, "entry": 100.0, "tp": 2.0, "sl": 1.0, "pnl": -5.0, "bars": 3}
+
+    assert _exit_reason(exit_, profit) == "Take profit"
+    assert _exit_reason(exit_, loss) == "Stop loss"
+
+
+def test_a_time_exit_still_reads_as_time() -> None:
+    from lalala.formula_eval import _exit_reason
+
+    exit_ = parse("bars >= 3", EXIT_FIELDS, EXIT_FUNCTIONS)
+    context = {"price": 100.0, "entry": 100.0, "tp": 2.0, "sl": 1.0, "pnl": 0.0, "bars": 5}
+
+    assert _exit_reason(exit_, context) == "Time"
+
+
+def test_a_pnl_exit_reports_fewer_rules_in_a_run() -> None:
+    bars = _bars([100 + (index % 11) - 5 for index in range(400)])
+    exit_ = parse("pnl >= 2 or pnl <= 0 - 2", EXIT_FIELDS, EXIT_FUNCTIONS)
+    report = backtest(bars, parse("close < sma(close, 5)"), exit_, tp=2.0, sl=2.0)
+
+    labels = {label for label, _count, _share in report.reason_shares}
+    assert "Take profit" in labels
+    assert "Rule" not in labels

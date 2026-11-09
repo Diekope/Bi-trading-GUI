@@ -711,6 +711,12 @@ def _exit_reason(exit_, context: dict) -> str:
                 return REASON_STOP_LOSS
             if "bars" in names:
                 return REASON_TIME
+            # A clause written against pnl (say `pnl >= 2`) still takes a
+            # profit or a loss: name it by the sign it closed on, so the
+            # report shows Take profit / Stop loss rather than a bare Rule.
+            pnl = context.get("pnl")
+            if pnl is not None:
+                return REASON_TAKE_PROFIT if pnl >= 0 else REASON_STOP_LOSS
             return REASON_RULE
     return REASON_RULE
 
