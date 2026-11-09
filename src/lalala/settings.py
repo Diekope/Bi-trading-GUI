@@ -448,6 +448,23 @@ def configured_data_folder() -> str:
     return ""
 
 
+def load_window_geometry() -> str:
+    """The hub window's saved geometry (base64), or an empty string."""
+    window = load_raw().get("window")
+    if isinstance(window, dict):
+        value = window.get("geometry")
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def save_window_geometry(geometry: str, path: Path | str | None = None) -> None:
+    """Persist the hub window's geometry, preserving the rest of the file."""
+    raw = load_raw(path)
+    raw["window"] = {"geometry": geometry}
+    save_raw(raw, path)
+
+
 def _number(value: object, fallback: float) -> float:
     if isinstance(value, bool):
         return float(fallback)

@@ -22,3 +22,15 @@ os.environ["LALALA_STRATEGIES"] = os.path.join(
 os.environ["LALALA_SECRETS"] = os.path.join(
     os.environ["LALALA_SETTINGS"].rsplit("/", 1)[0], "secrets.json"
 )
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _clean_position_store():
+    """The paper position is process-wide; never let it leak between tests."""
+    from lalala.positions import store
+
+    store().clear()
+    yield
+    store().clear()

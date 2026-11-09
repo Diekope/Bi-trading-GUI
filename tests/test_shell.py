@@ -814,3 +814,23 @@ def test_timeframe_pills_advertise_their_key(window: MainWindow) -> None:
     group = window.main_card.timeframes.group
     for index in range(len(TIMEFRAMES)):
         assert f"press {index + 1}" in group.button(index).toolTip()
+
+
+# -- the top bar's exit ----------------------------------------------------
+
+
+def test_the_terminal_top_bar_carries_a_quit_button(window: MainWindow) -> None:
+    assert window.quit_button.toolTip() == "Quit lalala"
+    assert window.quit_button.text() == "Quit"
+
+    window.quit_button.click()
+
+    assert not window.isVisible()
+
+
+def test_the_embedded_terminal_hides_its_top_bar(app: QApplication) -> None:
+    window = MainWindow(autostart=False, show_top_bar=False)
+    try:
+        assert window.top_bar.isVisible() is False
+    finally:
+        window.close()

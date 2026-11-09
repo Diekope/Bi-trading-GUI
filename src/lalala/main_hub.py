@@ -18,8 +18,8 @@ from __future__ import annotations
 import sys
 import time
 
-from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
@@ -351,6 +351,12 @@ class MainHubWindow(QMainWindow):
         self.setMinimumSize(880, 600)
         self.resize(1280, 820)
 
+        from lalala.settings import load_window_geometry
+
+        saved_geometry = load_window_geometry()
+        if saved_geometry:
+            self.restoreGeometry(QByteArray.fromBase64(saved_geometry.encode()))
+
         self._key = "home"
         self._nav_buttons: dict[str, list[QPushButton]] = {}
         self._view: QWidget | None = None
@@ -358,6 +364,7 @@ class MainHubWindow(QMainWindow):
         self._market = None  # the live Polymarket market, for the Live card
         self._last_pm: int | None = None
         self._last_hl: float | None = None
+        self._btc_price: float | None = None
 
         root = QWidget(self)
         root.setObjectName("hubRoot")
@@ -396,8 +403,25 @@ class MainHubWindow(QMainWindow):
             self.feed.start()
             self.polymarket_feed.start()
 
+        # The trade form moved a paper position: keep the Home card in step.
+        from lalala.positions import store
+
+        store().changed.connect(self._refresh_position)
+
         start = Settings.load().general.start_page
         self._open(start if start in ("live", "builder", "backtest") else "home")
+
+        # Cmd+1…4 jump between the views, Cmd+, opens Settings.
+        for keys, target in (
+            ("Ctrl+1", "home"),
+            ("Ctrl+2", "live"),
+            ("Ctrl+3", "builder"),
+            ("Ctrl+4", "backtest"),
+            ("Ctrl+,", "settings"),
+        ):
+            QShortcut(
+                QKeySequence(keys), self, activated=lambda t=target: self._open(t)
+            )
 
         self._clock = QTimer(self)
         self._clock.setInterval(500)
@@ -582,8 +606,11 @@ class MainHubWindow(QMainWindow):
 
     def _on_mids(self, mids: dict) -> None:
         btc = mids.get("BTC")
-        if btc is not None and hasattr(self, "_btc_value"):
-            self._btc_value.setText(f"{btc:,.1f}")
+        if btc is not None:
+            self._btc_price = btc
+            if hasattr(self, "_btc_value"):
+                self._btc_value.setText(f"{btc:,.1f}")
+            self._refresh_position()
 
     def _on_pm_market(self, market) -> None:
         self._market = market
@@ -717,6 +744,38 @@ class MainHubWindow(QMainWindow):
         else:
             values["Last backtest"].setText("—")
             self._stat_subs["Last backtest"].setText("no run yet")
+
+        self._refresh_position()
+
+    def _refresh_position(self) -> None:
+        """The Home card's open position, read from the shared store."""
+        values = getattr(self, "_stat_values", None)
+        if not values or "Open position" not in values:
+            return
+
+        from lalala.positions import change, store
+
+        position = store().get()
+        value = values["Open position"]
+        sub = self._stat_subs["Open position"]
+        if position is None:
+            value.setText("—")
+            sub.setText("no position")
+            return
+
+        side = str(position.get("side", ""))
+        leverage = int(position.get("leverage", 1))
+        sub.setText(f"{side} {leverage}× · BTC")
+        pnl = change(position, self._btc_price)
+        if pnl is None:
+            value.setText("—")
+            return
+        arrow = "▲" if pnl >= 0 else "▼"
+        sign = "+" if pnl >= 0 else "−"
+        colour = UP if pnl >= 0 else DOWN
+        value.setText(
+            f'<span style="color:{colour}">{arrow}{sign}${abs(pnl):,.2f}</span>'
+        )
 
     def _parts(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -932,6 +991,14 @@ class MainHubWindow(QMainWindow):
         self._destroy_view()
         self.feed.stop()
         self.polymarket_feed.stop()
+        from lalala.settings import save_window_geometry
+
+        try:
+            geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        except Exception:  # a window that never showed has nothing to save
+            geometry = ""
+        if geometry:
+            save_window_geometry(geometry)
         super().closeEvent(event)
 
 

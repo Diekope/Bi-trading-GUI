@@ -1302,6 +1302,21 @@ QPushButton#sideButton:checked {{
     font-size: 10px;
 }}
 
+/* The terminal's top-bar exit, in the hub rail's light red. */
+QPushButton#topBarQuit {{
+    background: transparent;
+    border: 1px solid {DOWN};
+    border-radius: {CARD_RADIUS}px;
+    color: {DOWN_SOFT};
+    font-size: 11px;
+    padding: 3px 10px;
+}}
+QPushButton#topBarQuit:hover {{
+    background-color: {DOWN_SOFT_BG};
+    border-color: {DOWN_SOFT};
+    color: {DOWN_SOFT};
+}}
+
 /* The bar under the terminal: strategy, reading, bets. */
 #strategyBar {{
     background-color: {PANEL};

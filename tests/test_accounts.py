@@ -253,3 +253,40 @@ def test_saving_the_built_in_data_folder_keeps_the_file_portable(paths) -> None:
     assert Settings.load().general.data_folder == ""
 
     view.close()
+
+
+def test_disconnect_signs_the_venue_out(paths) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from lalala.settings_view import SettingsView
+    from lalala.theme import apply_dark_theme
+
+    app = QApplication.instance() or QApplication([])
+    apply_dark_theme(app)
+
+    settings, _ = paths
+    set_secret(HL_KEY, "0x" + "ab" * 32)
+    save_accounts(
+        Accounts(
+            hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20, testnet=True),
+            polymarket=PolymarketAccount(address="0x" + "ee" * 20, signature_type=1),
+        )
+    )
+
+    view = SettingsView()
+    view._disconnect("hyperliquid")
+
+    # The key, the address and the network reset; Polymarket is left alone.
+    assert get_secret(HL_KEY) == ""
+    assert view._hl_address.edit.text() == ""
+    assert view._hl_network.combo.currentText() == "Mainnet"
+    assert load_accounts().hyperliquid.address == ""
+    assert load_accounts().polymarket.address == "0x" + "ee" * 20
+    assert "Not configured" in view._hl_status.text()
+    # Disconnecting is a save, not an edit: nothing left unsaved.
+    assert view._save_state.text() == "All changes saved"
+
+    raw = json.loads(settings.read_text())
+    assert raw["accounts"]["hyperliquid"]["address"] == ""
+
+    view.close()

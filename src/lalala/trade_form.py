@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lalala.positions import store
 from lalala.theme import UP
 
 # What the shortcut buttons scale, in dollars.
@@ -48,7 +49,8 @@ class TradeForm(QWidget):
 
         defaults = Settings.load().trading
         self.price: float | None = None
-        self._position: dict | None = None
+        # One paper position at a time, shared so it survives a view rebuild.
+        self._position: dict | None = store().get()
 
         column = QVBoxLayout(self)
         column.setContentsMargins(12, 12, 12, 12)
@@ -171,10 +173,12 @@ class TradeForm(QWidget):
             "size": _size(self.size.text()),
             "entry": self.price,
         }
+        store().set(self._position)
         self._refresh()
 
     def close_position(self) -> None:
         self._position = None
+        store().set(None)
         self._refresh()
 
     def position(self) -> dict | None:

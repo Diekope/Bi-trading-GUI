@@ -964,11 +964,44 @@ class SettingsView(QWidget):
         self._set_status(status, "ok" if ok else "error", message)
 
     def _disconnect(self, venue: str) -> None:
+        """Sign a venue out: drop its key and address, and persist that."""
         if venue in self._busy:
             return
+        was_dirty = self._dirty
+        if venue == "hyperliquid":
+            set_secret(HL_KEY, "")
+            self._accounts = Accounts(
+                hyperliquid=HyperliquidAccount(),
+                polymarket=self._accounts.polymarket,
+            )
+            self._hl_key.edit.setText("")
+            self._hl_address.edit.setText("")
+            self._hl_network.combo.setCurrentText("Mainnet")
+            self._flag_invalid(self._hl_address.edit, "", valid_address)
+            self._flag_invalid(self._hl_key.edit, "", valid_private_key)
+            status = self._hl_status
+        else:
+            set_secret(PM_KEY, "")
+            self._accounts = Accounts(
+                hyperliquid=self._accounts.hyperliquid,
+                polymarket=PolymarketAccount(),
+            )
+            self._pm_key.edit.setText("")
+            self._pm_address.edit.setText("")
+            self._pm_type.combo.setCurrentIndex(0)
+            self._flag_invalid(self._pm_address.edit, "", valid_address)
+            self._flag_invalid(self._pm_key.edit, "", valid_private_key)
+            status = self._pm_status
+
+        save_accounts(self._accounts)
         self._tested.pop(venue, None)
-        status = self._hl_status if venue == "hyperliquid" else self._pm_status
-        self._set_status(status, "idle", "Disconnected")
+        self._set_status(status, "idle", "Not configured")
+        # Clearing the fields raised the dirty flag; only the user's own edits
+        # should count as unsaved.
+        if was_dirty:
+            self._mark_dirty()
+        else:
+            self._mark_clean()
 
     # -- status lines -------------------------------------------------------
 

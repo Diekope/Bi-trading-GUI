@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -96,6 +97,15 @@ class MainWindow(QMainWindow):
         self.pm_latency_label.setToolTip("Round-trip to the Polymarket feed")
         top_layout.addWidget(self.pm_latency_label)
         top_layout.addWidget(self.latency_label)
+
+        # The hub carries a rail exit; the standalone terminal gets the same
+        # affordance in its top bar, in the same light red.
+        self.quit_button = QPushButton("Quit")
+        self.quit_button.setObjectName("topBarQuit")
+        self.quit_button.setToolTip("Quit lalala")
+        self.quit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.quit_button.clicked.connect(self.close)
+        top_layout.addWidget(self.quit_button)
         # Embedded in the hub, the rail already shows the title and the venue
         # latencies, so the strip is hidden there.
         top_bar.setVisible(show_top_bar)
