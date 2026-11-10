@@ -11,20 +11,83 @@ trade is `(entry index, entry price, exit index, exit price, result)` and
 
 from __future__ import annotations
 
-__all__ = ["available", "walk"]
+__all__ = ["available", "random_entries", "walk"]
 
 try:  # the extension, if it was built
+    from lalala_core import random_entries as _native_random_entries  # type: ignore
     from lalala_core import walk as _native_walk  # type: ignore
 
     _NATIVE = True
 except Exception:  # pragma: no cover - depends on the build
     _native_walk = None
+    _native_random_entries = None
     _NATIVE = False
 
 
 def available() -> bool:
     """Whether the native core is in play."""
     return _NATIVE
+
+
+def random_entries(
+    highs,
+    lows,
+    closes,
+    draws,
+    tp=2.0,
+    sl=1.0,
+    max_hold=90,
+    chance=0.03,
+) -> list[bool]:
+    """The coin-flip baseline's entries, one position at a time.
+
+    `draws` is one uniform per bar, generated from the same seed on both paths,
+    so the native and Python baselines are identical bar for bar.
+    """
+    if _NATIVE:
+        import numpy as np
+
+        return list(
+            _native_random_entries(
+                np.ascontiguousarray(highs, dtype=float),
+                np.ascontiguousarray(lows, dtype=float),
+                np.ascontiguousarray(closes, dtype=float),
+                np.ascontiguousarray(draws, dtype=float),
+                tp,
+                sl,
+                max_hold,
+                chance,
+            )
+        )
+    return _python_random_entries(highs, lows, closes, draws, tp, sl, max_hold, chance)
+
+
+def _python_random_entries(
+    highs, lows, closes, draws, tp, sl, max_hold, chance
+) -> list[bool]:
+    n = len(closes)
+    entries = [False] * n
+    in_position = False
+    entry_price = 0.0
+    entry_index = 0
+    drawn = 0
+    for index in range(1, n):
+        if in_position:
+            target = entry_price * (1.0 + tp / 100.0)
+            stop = entry_price * (1.0 - sl / 100.0)
+            if (tp > 0 and highs[index] >= target) or (
+                sl > 0 and lows[index] <= stop
+            ) or (index - entry_index >= max_hold):
+                in_position = False
+        else:
+            draw = draws[drawn] if drawn < len(draws) else 1.0
+            drawn += 1
+            if draw < chance:
+                entries[index] = True
+                in_position = True
+                entry_price = closes[index]
+                entry_index = index
+    return entries
 
 
 def walk(

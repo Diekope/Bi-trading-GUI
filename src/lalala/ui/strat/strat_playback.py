@@ -956,33 +956,16 @@ def bollinger_entries(bars: list[Candle]) -> list[bool]:
     return entries
 
 
-def random_entries(
-    bars: list[Candle], settings: dict, seed: int = 1234, chance: float = 0.03
-) -> list[bool]:
-    """The coin-flip baseline's entries, consumed a bar at a time while flat."""
+def _random_draws(size: int, seed: int = 1234):
+    """One uniform per bar, from the fixed seed, for the coin-flip baseline.
+
+    Drawn up front so the native and Python baselines consume the same values
+    in the same order — a draw only on the bars that are flat.
+    """
+    import numpy as np
+
     rng = random.Random(seed)
-    entries = [False] * len(bars)
-    in_position = False
-    entry_price = 0.0
-    entry_index = 0
-    tp = settings["tp"]
-    sl = settings["sl"]
-    hold = 90
-    for index in range(1, len(bars)):
-        bar = bars[index]
-        if in_position:
-            target = entry_price * (1.0 + tp / 100.0)
-            stop = entry_price * (1.0 - sl / 100.0)
-            if (tp > 0 and bar.high >= target) or (
-                sl > 0 and bar.low <= stop
-            ) or (index - entry_index >= hold):
-                in_position = False
-        elif rng.random() < chance:
-            entries[index] = True
-            in_position = True
-            entry_price = bar.close
-            entry_index = index
-    return entries
+    return np.fromiter((rng.random() for _ in range(size)), float, size)
 
 
 def bollinger_entries_columns(closes) -> list[bool]:
@@ -1005,33 +988,23 @@ def bollinger_entries_columns(closes) -> list[bool]:
     return entries.tolist()
 
 
-def random_entries_columns(highs, lows, closes, settings, seed=1234, chance=0.03):
-    """`random_entries` over the span's columns, so no bars are built."""
-    rng = random.Random(seed)
-    size = len(closes)
-    entries = [False] * size
-    in_position = False
-    entry_price = 0.0
-    entry_index = 0
-    tp = settings["tp"]
-    sl = settings["sl"]
-    hold = 90
-    for index in range(1, size):
-        high = highs[index]
-        low = lows[index]
-        if in_position:
-            target = entry_price * (1.0 + tp / 100.0)
-            stop = entry_price * (1.0 - sl / 100.0)
-            if (tp > 0 and high >= target) or (sl > 0 and low <= stop) or (
-                index - entry_index >= hold
-            ):
-                in_position = False
-        elif rng.random() < chance:
-            entries[index] = True
-            in_position = True
-            entry_price = closes[index]
-            entry_index = index
-    return entries
+def random_entries(
+    highs, lows, closes, settings, seed: int = 1234, chance: float = 0.03
+) -> list[bool]:
+    """The coin-flip baseline over the span's columns, via the core when built."""
+    from lalala.engine import core
+
+    draws = _random_draws(len(closes), seed)
+    return core.random_entries(
+        highs,
+        lows,
+        closes,
+        draws,
+        settings["tp"],
+        settings["sl"],
+        90,
+        chance,
+    )
 
 
 # The whole span as columns, keyed like the bar cache, so a run over the same
@@ -1340,7 +1313,7 @@ def build_session(
         else:
             strategy_entries = [False] * total
         session.strategy_entries = strategy_entries
-        session.random_entries = random_entries_columns(
+        session.random_entries = random_entries(
             span.highs, span.lows, span.closes, settings
         )
         import numpy as np

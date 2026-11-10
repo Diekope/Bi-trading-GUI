@@ -79,6 +79,28 @@ def test_dynamic_tp_trails_the_peak() -> None:
     assert out_index == 3
 
 
+def test_native_and_python_random_entries_agree() -> None:
+    import pytest
+
+    from lalala.engine import core
+
+    if core._native_random_entries is None:
+        pytest.skip("the native core is not built")
+
+    closes = [100.0, 101.0, 99.0, 102.0, 98.0, 103.0, 97.0, 104.0]
+    highs = [c + 0.5 for c in closes]
+    lows = [c - 0.5 for c in closes]
+    draws = [0.01, 0.9, 0.02, 0.9, 0.9, 0.01, 0.9, 0.9]
+
+    native = core.random_entries(highs, lows, closes, draws, 2.0, 1.0, 90, 0.03)
+    python = core._python_random_entries(
+        highs, lows, closes, draws, 2.0, 1.0, 90, 0.03
+    )
+
+    assert native == python
+    assert any(native)
+
+
 def test_dynamic_tp_off_keeps_the_fixed_target() -> None:
     closes = [100.0, 100.0, 110.0, 104.0, 104.0]
     highs = [100.0, 100.0, 110.0, 104.5, 104.0]

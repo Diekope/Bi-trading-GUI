@@ -144,9 +144,67 @@ fn walk(
     Ok((trades, equity_curve))
 }
 
+#[pyfunction]
+#[pyo3(signature = (highs, lows, closes, draws, tp, sl, max_hold, chance))]
+#[allow(clippy::too_many_arguments)]
+fn random_entries(
+    highs: PyReadonlyArray1<f64>,
+    lows: PyReadonlyArray1<f64>,
+    closes: PyReadonlyArray1<f64>,
+    draws: PyReadonlyArray1<f64>,
+    tp: f64,
+    sl: f64,
+    max_hold: i64,
+    chance: f64,
+) -> PyResult<Vec<bool>> {
+    let highs = highs.as_slice()?;
+    let lows = lows.as_slice()?;
+    let closes = closes.as_slice()?;
+    let draws = draws.as_slice()?;
+    let n = closes.len();
+
+    // The coin-flip baseline: one position at a time, a draw on each bar that
+    // is flat, exits the same as the walk. `draws` is one uniform per bar, so
+    // this matches the Python version draw for draw.
+    let mut entries = vec![false; n];
+    let mut in_position = false;
+    let mut entry_price = 0.0_f64;
+    let mut entry_index = 0_i64;
+    let mut drawn = 0_usize;
+
+    for index in 1..n {
+        if in_position {
+            let target = entry_price * (1.0 + tp / 100.0);
+            let stop = entry_price * (1.0 - sl / 100.0);
+            if (tp > 0.0 && highs[index] >= target)
+                || (sl > 0.0 && lows[index] <= stop)
+                || ((index as i64) - entry_index >= max_hold)
+            {
+                in_position = false;
+            }
+        } else {
+            let draw = if drawn < draws.len() {
+                let value = draws[drawn];
+                drawn += 1;
+                value
+            } else {
+                1.0
+            };
+            if draw < chance {
+                entries[index] = true;
+                in_position = true;
+                entry_price = closes[index];
+                entry_index = index as i64;
+            }
+        }
+    }
+    Ok(entries)
+}
+
 #[pymodule]
 fn lalala_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(walk, m)?)?;
+    m.add_function(wrap_pyfunction!(random_entries, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }
