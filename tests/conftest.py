@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["LALALA_SETTINGS"] = os.path.join(
     tempfile.mkdtemp(prefix="lalala-tests-"), "settings.json"
 )
@@ -28,9 +28,15 @@ import pytest  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _clean_position_store():
-    """The paper position is process-wide; never let it leak between tests."""
-    from lalala.positions import store
+    """The paper position is process-wide; never let it leak between tests.
 
-    store().clear()
+    Only touched, never created: most tests are not GUI tests and a QObject
+    made with no application around is one more thing Qt has to unwind at exit.
+    """
+    from lalala import positions
+
+    if positions._store is not None:
+        positions._store.clear()
     yield
-    store().clear()
+    if positions._store is not None:
+        positions._store.clear()
