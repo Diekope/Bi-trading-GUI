@@ -111,9 +111,10 @@ def test_the_client_is_created_with_the_funder(monkeypatch) -> None:
 
     captured: dict = {}
 
-    async def fake_create(*, private_key, wallet=None, **kwargs):
+    async def fake_create(*, private_key, wallet=None, api_key=None, **kwargs):
         captured["private_key"] = private_key
         captured["wallet"] = wallet
+        captured["api_key"] = api_key
         return types.SimpleNamespace()
 
     monkeypatch.setattr(
@@ -127,3 +128,27 @@ def test_the_client_is_created_with_the_funder(monkeypatch) -> None:
 
     assert captured["wallet"] == "0x" + "cd" * 20
     assert captured["private_key"].startswith("0x")
+    assert captured["api_key"] is None
+
+
+def test_the_client_is_created_with_the_builder_key(monkeypatch) -> None:
+    from lalala.venues.polymarket import PolymarketVenue
+
+    captured: dict = {}
+
+    async def fake_create(*, private_key, wallet=None, api_key=None, **kwargs):
+        captured["api_key"] = api_key
+        return types.SimpleNamespace()
+
+    monkeypatch.setattr(
+        polymarket.AsyncSecureClient, "create", staticmethod(fake_create)
+    )
+    venue = PolymarketVenue(
+        private_key="0x" + "ab" * 32,
+        funder="",
+        builder={"key": "k", "secret": "s", "passphrase": "p"},
+    )
+
+    asyncio.run(venue.connect())
+
+    assert captured["api_key"] == polymarket.BuilderApiKey("k", "s", "p")

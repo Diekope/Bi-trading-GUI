@@ -54,6 +54,7 @@ class PolymarketVenue:
         funder: str | None = None,
         signature_type: int = 0,
         host: str = REST_URL,
+        builder: dict | None = None,
     ) -> None:
         self.private_key = private_key
         self.funder = funder
@@ -61,6 +62,9 @@ class PolymarketVenue:
         # from `funder` against the signer, so it is not sent order by order.
         self.signature_type = signature_type
         self.host = host
+        # The V2 gasless steps (creating the deposit wallet, approvals) need a
+        # Builder API Key; {"key", "secret", "passphrase"}.
+        self.builder = builder
         self._client: Any = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -71,10 +75,18 @@ class PolymarketVenue:
         polymarket = _require_sdk()
         if not self.private_key:
             raise VenueError("connect requires a private key")
+        api_key = None
+        if self.builder:
+            api_key = polymarket.BuilderApiKey(
+                self.builder["key"],
+                self.builder["secret"],
+                self.builder["passphrase"],
+            )
         try:
             self._client = await polymarket.AsyncSecureClient.create(
                 private_key=self.private_key,
                 wallet=self.funder or None,
+                api_key=api_key,
             )
         except Exception as exc:  # auth, region, transport: all the same here
             raise VenueError(friendly_message(exc)) from exc
