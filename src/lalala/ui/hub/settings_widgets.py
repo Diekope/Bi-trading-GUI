@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from lalala.ui.palette import DOWN_SOFT
 from lalala.venues import get_venue
+from lalala.venues.base import friendly_message
 from lalala.venues.runner import AsyncRunner
 
 
@@ -61,6 +62,8 @@ class _ConnectionTester(QObject):
     """Runs one venue handshake off the GUI thread and reports back."""
 
     finished = Signal(str, bool, str)
+    builder_ready = Signal(str, str, str)
+    builder_failed = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -69,6 +72,31 @@ class _ConnectionTester(QObject):
 
     def test(self, venue: str, config: dict[str, object]) -> None:
         self._runner.submit(self._probe(venue, config))
+
+    def mint_builder_key(self, config: dict[str, object]) -> None:
+        """Ask Polymarket to issue a Builder API Key for this signer."""
+        self._runner.submit(self._mint_builder_key(config))
+
+    async def _mint_builder_key(self, config: dict[str, object]) -> None:
+        try:
+            import polymarket
+
+            client = await asyncio.wait_for(
+                polymarket.AsyncSecureClient.create(
+                    private_key=str(config.get("private_key", "")),
+                    wallet=str(config.get("funder", "")) or None,
+                ),
+                timeout=30,
+            )
+            try:
+                key = await asyncio.wait_for(
+                    client.create_builder_api_key(), timeout=30
+                )
+            finally:
+                await client.close()
+            self.builder_ready.emit(key.key, key.secret, key.passphrase)
+        except Exception as exc:  # the SDK raises a wide variety of types
+            self.builder_failed.emit(friendly_message(exc)[:180])
 
     async def _probe(self, venue: str, config: dict[str, object]) -> None:
         ok = False
