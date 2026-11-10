@@ -83,6 +83,29 @@ def test_the_tail_is_compacted_to_the_resolution() -> None:
     assert hour[0].open == pytest.approx(minute[0].open)
 
 
+def test_load_bars_is_memoised_until_the_file_changes(monkeypatch) -> None:
+    from lalala import strat_report
+
+    _write_year(2021, 500)
+    calls = {"n": 0}
+    original = strat_report.tail_rows
+
+    def counted(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(strat_report, "tail_rows", counted)
+    strat_report._BARS_CACHE.clear()
+
+    load_bars("1m")
+    load_bars("1m")
+    assert calls["n"] == 1  # the second read is served from the cache
+
+    _write_year(2021, 400)  # the file grew: a new signature
+    load_bars("1m")
+    assert calls["n"] == 2
+
+
 def test_an_empty_store_loads_nothing() -> None:
     assert load_bars("1h") == ([], None)
 

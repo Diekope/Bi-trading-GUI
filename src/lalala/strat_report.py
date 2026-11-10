@@ -59,6 +59,10 @@ FACTOR = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 VISIBLE = 1200
 WARMUP = 200
 
+# The tail bars, keyed by (file, resolution, sizes) with the file's signature,
+# so the builder's per-keystroke refresh does not re-read the CSV.
+_BARS_CACHE: dict[tuple, tuple] = {}
+
 # This tile's own defaults, since the run's parameters live elsewhere.
 PREVIEW_TP = 2.0
 PREVIEW_SL = 1.0
@@ -130,14 +134,32 @@ def load_bars(
     visible: int = VISIBLE,
     warmup: int = WARMUP,
 ) -> tuple[list[Bar], int | None]:
-    """The tail of the newest year, compacted to `resolution`."""
+    """The tail of the newest year, compacted to `resolution`.
+
+    Memoised on the file's signature: the builder re-reads the tail on every
+    keystroke, and the disk read (tens of thousands of rows at 1h) dwarfs the
+    run itself. A rewritten file busts the cache through its size or mtime.
+    """
     year = latest_year()
     if year is None:
         return [], None
+    path = candle_file(year)
+    try:
+        stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return [], year
+
+    key = (str(path), resolution, visible, warmup)
+    cached = _BARS_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return list(cached[1]), year
+
     factor = FACTOR.get(resolution, 1)
-    rows = tail_rows(candle_file(year), (visible + warmup) * factor)
-    bars = [Bar(*row) for row in rows]
-    return compact(bars, factor), year
+    rows = tail_rows(path, (visible + warmup) * factor)
+    bars = compact([Bar(*row) for row in rows], factor)
+    _BARS_CACHE[key] = (signature, bars, year)
+    return list(bars), year
 
 
 def _returns(curve: list[float]) -> list[float]:
