@@ -34,7 +34,7 @@ def _rows(count: int, start: int = 0) -> list[tuple[int, float, float, float, fl
 
 
 def test_files_are_one_per_year_at_one_minute() -> None:
-    assert candle_file(2019).name == "BTC-2019-1m.csv"
+    assert candle_file(2019).name == "BTC-2019-1m.parquet"
     assert candle_file(2019).parent == candles.candles_dir()
 
 
@@ -73,14 +73,17 @@ def test_2017_is_only_expected_from_the_pair_listing() -> None:
     assert 196_496 >= expected * COMPLETE
 
 
-def test_append_writes_a_header_once_and_reads_back() -> None:
+def test_append_reads_back_through_the_parquet_store() -> None:
     path = candle_file(2018)
 
     assert append_rows(path, _rows(3)) == 3
     assert append_rows(path, _rows(2, start=3 * 60_000)) == 2
 
-    text = path.read_text().splitlines()
-    assert text[0] == "timestamp,open,high,low,close,volume"
+    # The store is Parquet: read it back as rows, not as text.
+    rows = candles.tail_rows(path, 10)
+    assert len(rows) == 5
+    assert rows[0][0] == 0
+    assert rows[-1][0] == 4 * 60_000
     assert row_count(path) == 5
     assert last_timestamp(path) == 4 * 60_000
 
@@ -88,6 +91,22 @@ def test_append_writes_a_header_once_and_reads_back() -> None:
 def test_last_timestamp_is_none_for_a_missing_file() -> None:
     assert last_timestamp(candle_file(2018)) is None
     assert row_count(candle_file(2018)) == 0
+
+
+def test_a_legacy_csv_is_migrated_to_parquet() -> None:
+    csv = candles.legacy_csv(2018)
+    csv.parent.mkdir(parents=True, exist_ok=True)
+    csv.write_text(
+        "timestamp,open,high,low,close,volume\n"
+        + "\n".join(f"{i * 60_000},1,2,0.5,1.5,10" for i in range(4))
+        + "\n"
+    )
+
+    # Reading the year converts the CSV, then drops it once the rows agree.
+    assert row_count(candle_file(2018)) == 4
+    assert candle_file(2018).exists()
+    assert not csv.exists()
+    assert last_timestamp(candle_file(2018)) == 3 * 60_000
 
 
 def test_year_state_reads_missing_partial_complete(monkeypatch) -> None:

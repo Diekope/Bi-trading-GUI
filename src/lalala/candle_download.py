@@ -38,6 +38,11 @@ LIMIT = 1000
 PAUSE_S = 0.25
 MAX_RETRIES = 5
 
+# Parquet has no append, so a page is buffered and the year is rewritten every
+# so many rows. A crash then loses at most this many, and the file is not
+# rewritten once per page.
+FLUSH_ROWS = 50_000
+
 
 class CandleDownloader(QObject):
     """One download at a time, live on its own asyncio loop."""
@@ -87,15 +92,22 @@ class CandleDownloader(QObject):
             cursor = resume + MINUTE_MS
 
         total = row_count(path)
+        pending: list[tuple] = []
         while cursor <= end:
             batch = await self._klines(client, cursor, end)
             rows = [row for row in (_clean(k) for k in batch) if row is not None]
             if not rows:
                 break
-            total += append_rows(path, rows)
+            pending.extend(rows)
             cursor = rows[-1][0] + MINUTE_MS
-            self.progressed.emit(year, total)
+            if len(pending) >= FLUSH_ROWS:
+                total = row_count(path) + append_rows(path, pending)
+                pending = []
+            self.progressed.emit(year, total + len(pending))
             await asyncio.sleep(PAUSE_S)
+        if pending:
+            total = row_count(path) + append_rows(path, pending)
+            self.progressed.emit(year, total)
 
     async def _klines(
         self, client: httpx.AsyncClient, start_ms: int, end_ms: int

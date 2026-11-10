@@ -166,26 +166,33 @@ def _parse(line: str) -> Candle | None:
 
 
 def _iter_file(path, factor: int) -> Iterator[Candle]:
-    def bars() -> Iterator[Candle]:
-        try:
-            with path.open() as handle:
-                next(handle, None)  # the header
-                for line in handle:
-                    bar = _parse(line)
-                    if bar is not None:
-                        yield bar
-        except OSError:
-            return
-    yield from aggregate(bars(), factor)
+    """One year, compacted `factor`-to-one, read straight from Parquet arrays."""
+    from lalala import candles
+
+    data = candles.arrays(path)
+    if data is None:
+        return
+    stamps, opens, highs, lows, closes, volumes = data
+    size = len(stamps)
+    index = 0
+    while index < size:
+        end = min(index + factor, size) if factor > 1 else index + 1
+        yield Candle(
+            int(stamps[index]),
+            float(opens[index]),
+            float(highs[index:end].max() if factor > 1 else highs[index]),
+            float(lows[index:end].min() if factor > 1 else lows[index]),
+            float(closes[end - 1]),
+            float(volumes[index:end].sum() if factor > 1 else volumes[index]),
+        )
+        index = end
 
 
 def iter_candles(years: list[int], resolution: str) -> Iterator[Candle]:
     """The whole span, one bar at a time, compacted to `resolution`."""
     factor = FACTOR.get(resolution, 1)
     for year in sorted(years):
-        path = candle_file(year)
-        if path.exists():
-            yield from _iter_file(path, factor)
+        yield from _iter_file(candle_file(year), factor)
 
 
 def count_bars(years: list[int], resolution: str) -> int:
@@ -196,18 +203,12 @@ def count_bars(years: list[int], resolution: str) -> int:
     more, shorter bar. The total therefore matches what `iter_candles` yields,
     which matters: progress is measured against it.
     """
+    from lalala import candles
+
     factor = FACTOR.get(resolution, 1)
     bars = 0
     for year in sorted(years):
-        path = candle_file(year)
-        lines = 0
-        try:
-            with path.open("rb") as handle:
-                for block in iter(lambda: handle.read(1 << 20), b""):
-                    lines += block.count(b"\n")
-        except OSError:
-            continue
-        rows = max(0, lines - 1)  # one header per file
+        rows = candles.row_count(candle_file(year))
         bars += -(-rows // factor)
     return bars
 
@@ -231,14 +232,12 @@ _SPAN_CACHE: dict[tuple, tuple] = {}
 
 
 def _span_signature(years: list[int]) -> tuple:
+    from lalala import candles
+
     signature = []
     for year in sorted(years):
         path = candle_file(year)
-        try:
-            stat = path.stat()
-            signature.append((str(path), stat.st_mtime_ns, stat.st_size))
-        except OSError:
-            signature.append((str(path), None, None))
+        signature.append((str(path), candles.store_signature(path)))
     return tuple(signature)
 
 
@@ -296,6 +295,16 @@ class ColumnSpan:
             float(self.volumes[index]),
         )
 
+    @classmethod
+    def from_arrays(cls, data: tuple) -> "ColumnSpan":
+        """A span from (stamps, open, high, low, close, volume) arrays."""
+        span = cls.__new__(cls)
+        (span.stamps, span.opens, span.highs, span.lows, span.closes,
+         span.volumes) = data
+        span.length = len(span.stamps)
+        span._lists = None
+        return span
+
     def candles(self, start: int, stop: int) -> list[Candle]:
         return [self.candle(index) for index in range(max(0, start), min(stop, self.length))]
 
@@ -324,8 +333,6 @@ def window_around(
     if year not in years:
         year = min(years, key=lambda value: abs(value - year))
     path = candle_file(year)
-    if not path.exists():
-        return []
     bars = list(_iter_file(path, FACTOR.get(resolution, 1)))
     if not bars:
         return []
@@ -1048,28 +1055,61 @@ def load_span(years: list[int], resolution: str) -> "ColumnSpan | None":
     """
     import numpy as np
 
+    from lalala import candles
+
     key = (tuple(sorted(years)), resolution)
     signature = _span_signature(years)
     cached = _SPAN_ARRAY_CACHE.get(key)
     if cached is not None and cached[0] == signature:
         return cached[1]
 
-    parts: list[ColumnSpan] = []
+    factor = FACTOR.get(resolution, 1)
+    parts: list[tuple] = []
     for year in sorted(years):
-        bars = list(iter_candles([year], resolution))
-        if bars:
-            parts.append(ColumnSpan(bars))
+        data = candles.arrays(candle_file(year))
+        if data is not None and len(data[0]):
+            parts.append(_compact_arrays(data, factor))
     span: ColumnSpan | None = None
     if parts:
-        span = ColumnSpan.__new__(ColumnSpan)
-        span.length = sum(part.length for part in parts)
-        for name in ("stamps", "opens", "highs", "lows", "closes", "volumes"):
-            setattr(
-                span, name, np.concatenate([getattr(p, name) for p in parts])
-            )
-        span._lists = None
+        span = ColumnSpan.from_arrays(
+            tuple(np.concatenate([part[i] for part in parts]) for i in range(6))
+        )
     _SPAN_ARRAY_CACHE[key] = (signature, span)
     return span
+
+
+def _compact_arrays(data: tuple, factor: int) -> tuple:
+    """Compact a year's columns `factor`-to-one, without building Candles."""
+    import numpy as np
+
+    if factor <= 1:
+        return data
+    stamps, opens, highs, lows, closes, volumes = data
+    size = len(stamps)
+    out_stamp: list[int] = []
+    out_open: list[float] = []
+    out_high: list[float] = []
+    out_low: list[float] = []
+    out_close: list[float] = []
+    out_volume: list[float] = []
+    index = 0
+    while index < size:
+        end = min(index + factor, size)
+        out_stamp.append(int(stamps[index]))
+        out_open.append(float(opens[index]))
+        out_high.append(float(highs[index:end].max()))
+        out_low.append(float(lows[index:end].min()))
+        out_close.append(float(closes[end - 1]))
+        out_volume.append(float(volumes[index:end].sum()))
+        index = end
+    return (
+        np.array(out_stamp, np.int64),
+        np.array(out_open, float),
+        np.array(out_high, float),
+        np.array(out_low, float),
+        np.array(out_close, float),
+        np.array(out_volume, float),
+    )
 
 
 def span_columns(span: ColumnSpan) -> dict:

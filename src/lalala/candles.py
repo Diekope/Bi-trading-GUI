@@ -1,16 +1,21 @@
-"""The local candle store: paths, coverage, and CSV append/read helpers.
+"""The local candle store: paths, coverage, and Parquet read/append helpers.
 
-History is kept as one OHLCV file per year, always at `1m`: the finest
-resolution is the only one worth keeping, because anything coarser can be
-compacted from it later. Everything here is pure — no Qt, no network — so the
-coverage rules can be tested against a temp directory.
+History is kept as one OHLCV **Parquet** file per year, always at `1m`: the
+finest resolution is the only one worth keeping, because anything coarser can
+be compacted from it later, and a columnar file reads a whole span as arrays
+without parsing a line at a time. Everything here is pure — no Qt, no network —
+so the coverage rules can be tested against a temp directory.
 
-The files carry real venue gaps (Binance was down for hours on 2017-09-06,
-and briefly twice in December). They are left as they are: a run refuses to
-trade across a gap rather than inventing the missing minutes.
+A legacy CSV store (`BTC-<year>-1m.csv`) is read and migrated in place: the
+first time a year is touched, its CSV is converted to Parquet and, once the row
+counts agree, the CSV is removed.
 
-    data/candles/BTC-2017-1m.csv
-    timestamp,open,high,low,close,volume
+The files carry real venue gaps (Binance was down for hours on 2017-09-06, and
+briefly twice in December). They are left as they are: a run refuses to trade
+across a gap rather than inventing the missing minutes.
+
+    data/candles/BTC-2017-1m.parquet
+    timestamp, open, high, low, close, volume
 """
 
 from __future__ import annotations
@@ -18,6 +23,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 ASSET = "BTC"
 RESOLUTION = "1m"          # the only resolution ever downloaded
@@ -31,6 +40,18 @@ HEADER = "timestamp,open,high,low,close,volume\n"
 HISTORY_START_MS = 1_502_942_400_000  # 2017-08-17T04:00Z
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+SCHEMA = pa.schema(
+    [
+        ("timestamp", pa.int64()),
+        ("open", pa.float64()),
+        ("high", pa.float64()),
+        ("low", pa.float64()),
+        ("close", pa.float64()),
+        ("volume", pa.float64()),
+    ]
+)
+COLUMNS = ("open", "high", "low", "close", "volume")
 
 # Row counts are stable between writes, so a span change does not re-scan a
 # half-million-line file every time the picker moves.
@@ -60,6 +81,10 @@ def default_candles_dir() -> Path:
 
 
 def candle_file(year: int, resolution: str = RESOLUTION) -> Path:
+    return candles_dir() / f"{ASSET}-{year}-{resolution}.parquet"
+
+
+def legacy_csv(year: int, resolution: str = RESOLUTION) -> Path:
     return candles_dir() / f"{ASSET}-{year}-{resolution}.csv"
 
 
@@ -97,110 +122,176 @@ def expected_rows(year: int, now: datetime | None = None) -> int:
     return (end - start) // MINUTE_MS
 
 
-def row_count(path: Path) -> int:
-    """Data rows in a CSV, minus the header. Zero when the file is absent."""
+# -- reading -----------------------------------------------------------------
+
+
+def _migrate(path: Path) -> None:
+    """Convert the legacy CSV beside `path` to Parquet, then drop the CSV."""
+    csv = path.with_suffix(".csv")
+    if not csv.exists():
+        return
+    table = _csv_table(csv)
+    _write_table(path, table)
+    # Only remove the source once the new file holds every row.
+    if row_count(path) >= len(table):
+        try:
+            csv.unlink()
+        except OSError:
+            pass
+
+
+def _ensure(path: Path) -> None:
+    if not path.exists():
+        _migrate(path)
+
+
+def store_signature(path: Path) -> tuple[int, int] | None:
+    """(mtime, size) for a year's Parquet file, migrating a CSV first."""
+    _ensure(path)
     try:
         stat = path.stat()
     except OSError:
-        return 0
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def table(path: Path) -> pa.Table | None:
+    """The year's table, migrating a legacy CSV first. None when absent."""
+    _ensure(path)
+    try:
+        return pq.read_table(path)
+    except (OSError, pa.ArrowInvalid):
+        return None
+
+
+def arrays(path: Path) -> tuple[np.ndarray, ...] | None:
+    """The year's columns as arrays: (timestamp, open, high, low, close, volume)."""
+    data = table(path)
+    if data is None or data.num_rows == 0:
+        return None
+    stamp = data.column("timestamp").to_numpy(zero_copy_only=False)
+    columns = [data.column(name).to_numpy(zero_copy_only=False) for name in COLUMNS]
+    return (stamp, *columns)
+
+
+def row_count(path: Path) -> int:
+    """Data rows in a store file. Zero when the file is absent."""
+    try:
+        stat = path.stat()
+    except OSError:
+        _migrate(path)
+        try:
+            stat = path.stat()
+        except OSError:
+            return 0
     key = (str(path), stat.st_mtime)
     cached = _ROW_CACHE.get(key)
     if cached is not None:
         return cached
     try:
-        with path.open("rb") as handle:
-            lines = 0
-            while True:
-                block = handle.read(1 << 20)
-                if not block:
-                    break
-                lines += block.count(b"\n")
-    except OSError:
+        count = pq.read_metadata(path).num_rows
+    except (OSError, pa.ArrowInvalid):
         return 0
-    count = max(0, lines - 1)
     _ROW_CACHE[key] = count
     return count
 
 
 def tail_rows(path: Path, count: int) -> list[tuple]:
-    """The last `count` rows of a CSV, oldest first.
-
-    Seeks to the tail rather than reading the file, so a preview does not walk
-    a year of minutes to show the last few hundred.
-    """
+    """The last `count` rows, oldest first."""
     if count <= 0:
         return []
-    try:
-        with path.open("rb") as handle:
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            block = min(size, max(4096, count * 90))
-            handle.seek(size - block)
-            data = handle.read().decode("ascii", "ignore")
-    except OSError:
+    data = table(path)
+    if data is None:
         return []
-    lines = data.splitlines()
-    if block < size:
-        lines = lines[1:]  # the seek is not line aligned
+    total = data.num_rows
+    start = max(0, total - count)
     rows: list[tuple] = []
-    for line in lines:
-        parts = line.split(",")
-        if len(parts) < 6:
-            continue
-        try:
-            rows.append(
-                (
-                    int(parts[0]),
-                    float(parts[1]),
-                    float(parts[2]),
-                    float(parts[3]),
-                    float(parts[4]),
-                    float(parts[5]),
-                )
+    for row in data.slice(start, total - start).to_pylist():
+        rows.append(
+            (
+                int(row["timestamp"]),
+                float(row["open"]),
+                float(row["high"]),
+                float(row["low"]),
+                float(row["close"]),
+                float(row["volume"]),
             )
-        except ValueError:
-            continue  # the header, or a torn line
-    return rows[-count:]
+        )
+    return rows
 
 
 def last_timestamp(path: Path) -> int | None:
     """The newest timestamp in a file, so a download can resume from it."""
-    try:
-        with path.open("rb") as handle:
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            if size == 0:
-                return None
-            block = min(size, 4096)
-            handle.seek(size - block)
-            tail = handle.read().decode("ascii", "ignore")
-    except OSError:
+    data = table(path)
+    if data is None or data.num_rows == 0:
         return None
-    lines = [line for line in tail.splitlines() if line.strip()]
-    if not lines:
-        return None
-    # A partial first line is likely, since the seek is not line aligned.
-    for line in reversed(lines):
-        head = line.split(",", 1)[0]
-        if head.isdigit():
-            return int(head)
-    return None
+    return int(data.column("timestamp")[-1].as_py())
 
-def append_rows(path: Path, rows: list[tuple[int, float, float, float, float, float]]) -> int:
-    """Append OHLCV rows, writing the header when the file is new."""
+
+def append_rows(
+    path: Path, rows: list[tuple[int, float, float, float, float, float]]
+) -> int:
+    """Append OHLCV rows to a year's Parquet file, creating it when new.
+
+    Parquet has no append, so the rows are folded into the year: read, concat,
+    write to a temp file, then replace. The downloader flushes in batches so a
+    whole year is not rewritten once per page.
+    """
     if not rows:
         return 0
     ensure_data_dir()
-    fresh = not path.exists() or path.stat().st_size == 0
-    with path.open("a") as handle:
-        if fresh:
-            handle.write(HEADER)
-        for stamp, open_, high, low, close, volume in rows:
-            handle.write(
-                f"{stamp},{open_:g},{high:g},{low:g},{close:g},{volume:g}\n"
-            )
-    _ROW_CACHE.pop((str(path), path.stat().st_mtime), None)
+    stamps, opens, highs, lows, closes, volumes = zip(*rows)
+    fresh = pa.table(
+        {
+            "timestamp": pa.array(stamps, pa.int64()),
+            "open": pa.array(opens, pa.float64()),
+            "high": pa.array(highs, pa.float64()),
+            "low": pa.array(lows, pa.float64()),
+            "close": pa.array(closes, pa.float64()),
+            "volume": pa.array(volumes, pa.float64()),
+        },
+        schema=SCHEMA,
+    )
+    existing = table(path)
+    combined = fresh if existing is None else pa.concat_tables([existing, fresh])
+    _write_table(path, combined)
+    _ROW_CACHE.clear()
     return len(rows)
+
+
+def _write_table(path: Path, data: pa.Table) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    pq.write_table(data, tmp, compression="zstd")
+    os.replace(tmp, path)
+
+
+def _csv_table(path: Path) -> pa.Table:
+    """Read a legacy CSV into a Table (used only for migration)."""
+    stamps: list[int] = []
+    columns: dict[str, list[float]] = {name: [] for name in COLUMNS}
+    try:
+        with path.open() as handle:
+            next(handle, None)  # the header
+            for line in handle:
+                parts = line.split(",")
+                if len(parts) < 6:
+                    continue
+                try:
+                    stamps.append(int(parts[0]))
+                    for index, name in enumerate(COLUMNS, start=1):
+                        columns[name].append(float(parts[index]))
+                except ValueError:
+                    continue
+    except OSError:
+        return pa.table({}, schema=SCHEMA)
+    return pa.table(
+        {
+            "timestamp": pa.array(stamps, pa.int64()),
+            **{name: pa.array(values, pa.float64()) for name, values in columns.items()},
+        },
+        schema=SCHEMA,
+    )
 
 
 def year_state(year: int, now: datetime | None = None) -> str:

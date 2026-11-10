@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lalala import candles
 from lalala.candles import candle_file, tail_rows
 from lalala.cards import mono_font
 from lalala.formula_eval import (
@@ -123,8 +124,10 @@ def compact(bars: list[Bar], factor: int) -> list[Bar]:
 
 def latest_year(now: int = 2026) -> int | None:
     """The newest year with a candle file, or None when the store is empty."""
+    from lalala.candles import legacy_csv
+
     for year in range(now, 2016, -1):
-        if candle_file(year).exists():
+        if candle_file(year).exists() or legacy_csv(year).exists():
             return year
     return None
 
@@ -144,10 +147,8 @@ def load_bars(
     if year is None:
         return [], None
     path = candle_file(year)
-    try:
-        stat = path.stat()
-        signature = (stat.st_mtime_ns, stat.st_size)
-    except OSError:
+    signature = candles.store_signature(path)
+    if signature is None:
         return [], year
 
     key = (str(path), resolution, visible, warmup)
