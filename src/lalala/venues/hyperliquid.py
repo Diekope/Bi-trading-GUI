@@ -23,6 +23,7 @@ from lalala.venues.base import (
     OrderRequest,
     Quote,
     VenueError,
+    friendly_message,
 )
 
 REST_URL = "https://api.hyperliquid.xyz"
@@ -178,15 +179,18 @@ class HyperliquidVenue:
         await self.connect()
         if self._exchange is None:
             raise VenueError("submit requires private_key and account_address")
-        result = await asyncio.to_thread(
-            self._exchange.order,
-            order.instrument.symbol,
-            is_buy=order.side == "buy",
-            sz=order.size,
-            limit_px=order.price,
-            order_type={"limit": {"tif": "Gtc"}},
-            reduce_only=order.reduce_only,
-        )
+        try:
+            result = await asyncio.to_thread(
+                self._exchange.order,
+                order.instrument.symbol,
+                is_buy=order.side == "buy",
+                sz=order.size,
+                limit_px=order.price,
+                order_type={"limit": {"tif": "Gtc"}},
+                reduce_only=order.reduce_only,
+            )
+        except Exception as exc:  # region blocks, rejects, transport
+            raise VenueError(friendly_message(exc)) from exc
         if result.get("status") != "ok":
             return OrderAck("", order.client_id, False, str(result))
         statuses = result["response"]["data"]["statuses"]

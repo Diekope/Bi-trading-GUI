@@ -16,7 +16,7 @@ from PySide6.QtCore import QObject, Signal
 
 from lalala.state.accounts import HL_KEY, PM_KEY, get_secret, load_accounts
 from lalala.venues import get_venue
-from lalala.venues.base import Instrument, OrderRequest
+from lalala.venues.base import Instrument, OrderRequest, VenueError, friendly_message
 from lalala.venues.runner import AsyncRunner
 
 HL_BTC = Instrument(venue="hyperliquid", symbol="BTC", tick=0.1, size_step=0.00001)
@@ -112,7 +112,10 @@ class OrderService(QObject):
             else:
                 self.failed.emit(venue, ack.reason or "the venue rejected it")
         except Exception as exc:  # the SDKs raise a wide variety of types
-            self.failed.emit(venue, f"{type(exc).__name__}: {exc}"[:180])
+            text = friendly_message(exc)
+            if not isinstance(exc, VenueError):
+                text = f"{type(exc).__name__}: {text}"
+            self.failed.emit(venue, text[:180])
         finally:
             if adapter is not None:
                 try:

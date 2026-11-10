@@ -26,6 +26,7 @@ from lalala.venues.base import (
     OrderRequest,
     Quote,
     VenueError,
+    friendly_message,
 )
 
 REST_URL = "https://clob.polymarket.com"
@@ -101,7 +102,7 @@ class PolymarketVenue:
         try:
             data = await asyncio.to_thread(read)
         except Exception as exc:  # SDK raises a wide variety of types
-            raise VenueError(str(exc)) from exc
+            raise VenueError(friendly_message(exc)) from exc
         # The collateral balance comes back in USDC's 6-decimal base units.
         raw = data.get("balance") if isinstance(data, dict) else None
         free = float(raw) / 1e6 if raw is not None else 0.0
@@ -161,7 +162,7 @@ class PolymarketVenue:
                 self._client.create_and_post_order, args
             )
         except Exception as exc:  # SDK raises a wide variety of types
-            raise VenueError(str(exc)) from exc
+            raise VenueError(friendly_message(exc)) from exc
         if not isinstance(response, dict):
             return OrderAck("", order.client_id, False, str(response))
         reason = response.get("errorMsg") or response.get("error")

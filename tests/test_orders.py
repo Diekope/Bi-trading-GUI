@@ -183,6 +183,26 @@ def test_a_live_orders_flag_round_trips_through_settings(paths) -> None:
     assert raw["trading"]["live_orders"] is True
 
 
+def test_a_region_block_reads_plainly() -> None:
+    from lalala.venues.base import friendly_message
+
+    text = friendly_message(
+        Exception(
+            "PolyApiException[status_code=403, error_message={'error': "
+            "'Trading restricted in your region, please refer to available regions'}]"
+        )
+    )
+
+    assert "region" in text.lower()
+    assert "docs.polymarket.com" in text
+
+
+def test_a_plain_error_passes_through() -> None:
+    from lalala.venues.base import friendly_message
+
+    assert friendly_message(ValueError("boom")) == "boom"
+
+
 class _BalanceVenue:
     def __init__(self, free: float, **config) -> None:
         self.free = free

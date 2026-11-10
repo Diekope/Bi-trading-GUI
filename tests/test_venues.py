@@ -75,3 +75,20 @@ def test_submit_wraps_an_sdk_exception() -> None:
 
     with pytest.raises(VenueError):
         asyncio.run(_venue_with(FakeClient()).submit(_order()))
+
+
+def test_submit_turns_a_region_block_into_a_clear_message() -> None:
+    from lalala.venues.base import VenueError
+
+    class FakeClient:
+        def create_and_post_order(self, *args):
+            raise Exception(
+                "PolyApiException[status_code=403, error_message={'error': "
+                "'Trading restricted in your region'}]"
+            )
+
+    with pytest.raises(VenueError) as info:
+        asyncio.run(_venue_with(FakeClient()).submit(_order()))
+
+    assert "region" in str(info.value).lower()
+    assert "docs.polymarket.com" in str(info.value)
