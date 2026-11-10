@@ -20,6 +20,22 @@ class VenueError(Exception):
     """Raised for rejected orders, auth failures and transport errors."""
 
 
+# A 403 from the CLOB is almost always a geoblock; say so plainly.
+_REGION_HINTS = ("region", "restricted", "not available in your")
+
+
+def friendly_message(exc: object) -> str:
+    """A human line for an order failure — a region block, or the raw text."""
+    text = str(exc)
+    low = text.lower()
+    if any(hint in low for hint in _REGION_HINTS) or "403" in text:
+        return (
+            "Trading is not allowed from your region. Polymarket's blocked "
+            "regions are listed at https://docs.polymarket.com/developers"
+        )
+    return text
+
+
 @dataclass(frozen=True, slots=True)
 class Instrument:
     """A tradable market.
