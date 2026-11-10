@@ -233,7 +233,7 @@ def test_the_window_never_grows_past_the_chart() -> None:
     assert len(play.recent()) == CHART_BARS
 
 
-def test_the_core_drives_a_seek_like_the_python_walk() -> None:
+def test_a_seek_matches_the_python_walk() -> None:
     from lalala.ui.strat.strat_playback import build_session
 
     params = {
@@ -241,8 +241,8 @@ def test_the_core_drives_a_seek_like_the_python_walk() -> None:
         "sizing": "balance", "cash": 2_000.0, "fee": 0.06,
     }
     session = build_session([], params, "bollinger", "1m")
-    if not session._core_ready():
-        pytest.skip("the native core is not built")
+    # The span is in memory, so a seek is one walk — native or Python.
+    assert session._core_ready() is True
     reference = build_session([], params, "bollinger", "1m")
     for _ in range(200):
         reference.strategy.step()

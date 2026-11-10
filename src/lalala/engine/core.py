@@ -65,6 +65,8 @@ def walk(
             np.ascontiguousarray(entries, dtype=bool),
             capital, tp, sl, position, sizing, max_cash, fee, max_hold,
         )
+    # The Python walk indexes the columns one by one, and list indexing is
+    # faster than NumPy scalar indexing, so lift to lists once.
     closes = [float(value) for value in closes]
     highs = [float(value) for value in highs]
     lows = [float(value) for value in lows]

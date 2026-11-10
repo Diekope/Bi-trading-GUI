@@ -692,11 +692,36 @@ class Playback:
         self._returns = 0
         self._return_mean = 0.0
         self._return_m2 = 0.0
-        for value in equity[: self.index]:
-            self.peak = max(self.peak, value)
-            self.max_drawdown = min(self.max_drawdown, self._dd(value))
-            self.max_gain = max(self.max_gain, value / self.capital - 1.0)
-            self._observe(value)
+        # The whole equity curve, in array maths: a decade is millions of bars,
+        # and the figures are the same running peak, drawdown and return
+        # moments the per-bar `_observe` would keep.
+        if self.index > 0:
+            import numpy as np
+
+            values = np.asarray(equity[: self.index], dtype=float)
+            running_peak = np.maximum.accumulate(
+                np.maximum(values, self.capital)
+            )
+            with np.errstate(divide="ignore", invalid="ignore"):
+                drawdowns = values / running_peak - 1.0
+            self.peak = float(running_peak[-1])
+            self.max_drawdown = float(np.nanmin(drawdowns))
+            self.max_gain = float(values.max() / self.capital - 1.0)
+
+            series = np.concatenate(([self.capital], values))
+            previous = series[:-1]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                returns = np.where(
+                    previous > 0, series[1:] / previous - 1.0, 0.0
+                )
+            self._returns = int(returns.size)
+            self._return_mean = float(returns.mean()) if returns.size else 0.0
+            self._return_m2 = (
+                float(((returns - self._return_mean) ** 2).sum())
+                if returns.size
+                else 0.0
+            )
+            self._last_equity = float(values[-1])
 
     def _dd(self, equity: float) -> float:
         return equity / self.peak - 1.0 if self.peak > 0 else 0.0
@@ -1225,21 +1250,24 @@ class BacktestSession:
         self._sample()
 
     def _core_ready(self) -> bool:
-        from lalala.engine import core
+        """True when a seek can be one walk over the span.
 
+        It is a native walk where the Rust core is built, and the same walk in
+        Python where it is not — either way the curves are rebuilt in one pass,
+        not stepped bar by bar.
+        """
         return (
-            core.available()
-            and self.span is not None
+            self.span is not None
             and self.settings is not None
-            and self.strategy_entries is not None
-            and self.random_entries is not None
+            and self.strategy_entries_arr is not None
+            and self.random_entries_arr is not None
         )
 
     def _core_seek(self, target: int) -> None:
         from lalala.engine import core
 
         s = self.settings
-        # The span's columns go straight to the core (a NumPy slice is a view).
+        # The span's columns go straight to the walk (a NumPy slice is a view).
         closes = self.span.closes[:target]
         highs = self.span.highs[:target]
         lows = self.span.lows[:target]
@@ -1260,15 +1288,17 @@ class BacktestSession:
         self.random.adopt(random_trades, random_equity, self.span, target)
         self.strategy_curve = strategy_equity
         self.random_curve = random_equity
-        first = float(closes[0]) if len(closes) else 0.0
-        self.benchmark = [
-            s["capital"] * float(close) / first if first else s["capital"]
-            for close in closes
-        ]
+        # The benchmark and the scale, over the whole span, in array maths
+        # rather than a Python pass per bar.
+        if len(closes):
+            self.benchmark = (s["capital"] * closes / float(closes[0])).tolist()
+        else:
+            self.benchmark = []
         self.low = self.high = s["capital"]
-        for curve in (self.strategy_curve, self.random_curve):
-            for value in curve:
-                self._grow(value)
+        for curve in (strategy_equity, random_equity):
+            if curve:
+                self.low = min(self.low, min(curve))
+                self.high = max(self.high, max(curve))
 
 
 def _walk_settings(params: dict) -> dict:
