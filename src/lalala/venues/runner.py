@@ -8,12 +8,29 @@ QTimer or wrap it in a QThread signal to get results back onto the GUI thread.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import threading
 from collections.abc import Coroutine
 from concurrent.futures import Future
 from typing import Any, TypeVar
 
 T = TypeVar("T")
+
+# Every runner that is running, so an exit can stop them all. A daemon asyncio
+# thread left running while Qt and the interpreter finalize segfaults; stopping
+# them here, before finalization, keeps the exit clean.
+_LIVE: list["AsyncRunner"] = []
+
+
+def _stop_all() -> None:
+    for runner in list(_LIVE):
+        try:
+            runner.stop()
+        except Exception:  # noqa: BLE001 - an exit must not raise
+            pass
+
+
+atexit.register(_stop_all)
 
 
 class AsyncRunner:
@@ -30,6 +47,7 @@ class AsyncRunner:
             if not self._started:
                 self._thread.start()
                 self._started = True
+                _LIVE.append(self)
         return self
 
     def _spin(self) -> None:
@@ -44,6 +62,8 @@ class AsyncRunner:
     def stop(self, timeout: float = 3.0) -> None:
         with self._lock:
             if not self._started:
+                if self in _LIVE:
+                    _LIVE.remove(self)
                 return
             self._started = False
         self._loop.call_soon_threadsafe(self._cancel_and_stop)
@@ -53,6 +73,8 @@ class AsyncRunner:
         # it alone: the thread is a daemon and exits with the process.
         if not self._thread.is_alive():
             self._loop.close()
+        if self in _LIVE:
+            _LIVE.remove(self)
 
     def _cancel_and_stop(self) -> None:
         """Cancel in-flight coroutines and let them unwind before stopping.
