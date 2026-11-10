@@ -3,6 +3,9 @@
 Dark trading terminal. Hyperliquid candles are live on the right; the left
 column tracks the current Polymarket five-minute BTC up/down market.
 
+**Letting an agent drive it** (create a strategy, backtest, trade) is planned
+but not built — see [`AGENT.md`](AGENT.md) for the steps and the account setup.
+
 ![The terminal: the Polymarket BTC up/down column on the left, live Hyperliquid candles on the right](docs/images/terminal.png)
 
 ## Run
