@@ -14,7 +14,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from lalala.state.accounts import HL_KEY, PM_KEY, get_secret, load_accounts
+from lalala.state.accounts import (
+    HL_KEY,
+    PM_KEY,
+    get_secret,
+    load_accounts,
+    polymarket_builder,
+)
 from lalala.venues import get_venue
 from lalala.venues.base import Instrument, OrderRequest, VenueError, friendly_message
 from lalala.venues.runner import AsyncRunner
@@ -42,6 +48,7 @@ def config_for(venue: str) -> dict | None:
             "private_key": key,
             "funder": accounts.polymarket.address,
             "signature_type": accounts.polymarket.signature_type,
+            "builder": polymarket_builder(),
         }
     return None
 

@@ -32,6 +32,9 @@ from lalala.state.accounts import (
     Accounts,
     HL_KEY,
     HyperliquidAccount,
+    PM_BUILDER_KEY,
+    PM_BUILDER_PASSPHRASE,
+    PM_BUILDER_SECRET,
     PM_KEY,
     PolymarketAccount,
     get_secret,
@@ -305,9 +308,18 @@ class SettingsView(QWidget):
             combo=["EOA / wallet", "Email / Magic", "Browser proxy"],
             current="EOA / wallet",
         )
+        # The V2 gasless steps need a Builder API Key; the three parts are
+        # optional and stay in the keychain.
+        self._pm_builder_key = _field("Builder key", secret=True)
+        self._pm_builder_key.edit.setPlaceholderText("optional — for gasless (deposit wallet)")
+        self._pm_builder_secret = _field("Builder secret", secret=True)
+        self._pm_builder_pass = _field("Builder passphrase", secret=True)
         grid.addWidget(self._pm_key, 0, 0)
         grid.addWidget(self._pm_address, 0, 1)
         grid.addWidget(self._pm_type, 1, 0)
+        grid.addWidget(self._pm_builder_key, 1, 1)
+        grid.addWidget(self._pm_builder_secret, 2, 0)
+        grid.addWidget(self._pm_builder_pass, 2, 1)
         body.addLayout(grid)
         body.addLayout(
             self._card_actions(
@@ -512,6 +524,9 @@ class SettingsView(QWidget):
         self._pm_type.combo.setCurrentIndex(
             max(0, min(accounts.polymarket.signature_type, 2))
         )
+        self._pm_builder_key.edit.setText(get_secret(PM_BUILDER_KEY))
+        self._pm_builder_secret.edit.setText(get_secret(PM_BUILDER_SECRET))
+        self._pm_builder_pass.edit.setText(get_secret(PM_BUILDER_PASSPHRASE))
 
         loaded = Settings.load()
         self._backtest = loaded.backtest
@@ -527,6 +542,9 @@ class SettingsView(QWidget):
             self._hl_key,
             self._pm_key,
             self._pm_address,
+            self._pm_builder_key,
+            self._pm_builder_secret,
+            self._pm_builder_pass,
             self._bt_capital,
             self._bt_position,
             self._bt_tp,
@@ -658,6 +676,9 @@ class SettingsView(QWidget):
         save_accounts(accounts)
         set_secret(HL_KEY, self._hl_key.edit.text().strip())
         set_secret(PM_KEY, self._pm_key.edit.text().strip())
+        set_secret(PM_BUILDER_KEY, self._pm_builder_key.edit.text().strip())
+        set_secret(PM_BUILDER_SECRET, self._pm_builder_secret.edit.text().strip())
+        set_secret(PM_BUILDER_PASSPHRASE, self._pm_builder_pass.edit.text().strip())
         save_backtest_defaults(backtest)
         save_trading_defaults(trading)
         save_general(general)
@@ -742,6 +763,9 @@ class SettingsView(QWidget):
         self._pm_key.edit.setText("")
         self._pm_address.edit.setText("")
         self._pm_type.combo.setCurrentIndex(0)
+        self._pm_builder_key.edit.setText("")
+        self._pm_builder_secret.edit.setText("")
+        self._pm_builder_pass.edit.setText("")
         self._accounts = Accounts()
         self._backtest = BacktestDefaults()
         self._trading = TradingDefaults()
@@ -764,6 +788,9 @@ class SettingsView(QWidget):
         self._pm_key.edit.setText(get_secret(PM_KEY))
         self._pm_address.edit.setText(self._accounts.polymarket.address)
         self._pm_type.combo.setCurrentIndex(self._accounts.polymarket.signature_type)
+        self._pm_builder_key.edit.setText(get_secret(PM_BUILDER_KEY))
+        self._pm_builder_secret.edit.setText(get_secret(PM_BUILDER_SECRET))
+        self._pm_builder_pass.edit.setText(get_secret(PM_BUILDER_PASSPHRASE))
         self._flag_invalid(
             self._hl_address.edit,
             self._accounts.hyperliquid.address,
@@ -846,12 +873,21 @@ class SettingsView(QWidget):
             self._set_status(self._pm_status, "error", "Check the wallet address format.")
             return
         self._begin_test("polymarket", self._pm_status)
+        builder_key = self._pm_builder_key.edit.text().strip()
+        builder_secret = self._pm_builder_secret.edit.text().strip()
+        builder_pass = self._pm_builder_pass.edit.text().strip()
+        builder = (
+            {"key": builder_key, "secret": builder_secret, "passphrase": builder_pass}
+            if builder_key and builder_secret and builder_pass
+            else None
+        )
         self._tester.test(
             "polymarket",
             {
                 "private_key": key,
                 "funder": address,
                 "signature_type": self._pm_type.combo.currentIndex(),
+                "builder": builder,
             },
         )
 
@@ -884,6 +920,9 @@ class SettingsView(QWidget):
             status = self._hl_status
         else:
             set_secret(PM_KEY, "")
+            set_secret(PM_BUILDER_KEY, "")
+            set_secret(PM_BUILDER_SECRET, "")
+            set_secret(PM_BUILDER_PASSPHRASE, "")
             self._accounts = Accounts(
                 hyperliquid=self._accounts.hyperliquid,
                 polymarket=PolymarketAccount(),
@@ -891,6 +930,9 @@ class SettingsView(QWidget):
             self._pm_key.edit.setText("")
             self._pm_address.edit.setText("")
             self._pm_type.combo.setCurrentIndex(0)
+            self._pm_builder_key.edit.setText("")
+            self._pm_builder_secret.edit.setText("")
+            self._pm_builder_pass.edit.setText("")
             self._flag_invalid(self._pm_address.edit, "", valid_address)
             self._flag_invalid(self._pm_key.edit, "", valid_private_key)
             status = self._pm_status

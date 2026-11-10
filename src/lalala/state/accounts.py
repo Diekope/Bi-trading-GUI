@@ -31,6 +31,10 @@ SERVICE = "lalala"
 
 HL_KEY = "hyperliquid.api_private_key"
 PM_KEY = "polymarket.private_key"
+# The V2 deposit-wallet/gasless flow needs a Polymarket Builder API Key.
+PM_BUILDER_KEY = "polymarket.builder_key"
+PM_BUILDER_SECRET = "polymarket.builder_secret"
+PM_BUILDER_PASSPHRASE = "polymarket.builder_passphrase"
 
 # A tiny EVM-shaped check: catches a pasted label or a truncated key before a
 # round trip. The SDKs still do the real validation.
@@ -270,14 +274,28 @@ def valid_private_key(value: str) -> bool:
     return len(value) == 64 and all(char in HEX for char in value)
 
 
+def polymarket_builder() -> dict | None:
+    """The Polymarket Builder API key, if all three parts are stored."""
+    key = get_secret(PM_BUILDER_KEY)
+    secret = get_secret(PM_BUILDER_SECRET)
+    passphrase = get_secret(PM_BUILDER_PASSPHRASE)
+    if key and secret and passphrase:
+        return {"key": key, "secret": secret, "passphrase": passphrase}
+    return None
+
+
 __all__ = [
     "Accounts",
     "HL_KEY",
     "HyperliquidAccount",
+    "PM_BUILDER_KEY",
+    "PM_BUILDER_PASSPHRASE",
+    "PM_BUILDER_SECRET",
     "PM_KEY",
     "PolymarketAccount",
     "get_secret",
     "load_accounts",
+    "polymarket_builder",
     "save_accounts",
     "set_secret",
     "valid_address",

@@ -231,6 +231,27 @@ def test_a_deposit_wallet_mismatch_reads_plainly() -> None:
     assert "blank" in text.lower()
 
 
+def test_the_polymarket_config_carries_the_builder_key(paths) -> None:
+    from lalala.state.accounts import (
+        PM_BUILDER_KEY,
+        PM_BUILDER_PASSPHRASE,
+        PM_BUILDER_SECRET,
+    )
+
+    set_secret(PM_KEY, "0x" + "ab" * 32)
+    assert orders.config_for("polymarket")["builder"] is None
+
+    set_secret(PM_BUILDER_KEY, "bk")
+    set_secret(PM_BUILDER_SECRET, "bs")
+    set_secret(PM_BUILDER_PASSPHRASE, "bp")
+
+    assert orders.config_for("polymarket")["builder"] == {
+        "key": "bk",
+        "secret": "bs",
+        "passphrase": "bp",
+    }
+
+
 class _BalanceVenue:
     def __init__(self, free: float, **config) -> None:
         self.free = free
