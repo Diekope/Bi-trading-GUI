@@ -58,7 +58,9 @@ class PolymarketAccount:
 
     @property
     def configured(self) -> bool:
-        return bool(self.address and get_secret(PM_KEY))
+        # The wallet address is optional (the V2 deposit-wallet flow); the key
+        # is what makes the venue usable.
+        return bool(get_secret(PM_KEY))
 
 
 @dataclass(frozen=True)

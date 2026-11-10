@@ -89,6 +89,15 @@ def test_configured_needs_both_an_address_and_a_key(paths) -> None:
     assert not HyperliquidAccount().configured
 
 
+def test_the_polymarket_account_is_configured_by_the_key_alone(paths) -> None:
+    # The V2 deposit-wallet flow needs no wallet address: the key is enough.
+    set_secret(PM_KEY, "0x" + "a" * 64)
+    assert PolymarketAccount().configured
+
+    set_secret(PM_KEY, "")
+    assert not PolymarketAccount().configured
+
+
 @pytest.mark.parametrize(
     "value, expected",
     [

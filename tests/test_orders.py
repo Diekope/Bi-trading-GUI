@@ -217,6 +217,20 @@ def test_a_stale_clob_client_reads_plainly() -> None:
     assert "clob v2" in text.lower()
 
 
+def test_a_deposit_wallet_mismatch_reads_plainly() -> None:
+    from lalala.venues.base import friendly_message
+
+    text = friendly_message(
+        Exception(
+            "Wallet 0x8c40… does not match the expected Deposit Wallet "
+            "0xa17F… for this signer, nor a deployed wallet address"
+        )
+    )
+
+    assert "deposit wallet" in text.lower()
+    assert "blank" in text.lower()
+
+
 class _BalanceVenue:
     def __init__(self, free: float, **config) -> None:
         self.free = free
