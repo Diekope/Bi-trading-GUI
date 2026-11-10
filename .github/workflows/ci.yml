@@ -38,7 +38,15 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
-      # Under Xvfb, so Qt uses its xcb platform; the offscreen platform has
-      # crashed (SIGSEGV) on the runner.
+      # Under Xvfb, so Qt uses its xcb platform. Exit with os._exit: PySide6
+      # finalisation after the session QApplication is gone segfaults on the
+      # runner (all tests pass, then a crash at shutdown), and skipping
+      # finalisation avoids it. Normal pytest still runs everywhere else.
       - name: Test
-        run: xvfb-run -a uv run pytest -q
+        run: |
+          xvfb-run -a uv run python -c "
+          import os, sys, pytest
+          code = pytest.main(['-q'])
+          sys.stdout.flush(); sys.stderr.flush()
+          os._exit(int(code))
+          "
