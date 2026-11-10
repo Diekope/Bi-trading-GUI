@@ -6,6 +6,7 @@ import asyncio
 import types
 
 import pytest
+from PySide6.QtWidgets import QApplication
 
 from lalala.venues.base import Instrument, OrderRequest
 
@@ -152,3 +153,31 @@ def test_the_client_is_created_with_the_builder_key(monkeypatch) -> None:
     asyncio.run(venue.connect())
 
     assert captured["api_key"] == polymarket.BuilderApiKey("k", "s", "p")
+
+
+def test_minting_a_builder_key_reports_it(monkeypatch) -> None:
+    from lalala.ui.hub.settings_widgets import _ConnectionTester
+
+    class FakeClient:
+        async def create_builder_api_key(self):
+            return types.SimpleNamespace(key="bk", secret="bs", passphrase="bp")
+
+        async def close(self):
+            return None
+
+    async def fake_create(*, private_key, wallet=None, api_key=None, **kwargs):
+        return FakeClient()
+
+    monkeypatch.setattr(
+        polymarket.AsyncSecureClient, "create", staticmethod(fake_create)
+    )
+    QApplication.instance() or QApplication([])
+    tester = _ConnectionTester()
+    seen: list[tuple] = []
+    tester.builder_ready.connect(lambda k, s, p: seen.append((k, s, p)))
+    try:
+        asyncio.run(tester._mint_builder_key({"private_key": "0x" + "ab" * 32}))
+    finally:
+        tester.shutdown()
+
+    assert seen == [("bk", "bs", "bp")]

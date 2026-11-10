@@ -214,6 +214,8 @@ class SettingsView(QWidget):
 
         self._tester = _ConnectionTester(self)
         self._tester.finished.connect(self._on_test_finished)
+        self._tester.builder_ready.connect(self._on_builder_ready)
+        self._tester.builder_failed.connect(self._on_builder_failed)
 
         self._load_values()
         self._refresh_statuses()
@@ -321,12 +323,18 @@ class SettingsView(QWidget):
         grid.addWidget(self._pm_builder_secret, 2, 0)
         grid.addWidget(self._pm_builder_pass, 2, 1)
         body.addLayout(grid)
-        body.addLayout(
-            self._card_actions(
-                lambda: self._test_polymarket(),
-                lambda: self._disconnect("polymarket"),
-            )
+        actions = self._card_actions(
+            lambda: self._test_polymarket(),
+            lambda: self._disconnect("polymarket"),
         )
+        builder = _button("Create builder key", "setGhost")
+        builder.setToolTip(
+            "Ask Polymarket to issue a Builder API Key for this signer "
+            "(needed for the gasless deposit-wallet flow)"
+        )
+        builder.clicked.connect(self._create_builder_key)
+        actions.insertWidget(1, builder)
+        body.addLayout(actions)
         return card
 
     def _hyperliquid_card(self) -> QFrame:
@@ -890,6 +898,34 @@ class SettingsView(QWidget):
                 "builder": builder,
             },
         )
+
+    def _create_builder_key(self) -> None:
+        """Mint a Builder API Key for this signer, off the GUI thread."""
+        key = self._pm_key.edit.text().strip()
+        if not key or not valid_private_key(key):
+            self._set_status(
+                self._pm_status, "error", "Enter the private key first."
+            )
+            return
+        self._set_status(self._pm_status, "warn", "Requesting a builder key…")
+        self._tester.mint_builder_key(
+            {
+                "private_key": key,
+                "funder": self._pm_address.edit.text().strip(),
+            }
+        )
+
+    def _on_builder_ready(self, key: str, secret: str, passphrase: str) -> None:
+        self._pm_builder_key.edit.setText(key)
+        self._pm_builder_secret.edit.setText(secret)
+        self._pm_builder_pass.edit.setText(passphrase)
+        self._set_status(
+            self._pm_status, "ok", "Builder key created · Save to keep it"
+        )
+        self._mark_dirty()
+
+    def _on_builder_failed(self, text: str) -> None:
+        self._set_status(self._pm_status, "error", text)
 
     def _begin_test(self, venue: str, status: QLabel) -> None:
         self._busy.add(venue)
