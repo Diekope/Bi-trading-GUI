@@ -297,7 +297,9 @@ class SettingsView(QWidget):
         self._pm_key = _field("Private key", secret=True)
         self._pm_key.edit.setPlaceholderText("0x…")
         self._pm_address = _field("Wallet address")
-        self._pm_address.edit.setPlaceholderText("0x… (the address that holds the funds)")
+        self._pm_address.edit.setPlaceholderText(
+            "0x… (optional — blank uses the deposit wallet for the key)"
+        )
         self._pm_type = _field(
             "Wallet type",
             combo=["EOA / wallet", "Email / Magic", "Browser proxy"],
@@ -828,15 +830,20 @@ class SettingsView(QWidget):
             return
         address = self._pm_address.edit.text().strip()
         key = self._pm_key.edit.text().strip()
-        if not address or not key:
+        if not key:
             self._set_status(
-                self._pm_status, "error", "Enter the private key and wallet address."
+                self._pm_status, "error", "Enter the private key."
             )
             return
-        if not valid_address(address) or not valid_private_key(key):
+        if not valid_private_key(key):
             self._set_status(
-                self._pm_status, "error", "Check the address and private key format."
+                self._pm_status, "error", "Check the private key format."
             )
+            return
+        # The wallet address is optional: left blank, the client acts for the
+        # signer's Polymarket deposit wallet (the V2 flow).
+        if address and not valid_address(address):
+            self._set_status(self._pm_status, "error", "Check the wallet address format.")
             return
         self._begin_test("polymarket", self._pm_status)
         self._tester.test(

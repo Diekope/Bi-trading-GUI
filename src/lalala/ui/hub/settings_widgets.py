@@ -115,18 +115,23 @@ class _ConnectionTester(QObject):
     @staticmethod
     def _probe_polymarket(adapter, config: dict[str, object]) -> tuple[bool, str]:
         signer = _signer_address(str(config.get("private_key", "")))
-        funder = str(config.get("funder", ""))
+        funder = str(config.get("funder", "")).strip()
         try:
             kind = int(config.get("signature_type", 0))
         except (TypeError, ValueError):
             kind = 0
+        # A blank wallet means the V2 deposit-wallet flow: the client acts for
+        # the signer's own deposit wallet, so there is nothing to match.
+        if not funder:
+            return True, "Connected · acting for the signer's deposit wallet"
         # An EOA signs for its own address; a proxy wallet is funded at another
         # address and is reached through the Magic/browser signature types.
         if kind == 0 and signer and signer.lower() != funder.lower():
             return (
                 False,
-                f"Key signs as {_short(signer)}, not {_short(funder)}. Choose "
-                "Email / Magic or Browser proxy for a proxy wallet.",
+                f"Key signs as {_short(signer)}, not {_short(funder)}. Leave the "
+                "wallet address blank to use the signer's deposit wallet, or "
+                "enter that deposit wallet (or choose the matching wallet type).",
             )
         return True, "Connected · API credentials derived"
 

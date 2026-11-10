@@ -24,11 +24,14 @@ class VenueError(Exception):
 _REGION_HINTS = ("region", "restricted", "not available in your")
 # The legacy client can no longer sign orders since the CLOB V2 cutover.
 _STALE_HINTS = ("order version", "order_version", "latest clob-client")
+# The V2 flow acts for the signer's deposit wallet; a mismatched address is
+# rejected.
+_DEPOSIT_HINTS = ("deposit wallet",)
 
 
 def friendly_message(exc: object) -> str:
-    """A human line for an order failure — a region block, a stale client, or
-    the raw text."""
+    """A human line for an order failure — a region block, a stale client, a
+    wallet mismatch, or the raw text."""
     text = str(exc)
     low = text.lower()
     if any(hint in low for hint in _STALE_HINTS):
@@ -36,6 +39,12 @@ def friendly_message(exc: object) -> str:
             "Polymarket's order client is out of date. Since the CLOB V2 "
             "cutover the legacy py-clob-client can no longer place orders; the "
             "venue SDK needs updating (polymarket-client / py-clob-client-v2)."
+        )
+    if any(hint in low for hint in _DEPOSIT_HINTS):
+        return (
+            "The wallet address does not match this key's Polymarket deposit "
+            "wallet. Leave the wallet address blank to act for the deposit "
+            "wallet the client derives, or enter that exact deposit wallet."
         )
     if any(hint in low for hint in _REGION_HINTS) or "403" in text:
         return (
