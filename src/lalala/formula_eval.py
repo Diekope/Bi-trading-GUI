@@ -16,6 +16,7 @@ evaluated a bar at a time against the open trade's numbers.
 
 from __future__ import annotations
 
+import operator
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -56,6 +57,13 @@ __all__ = [
 # -- reading the bars -------------------------------------------------------
 
 
+def _num(raw):
+    """A field's value as a float, or None when it is missing / not a number."""
+    if raw is None or isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return float(raw)
+
+
 def _value(bar, name: str):
     if isinstance(bar, dict):
         raw = bar.get(name)
@@ -64,14 +72,30 @@ def _value(bar, name: str):
         if raw is None and name == "price":
             # On a bar, the market price is the close.
             raw = getattr(bar, "close", None)
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return None
-    return float(raw)
+    return _num(raw)
 
 
 def bar_context(bars, fields=ENTRY_FIELDS) -> dict:
-    """One series per field, in the order the bars were given."""
-    return {name: [_value(bar, name) for bar in bars] for name in fields}
+    """One series per field, in the order the bars were given.
+
+    The bar kind (mapping or object) is decided once, not per field, so a long
+    span is not re-typed field by field.
+    """
+    fields = tuple(fields)
+    if not bars:
+        return {name: [] for name in fields}
+
+    if isinstance(bars[0], dict):
+        return {name: [_num(bar.get(name)) for bar in bars] for name in fields}
+
+    has_price = hasattr(bars[0], "price")
+    columns = {}
+    for name in fields:
+        if name == "price" and not has_price:
+            columns[name] = [_num(getattr(bar, "close", None)) for bar in bars]
+        else:
+            columns[name] = [_num(getattr(bar, name, None)) for bar in bars]
+    return columns
 
 
 def _length(context: dict) -> int:
@@ -377,6 +401,20 @@ def _apply(op: str, a, b):
     return _compare(op, a, b)
 
 
+# The ops that are a single built-in call, hoisted out of the per-element loop.
+_SIMPLE_OP = {
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
+
+
 def _eval(node, scope: dict):
     if isinstance(node, Number):
         return _constant(node.value, _length(scope))
@@ -399,6 +437,22 @@ def _eval(node, scope: dict):
                     for a, b in zip(left, right)]
         left = _eval(node.left, scope)
         right = _eval(node.right, scope)
+        simple = _SIMPLE_OP.get(node.op)
+        if simple is not None:
+            return [
+                None if a is None or b is None else float(simple(a, b))
+                for a, b in zip(left, right)
+            ]
+        if node.op == "/":
+            return [
+                None if a is None or b is None or b == 0 else a / b
+                for a, b in zip(left, right)
+            ]
+        if node.op == "%":
+            return [
+                None if a is None or b is None or b == 0 else a % b
+                for a, b in zip(left, right)
+            ]
         out = []
         for a, b in zip(left, right):
             if a is None or b is None:

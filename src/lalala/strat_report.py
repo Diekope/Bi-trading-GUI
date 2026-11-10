@@ -87,7 +87,7 @@ MIN_SPAN = 0.4  # percent; never let the scale collapse to a flat line
 PAD = 0.08
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Bar:
     stamp: int
     open: float

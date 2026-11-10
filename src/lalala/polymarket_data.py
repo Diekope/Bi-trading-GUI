@@ -35,7 +35,7 @@ WINDOW_MS = WINDOW_SECONDS * 1000
 # -- market -----------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Outcome:
     """One side of a binary market, identified by its CLOB token id."""
 
@@ -52,7 +52,7 @@ class Outcome:
         return self.best_bid if self.best_bid is not None else self.best_ask
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PolymarketMarket:
     slug: str
     question: str
@@ -190,13 +190,13 @@ def parse_market(payload: Any) -> PolymarketMarket | None:
 # -- books ------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Level:
     price: float
     size: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TokenBook:
     """One token's book, best level first on both sides."""
 
@@ -231,7 +231,7 @@ class TokenBook:
         return sum(level.price * level.size for level in self.bids + self.asks)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PriceChange:
     """An incremental level update pushed by the market web socket."""
 
@@ -244,7 +244,7 @@ class PriceChange:
     timestamp_ms: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Trade:
     token_id: str
     price: float
@@ -253,7 +253,7 @@ class Trade:
     timestamp_ms: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PricePoint:
     """One sample of a price, for the reference chart."""
 

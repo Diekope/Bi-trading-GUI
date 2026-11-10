@@ -111,7 +111,7 @@ def strategy_label(rule: str) -> str:
     return STRATEGIES[0][1]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Candle:
     stamp: int
     open: float

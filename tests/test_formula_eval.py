@@ -330,3 +330,36 @@ def test_a_pnl_exit_reports_fewer_rules_in_a_run() -> None:
     labels = {label for label, _count, _share in report.reason_shares}
     assert "Take profit" in labels
     assert "Rule" not in labels
+
+
+def test_bar_context_reads_objects_and_dicts_alike() -> None:
+    from lalala.formula_eval import bar_context
+
+    object_bars = _bars([1.0, 2.0, 3.0])
+    dict_bars = [
+        {"open": b.open, "high": b.high, "low": b.low, "close": b.close,
+         "volume": b.volume}
+        for b in object_bars
+    ]
+
+    assert bar_context(dict_bars, ("close",)) == bar_context(object_bars, ("close",))
+    assert bar_context([], ("close",)) == {"close": []}
+
+
+def test_bar_context_reads_price_as_the_close_and_skips_bools() -> None:
+    from lalala.formula_eval import bar_context
+
+    # A bar object with no `price` reads the close for it, as the engine needs.
+    class Bar:
+        def __init__(self, close):
+            self.open = close
+            self.high = close
+            self.low = close
+            self.close = close
+            self.volume = True  # a bool is not a number
+
+    context = bar_context([Bar(10.0), Bar(11.0)], ("price", "volume", "missing"))
+
+    assert context["price"] == [10.0, 11.0]
+    assert context["volume"] == [None, None]
+    assert context["missing"] == [None, None]
