@@ -20,6 +20,11 @@ import operator
 from collections import deque
 from dataclasses import dataclass, field
 
+try:  # a fast, vectorised path for the entry rule; the list walk is the reference
+    import numpy as _np
+except ModuleNotFoundError:  # pragma: no cover - numpy is a hard dependency
+    _np = None
+
 from lalala.formula import (
     ENTRY_FIELDS,
     Assignment,
@@ -479,11 +484,247 @@ def evaluate(formula: Formula, context: dict):
 
 
 def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
-    """The bars where an entry rule is true."""
+    """The bars where an entry rule is true.
+
+    A vectorised NumPy pass over a gap-free series; the list walk is the
+    reference and takes over whenever the fast path does not apply (a gap in a
+    field, a function it does not know, or no NumPy at all).
+    """
     if formula is None or formula.condition is None:
         return []
+    fast = _numpy_signals(formula, bars, fields)
+    if fast is not None:
+        return fast
     values = evaluate(formula, bar_context(bars, fields))
     return [index for index, value in enumerate(values) if _truth(value)]
+
+
+def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
+    """The signals computed with NumPy, or None to fall back to the list walk."""
+    if _np is None:
+        return None
+    arrays = _numpy_context(bars, fields)
+    if arrays is None:
+        return None
+    length = len(next(iter(arrays.values())))
+    if length == 0:
+        return []
+    scope = dict(arrays)
+    try:
+        for assignment in formula.assignments:
+            scope[assignment.name] = _eval_np(assignment.value, scope, length)
+        values = _eval_np(formula.condition, scope, length)
+    except (ValueError, TypeError, KeyError):
+        return None
+    return [int(index) for index in _np.nonzero(values > 0)[0]]
+
+
+def _numpy_context(bars, fields) -> dict | None:
+    """One array per field, built straight from the bars — no list in between.
+
+    None to fall back to the list walk: a bar missing a field, a non-number, or
+    a gap the rolling windows would treat differently.
+    """
+    from operator import attrgetter, methodcaller
+
+    if not bars:
+        return {name: _np.array([], dtype=float) for name in fields}
+    if isinstance(bars[0], dict):
+        getters = {name: methodcaller("get", name) for name in fields}
+    else:
+        has_price = hasattr(bars[0], "price")
+        getters = {
+            name: (
+                attrgetter("close")
+                if name == "price" and not has_price
+                else attrgetter(name)
+            )
+            for name in fields
+        }
+    arrays: dict = {}
+    count = len(bars)
+    for name in fields:
+        try:
+            # attrgetter / methodcaller in a map: the field read runs in C, not
+            # as a Python call per bar.
+            array = _np.fromiter(
+                map(getters[name], bars), dtype=float, count=count
+            )
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if _np.isnan(array).any():
+            return None  # a gap: the list walk resets on None; keep it there
+        arrays[name] = array
+    return arrays
+
+
+def _eval_np(node, scope: dict, length: int):
+    """A formula over NumPy arrays; NaN stands in for the list walk's None."""
+    np = _np
+    if isinstance(node, Number):
+        return np.full(length, float(node.value))
+    if isinstance(node, Name):
+        return scope[node.name]
+    if isinstance(node, Unary):
+        values = _eval_np(node.operand, scope, length)
+        if node.op == "not":
+            # `not None` is falsy in the list walk, so an unknown stays 0.
+            return np.where(np.isnan(values), 0.0, (values <= 0).astype(float))
+        return -values
+    if isinstance(node, Binary):
+        left = _eval_np(node.left, scope, length)
+        right = _eval_np(node.right, scope, length)
+        if node.op in ("and", "or"):
+            a, b = left > 0, right > 0
+            return (
+                np.logical_and(a, b) if node.op == "and" else np.logical_or(a, b)
+            ).astype(float)
+        fn = _SIMPLE_OP.get(node.op)
+        if fn is not None and node.op in ("+", "-", "*"):
+            return fn(left, right)
+        if fn is not None:  # a comparison: unknown where either side is
+            result = fn(left, right).astype(float)
+            return np.where(np.isnan(left) | np.isnan(right), np.nan, result)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            if node.op in ("/", "%"):
+                product = left / right if node.op == "/" else np.mod(left, right)
+                bad = (right == 0) | np.isnan(left) | np.isnan(right)
+                return np.where(bad, np.nan, product)
+            if node.op == "^":
+                return np.power(left, right)
+        raise ValueError(f"no numpy evaluator for {node.op!r}")
+    if isinstance(node, Call):
+        return _call_np(node, scope, length)
+    if isinstance(node, Assignment):
+        return _eval_np(node.value, scope, length)
+    raise ValueError("cannot evaluate this node")
+
+
+def _call_np(node, scope: dict, length: int):
+    """A function node over arrays, vectorised where it can be."""
+    np = _np
+    name = node.func
+    if name in _SEQUENTIAL or _np is None:
+        # ema / rsi recur, and an unknown name is the caller's fallback.
+        result = _call(node, scope)
+        return np.array(
+            [np.nan if value is None else float(value) for value in result],
+            dtype=float,
+        )
+    args = [_eval_np(argument, scope, length) for argument in node.args]
+    value = args[0]
+    if name == "abs":
+        return np.abs(value)
+    if name == "sqrt":
+        root = np.sqrt(np.where(value >= 0, value, 0.0))
+        return np.where(np.isnan(value), np.nan, root)
+    if name == "log":
+        logged = np.log(np.where(value > 0, value, 1.0))
+        return np.where(np.isnan(value), np.nan, np.where(value > 0, logged, 0.0))
+    if name == "min":
+        return np.minimum(value, args[1])
+    if name == "max":
+        return np.maximum(value, args[1])
+    period = _np_period(args[1], name)
+    if name == "sma":
+        return _np_rolling_mean(value, period)
+    if name == "highest":
+        return _np_rolling_extreme(value, period, np.max)
+    if name == "lowest":
+        return _np_rolling_extreme(value, period, np.min)
+    if name == "stdev":
+        return _np_rolling_std(value, period)
+    if name == "change":
+        return _np_change(value, period)
+    if name == "shift":
+        return _np_shift(value, period)
+    if name == "zscore":
+        mean = _np_rolling_mean(value, period)
+        spread = _np_rolling_std(value, period)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = (value - mean) / spread
+        return np.where((spread == 0) | np.isnan(spread), np.nan, out)
+    if name in ("bollinger_lower", "bollinger_middle", "bollinger_upper"):
+        deviations = float(args[2][0]) if len(args) > 2 else 2.0
+        middle = _np_rolling_mean(value, period)
+        spread = _np_rolling_std(value, period) * deviations
+        return {
+            "bollinger_lower": middle - spread,
+            "bollinger_middle": middle,
+            "bollinger_upper": middle + spread,
+        }[name]
+    result = _call(node, scope)  # an unknown function: let the list walk speak
+    return np.array(
+        [np.nan if item is None else float(item) for item in result], dtype=float
+    )
+
+
+# ema and rsi recur bar to bar; there is no tidy vector form, so the list
+# indicator runs and its result is lifted to an array.
+_SEQUENTIAL = frozenset({"ema", "rsi"})
+
+
+def _np_period(series, what: str) -> int:
+    for value in series:
+        if not _np.isnan(value):
+            return max(1, int(value))
+    raise ValueError(f"{what} has no period")
+
+
+def _np_rolling_mean(values, period: int):
+    np = _np
+    size = len(values)
+    out = np.full(size, np.nan)
+    if period <= 0 or period > size:
+        return out
+    cumulative = np.cumsum(np.insert(values, 0, 0.0))
+    out[period - 1 :] = (cumulative[period:] - cumulative[:-period]) / period
+    return out
+
+
+def _np_rolling_extreme(values, period: int, reduce):
+    np = _np
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    size = len(values)
+    out = np.full(size, np.nan)
+    if period <= 0 or period > size:
+        return out
+    windows = sliding_window_view(values, period)
+    out[period - 1 :] = reduce(windows, axis=1)
+    return out
+
+
+def _np_rolling_std(values, period: int):
+    np = _np
+    size = len(values)
+    out = np.full(size, np.nan)
+    if period <= 0 or period > size:
+        return out
+    cumulative = np.cumsum(np.insert(values, 0, 0.0))
+    squares = np.cumsum(np.insert(values * values, 0, 0.0))
+    total = cumulative[period:] - cumulative[:-period]
+    total_sq = squares[period:] - squares[:-period]
+    mean = total / period
+    variance = np.maximum(0.0, total_sq / period - mean * mean)
+    out[period - 1 :] = np.sqrt(variance)
+    return out
+
+
+def _np_change(values, bars: int):
+    np = _np
+    out = np.full(len(values), np.nan)
+    if 0 < bars < len(values):
+        out[bars:] = values[bars:] - values[:-bars]
+    return out
+
+
+def _np_shift(values, bars: int):
+    np = _np
+    out = np.full(len(values), np.nan)
+    if 0 < bars < len(values):
+        out[bars:] = values[:-bars]
+    return out
 
 
 def names_used(formula: Formula) -> list:

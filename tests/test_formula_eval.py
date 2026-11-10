@@ -363,3 +363,60 @@ def test_bar_context_reads_price_as_the_close_and_skips_bools() -> None:
     assert context["price"] == [10.0, 11.0]
     assert context["volume"] == [None, None]
     assert context["missing"] == [None, None]
+
+
+def _wandering_bars(count: int) -> list:
+    import random
+
+    random.seed(7)
+    bars = []
+    close = 100.0
+    for _ in range(count):
+        close = max(1.0, close + random.uniform(-2.0, 2.0))
+        bars.append(
+            Bar(close - 0.5, close + 1.0, close - 1.0, close, random.uniform(1, 5))
+        )
+    return bars
+
+
+def test_the_numpy_signals_match_the_list_walk() -> None:
+    from lalala.formula_eval import _numpy_signals, bar_context, evaluate, _truth
+
+    fields = ("open", "high", "low", "close", "volume")
+    bars = _wandering_bars(2000)
+    rules = (
+        "close < sma(close, 20)",
+        "close > ema(close, 10)",
+        "rsi(close, 14) < 30",
+        "close < bollinger_lower(close, 20, 2)",
+        "highest(high, 10) == high",
+        "zscore(close, 20) < 0 - 1",
+        "change(close, 5) > 0 and volume > 2",
+        "shift(close, 1) < close",
+        "abs(change(close, 3)) > 1",
+        "stdev(close, 20) > 0.5",
+        "not (close > sma(close, 20))",
+        "min(close, open) < sma(close, 5) - 0.1",
+        "sqrt(change(close, 2)) > 1",
+    )
+    for text in rules:
+        formula = parse(text, fields)
+        fast = _numpy_signals(formula, bars, fields)
+        assert fast is not None, text
+        reference = [
+            index
+            for index, value in enumerate(evaluate(formula, bar_context(bars, fields)))
+            if _truth(value)
+        ]
+        assert fast == reference, text
+
+
+def test_the_numpy_signals_yield_to_the_list_walk_on_a_gap() -> None:
+    from lalala.formula_eval import _numpy_signals
+
+    fields = ("close",)
+    gappy = [{"close": 1.0}, {"close": None}, {"close": 3.0}]
+    formula = parse("close > 0", fields)
+
+    # A None cannot be lifted to an array, so the fast path declines.
+    assert _numpy_signals(formula, gappy, fields) is None
