@@ -144,7 +144,7 @@ class PolymarketVenue:
 
     async def submit(self, order: OrderRequest) -> OrderAck:
         await self.connect()
-        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.clob_types import OrderArgs
         from py_clob_client.order_builder.constants import BUY, SELL
 
         args = OrderArgs(
@@ -154,16 +154,22 @@ class PolymarketVenue:
             side=BUY if order.side == "buy" else SELL,
         )
         try:
+            # The SDK resolves the market's tick size itself (a network read)
+            # when no options are given; the 2nd argument is that options
+            # object, not the order type, since py-clob-client 0.3x.
             response = await asyncio.to_thread(
-                self._client.create_and_post_order, args, OrderType.GTC
+                self._client.create_and_post_order, args
             )
         except Exception as exc:  # SDK raises a wide variety of types
             raise VenueError(str(exc)) from exc
+        if not isinstance(response, dict):
+            return OrderAck("", order.client_id, False, str(response))
+        reason = response.get("errorMsg") or response.get("error")
         return OrderAck(
-            venue_order_id=str(response.get("orderID", "")),
+            venue_order_id=str(response.get("orderID") or response.get("orderId") or ""),
             client_id=order.client_id,
-            accepted=bool(response.get("success")),
-            reason=response.get("errorMsg"),
+            accepted=bool(response.get("success")) and not reason,
+            reason=reason,
         )
 
     async def cancel(self, instrument: Instrument, venue_order_id: str) -> None:
