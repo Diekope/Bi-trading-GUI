@@ -1,14 +1,15 @@
-"""The Polymarket adapter's submit, against the SDK's current signature."""
+"""The Polymarket adapter, against the unified SDK's current shape."""
 
 from __future__ import annotations
 
 import asyncio
+import types
 
 import pytest
 
 from lalala.venues.base import Instrument, OrderRequest
 
-py_clob_client = pytest.importorskip("py_clob_client")
+polymarket = pytest.importorskip("polymarket")
 
 TOKEN = "123456789"
 
@@ -37,40 +38,39 @@ def _order() -> OrderRequest:
     )
 
 
-def test_submit_passes_one_argument_to_create_and_post_order() -> None:
-    # Since py-clob-client 0.3x the second parameter is a PartialCreateOrder
-    # options object; passing the order type there made the SDK read
-    # `.tick_size` off a string.
-    calls: list[tuple] = []
+def test_submit_places_a_limit_order_and_reports_the_id() -> None:
+    calls: list[dict] = []
 
     class FakeClient:
-        def create_and_post_order(self, *args):
-            calls.append(args)
-            return {"success": True, "orderID": "0xabc"}
+        async def place_limit_order(self, **kwargs):
+            calls.append(kwargs)
+            return types.SimpleNamespace(ok=True, order_id="0xabc", status="live")
 
     ack = asyncio.run(_venue_with(FakeClient()).submit(_order()))
 
     assert ack.accepted is True
     assert ack.venue_order_id == "0xabc"
-    assert len(calls) == 1 and len(calls[0]) == 1
+    assert calls[0]["token_id"] == TOKEN
+    assert calls[0]["side"] == "BUY"
+    assert calls[0]["price"] == 0.5
 
 
-def test_submit_reports_the_sdk_error() -> None:
+def test_submit_reports_a_rejection() -> None:
     class FakeClient:
-        def create_and_post_order(self, *args):
-            return {"error": "not enough balance"}
+        async def place_limit_order(self, **kwargs):
+            return types.SimpleNamespace(ok=False, code="unmatched", message="no match")
 
     ack = asyncio.run(_venue_with(FakeClient()).submit(_order()))
 
     assert ack.accepted is False
-    assert ack.reason == "not enough balance"
+    assert ack.reason == "no match"
 
 
 def test_submit_wraps_an_sdk_exception() -> None:
     from lalala.venues.base import VenueError
 
     class FakeClient:
-        def create_and_post_order(self, *args):
+        async def place_limit_order(self, **kwargs):
             raise RuntimeError("boom")
 
     with pytest.raises(VenueError):
@@ -81,14 +81,49 @@ def test_submit_turns_a_region_block_into_a_clear_message() -> None:
     from lalala.venues.base import VenueError
 
     class FakeClient:
-        def create_and_post_order(self, *args):
-            raise Exception(
-                "PolyApiException[status_code=403, error_message={'error': "
-                "'Trading restricted in your region'}]"
-            )
+        async def place_limit_order(self, **kwargs):
+            raise Exception("403 Trading restricted in your region")
 
     with pytest.raises(VenueError) as info:
         asyncio.run(_venue_with(FakeClient()).submit(_order()))
 
     assert "region" in str(info.value).lower()
     assert "docs.polymarket.com" in str(info.value)
+
+
+def test_balances_read_the_collateral_in_usdc() -> None:
+    seen: dict = {}
+
+    class FakeClient:
+        async def get_balance_allowance(self, *, asset_type):
+            seen["asset_type"] = asset_type
+            return types.SimpleNamespace(balance=5_000_000, allowances={})
+
+    balances = asyncio.run(_venue_with(FakeClient()).balances())
+
+    assert balances[0].asset == "USDC"
+    assert balances[0].free == pytest.approx(5.0)
+    assert seen["asset_type"] == "COLLATERAL"
+
+
+def test_the_client_is_created_with_the_funder(monkeypatch) -> None:
+    from lalala.venues.polymarket import PolymarketVenue
+
+    captured: dict = {}
+
+    async def fake_create(*, private_key, wallet=None, **kwargs):
+        captured["private_key"] = private_key
+        captured["wallet"] = wallet
+        return types.SimpleNamespace()
+
+    monkeypatch.setattr(
+        polymarket.AsyncSecureClient, "create", staticmethod(fake_create)
+    )
+    venue = PolymarketVenue(
+        private_key="0x" + "ab" * 32, funder="0x" + "cd" * 20, signature_type=0
+    )
+
+    asyncio.run(venue.connect())
+
+    assert captured["wallet"] == "0x" + "cd" * 20
+    assert captured["private_key"].startswith("0x")

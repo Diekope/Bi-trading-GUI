@@ -18,7 +18,7 @@ dependencies = [
 # the public endpoints and needs no SDK.
 venues = [
     "hyperliquid-python-sdk>=0.9",
-    "py-clob-client>=0.17",
+    "polymarket-client>=0.13",
     "eth-account>=0.11",
 ]
 # The Rust walk. Optional because it needs a Rust toolchain to build; the app

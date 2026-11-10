@@ -1,50 +1,47 @@
-"""Polymarket adapter (CLOB).
+"""Polymarket adapter (CLOB V2, via the unified `polymarket` SDK).
 
 Transport
     REST  https://clob.polymarket.com
-    WS    wss://ws-subscriptions-clob.polymarket.com/ws/market
 
-SDK     py-clob-client  (uv sync --extra venues)
+SDK     polymarket-client  (uv sync --extra venues)
 
-Polymarket signs orders with EIP-712 over secp256k1 and requires L2 API creds
-derived from the wallet — this is exactly why the SDK does the work instead of
-hand-rolled crypto. `signature_type` is 0 for an EOA, 1 for a Magic/email
-proxy wallet, 2 for a browser proxy wallet.
+Polymarket migrated to **CLOB V2** in April 2026; the legacy `py-clob-client`
+(V1) can no longer place orders against production — it is rejected with
+"invalid order version". This uses the unified client, `AsyncSecureClient`,
+which signs V2 orders.
 
-Instruments here are CLOB token ids (the YES/NO outcome token), not tickers.
+Instruments here are CLOB token ids (the UP/DOWN outcome token), not tickers.
+`funder` is the wallet the funds sit in; it is the wallet the client acts for,
+and the SDK infers the wallet type from it (an EOA signs for itself, a proxy
+wallet is reached through the deposit/proxy flow).
 """
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, AsyncIterator
+from typing import Any
 
 from lalala.venues.base import (
     Balance,
     Instrument,
     OrderAck,
     OrderRequest,
-    Quote,
     VenueError,
     friendly_message,
 )
 
 REST_URL = "https://clob.polymarket.com"
-WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
-POLYGON_CHAIN_ID = 137
+USDC_DECIMALS = 6
 
 
 def _require_sdk() -> Any:
     try:
-        import py_clob_client  # noqa: F401
+        import polymarket
     except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
         raise VenueError(
-            "py-clob-client is not installed: uv sync --extra venues"
+            "polymarket-client is not installed: uv sync --extra venues"
         ) from exc
-    from py_clob_client.client import ClobClient
-
-    return ClobClient
+    return polymarket
 
 
 class PolymarketVenue:
@@ -60,9 +57,10 @@ class PolymarketVenue:
     ) -> None:
         self.private_key = private_key
         self.funder = funder
+        # Kept for the settings model; the unified SDK infers the wallet type
+        # from `funder` against the signer, so it is not sent order by order.
         self.signature_type = signature_type
         self.host = host
-        self.ws_url = WS_URL
         self._client: Any = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -70,109 +68,70 @@ class PolymarketVenue:
     async def connect(self) -> None:
         if self._client is not None:
             return
-        ClobClient = _require_sdk()
-
-        def build() -> Any:
-            client = ClobClient(
-                self.host,
-                key=self.private_key,
-                chain_id=POLYGON_CHAIN_ID,
-                signature_type=self.signature_type,
-                funder=self.funder,
+        polymarket = _require_sdk()
+        if not self.private_key:
+            raise VenueError("connect requires a private key")
+        try:
+            self._client = await polymarket.AsyncSecureClient.create(
+                private_key=self.private_key,
+                wallet=self.funder or None,
             )
-            # Requires no funds, only a wallet capable of signing.
-            client.set_api_creds(client.create_or_derive_api_creds())
-            return client
-
-        self._client = await asyncio.to_thread(build)
+        except Exception as exc:  # auth, region, transport: all the same here
+            raise VenueError(friendly_message(exc)) from exc
 
     async def close(self) -> None:
-        self._client = None
+        client, self._client = self._client, None
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
 
     # -- reads -------------------------------------------------------------
 
     async def balances(self) -> list[Balance]:
         await self.connect()
-        from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
-
-        def read() -> Any:
-            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
-            return self._client.get_balance_allowance(params)
-
         try:
-            data = await asyncio.to_thread(read)
-        except Exception as exc:  # SDK raises a wide variety of types
-            raise VenueError(friendly_message(exc)) from exc
-        # The collateral balance comes back in USDC's 6-decimal base units.
-        raw = data.get("balance") if isinstance(data, dict) else None
-        free = float(raw) / 1e6 if raw is not None else 0.0
-        return [Balance(asset="USDC", free=free)]
-
-    async def quotes(self, instrument: Instrument) -> AsyncIterator[Quote]:
-        await self.connect()
-        import websockets
-
-        async with websockets.connect(self.ws_url) as ws:
-            await ws.send(
-                {
-                    "assets_ids": [instrument.symbol],
-                    "type": "market",
-                }
+            info = await self._client.get_balance_allowance(
+                asset_type="COLLATERAL"
             )
-            async for raw in ws:
-                import json
-
-                msg = json.loads(raw)
-                if not isinstance(msg, dict) or msg.get("event_type") != "book":
-                    continue
-                bids = msg.get("bids") or []
-                asks = msg.get("asks") or []
-                if not bids or not asks:
-                    continue
-                # Polymarket sends bids descending and asks ascending.
-                best_bid = max(bids, key=lambda lvl: float(lvl["price"]))
-                best_ask = min(asks, key=lambda lvl: float(lvl["price"]))
-                yield Quote(
-                    instrument=instrument,
-                    bid=float(best_bid["price"]),
-                    ask=float(best_ask["price"]),
-                    bid_size=float(best_bid["size"]),
-                    ask_size=float(best_ask["size"]),
-                    ts_ms=int(msg.get("timestamp", 0)),
-                )
+        except Exception as exc:
+            raise VenueError(friendly_message(exc)) from exc
+        return [Balance(asset="USDC", free=float(info.balance) / 10**USDC_DECIMALS)]
 
     # -- writes ------------------------------------------------------------
 
     async def submit(self, order: OrderRequest) -> OrderAck:
         await self.connect()
-        from py_clob_client.clob_types import OrderArgs
-        from py_clob_client.order_builder.constants import BUY, SELL
-
-        args = OrderArgs(
-            token_id=order.instrument.symbol,
-            price=order.price,
-            size=order.size,
-            side=BUY if order.side == "buy" else SELL,
-        )
+        side = "BUY" if order.side == "buy" else "SELL"
         try:
-            # The SDK resolves the market's tick size itself (a network read)
-            # when no options are given; the 2nd argument is that options
-            # object, not the order type, since py-clob-client 0.3x.
-            response = await asyncio.to_thread(
-                self._client.create_and_post_order, args
+            result = await self._client.place_limit_order(
+                token_id=order.instrument.symbol,
+                price=order.price,
+                size=order.size,
+                side=side,
             )
-        except Exception as exc:  # SDK raises a wide variety of types
+        except Exception as exc:  # the SDK raises a wide variety of types
             raise VenueError(friendly_message(exc)) from exc
-        if not isinstance(response, dict):
-            return OrderAck("", order.client_id, False, str(response))
-        reason = response.get("errorMsg") or response.get("error")
+        if getattr(result, "ok", False):
+            return OrderAck(
+                venue_order_id=str(getattr(result, "order_id", "")),
+                client_id=order.client_id,
+                accepted=True,
+            )
         return OrderAck(
-            venue_order_id=str(response.get("orderID") or response.get("orderId") or ""),
+            venue_order_id="",
             client_id=order.client_id,
-            accepted=bool(response.get("success")) and not reason,
-            reason=reason,
+            accepted=False,
+            reason=getattr(result, "message", None) or "the order was rejected",
         )
 
     async def cancel(self, instrument: Instrument, venue_order_id: str) -> None:
         await self.connect()
-        await asyncio.to_thread(self._client.cancel, venue_order_id)
+        try:
+            await self._client.cancel_order(order_id=venue_order_id)
+        except Exception as exc:
+            raise VenueError(friendly_message(exc)) from exc
+
+
+__all__ = ["PolymarketVenue"]
