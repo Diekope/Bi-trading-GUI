@@ -224,13 +224,90 @@ def load_candles(
     return bars
 
 
+# The whole span, keyed by (years, resolution) with the files' signatures, so a
+# re-run (Run, Restart, a seek-heavy session) does not re-read and re-parse the
+# CSV from disk every time.
+_SPAN_CACHE: dict[tuple, tuple] = {}
+
+
+def _span_signature(years: list[int]) -> tuple:
+    signature = []
+    for year in sorted(years):
+        path = candle_file(year)
+        try:
+            stat = path.stat()
+            signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            signature.append((str(path), None, None))
+    return tuple(signature)
+
+
 def load_all_candles(years: list[int], resolution: str) -> list[Candle]:
     """The whole span in memory, for a rule-driven run.
 
     A saved strategy is a formula, and a formula is checked over a whole
     series rather than streamed, so this one run reads the span into a list.
+    Memoised on the files' signatures: a re-run of the same span is served from
+    memory. The list is copied out, so a caller cannot scribble on the cache.
     """
-    return list(iter_candles(years, resolution))
+    key = (tuple(sorted(years)), resolution)
+    signature = _span_signature(years)
+    cached = _SPAN_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return list(cached[1])
+    bars = list(iter_candles(years, resolution))
+    _SPAN_CACHE[key] = (signature, bars)
+    return bars
+
+
+class ColumnSpan:
+    """A loaded span as parallel arrays.
+
+    A long span is held as six arrays, not a Candle per bar: the walk and the
+    core read columns, and a Candle is built only for the few bars a picture
+    needs. Immutable; a Candle from it is a throwaway view.
+    """
+
+    __slots__ = (
+        "stamps", "opens", "highs", "lows", "closes", "volumes", "length",
+        "_lists",
+    )
+
+    def __init__(self, bars: list[Candle]) -> None:
+        import numpy as np
+
+        length = len(bars)
+        self.length = length
+        self.stamps = np.fromiter((b.stamp for b in bars), np.int64, length)
+        self.opens = np.fromiter((b.open for b in bars), float, length)
+        self.highs = np.fromiter((b.high for b in bars), float, length)
+        self.lows = np.fromiter((b.low for b in bars), float, length)
+        self.closes = np.fromiter((b.close for b in bars), float, length)
+        self.volumes = np.fromiter((b.volume for b in bars), float, length)
+        self._lists: tuple | None = None
+
+    def candle(self, index: int) -> Candle:
+        return Candle(
+            int(self.stamps[index]),
+            float(self.opens[index]),
+            float(self.highs[index]),
+            float(self.lows[index]),
+            float(self.closes[index]),
+            float(self.volumes[index]),
+        )
+
+    def candles(self, start: int, stop: int) -> list[Candle]:
+        return [self.candle(index) for index in range(max(0, start), min(stop, self.length))]
+
+    def as_lists(self) -> tuple:
+        """(closes, highs, lows) as plain lists, for the core; built once."""
+        if self._lists is None:
+            self._lists = (
+                self.closes.tolist(),
+                self.highs.tolist(),
+                self.lows.tolist(),
+            )
+        return self._lists
 
 
 def window_around(
@@ -362,10 +439,16 @@ class Playback:
         entries=None,
         dynamic_tp: bool = False,
         reverse: float = 0.0,
+        span: "ColumnSpan | None" = None,
     ) -> None:
-        self._feed_factory = _feed_factory(candles)
+        self._span = span
+        self._feed_factory = None if span is not None else _feed_factory(candles)
         if total is None:
-            total = len(candles) if isinstance(candles, (list, tuple)) else 0
+            total = (
+                span.length
+                if span is not None
+                else len(candles) if isinstance(candles, (list, tuple)) else 0
+            )
         self.total = total
         self.stride = max(1, stride)
         # A rule-driven run hands over the exact bars to open on; otherwise the
@@ -390,7 +473,7 @@ class Playback:
 
     def reset(self) -> None:
         self._rng = random.Random(self.seed)
-        self._feed = self._feed_factory()
+        self._feed = None if self._span is not None else self._feed_factory()
         self._exhausted = False
         self.index = 0
         self.first_close = 0.0
@@ -516,8 +599,21 @@ class Playback:
         Rebuilds everything the figures and the picture read — the closed
         trades, the markers, the equity statistics, the candle window — from
         `trades`/`equity` over `bars`, so a seek is a slice, not a walk.
+        `bars` is a `ColumnSpan` or a Candle list.
         """
-        self.index = max(0, min(index, len(bars)))
+        span = bars if isinstance(bars, ColumnSpan) else None
+        length = span.length if span is not None else len(bars)
+
+        def stamp(i: int) -> int:
+            return int(span.stamps[i]) if span is not None else bars[i].stamp
+
+        def window(start: int, stop: int) -> list[Candle]:
+            start, stop = max(0, start), min(stop, length)
+            return (
+                span.candles(start, stop) if span is not None else bars[start:stop]
+            )
+
+        self.index = max(0, min(index, length))
         self.cash = (
             equity[self.index - 1] if 0 < self.index <= len(equity)
             else self.capital
@@ -529,11 +625,14 @@ class Playback:
         self.entry_stamp = 0
         self.entry_notional = 0.0
         self.entry_fee = 0.0
+        self._peak = 0.0
         self._path = []
-        self._exhausted = self.total > 0 and self.index >= len(bars)
-        self._feed = self._feed_factory() if bars is None else iter(
-            bars[self.index :]
-        )
+        self._exhausted = self.total > 0 and self.index >= length
+        if span is not None:
+            self._span = span
+            self._feed = None
+        else:
+            self._feed = iter(bars[self.index :])
 
         closed = [t for t in trades if t[2] < self.index]
         self.trade_returns = [t[4] for t in closed]
@@ -543,8 +642,8 @@ class Playback:
         self.best_win = 0
         self.worst_loss = 0
         for in_index, in_px, out_index, out_px, result, fees, notional, reason in closed:
-            in_stamp = bars[in_index].stamp
-            out_stamp = bars[out_index].stamp
+            in_stamp = stamp(in_index)
+            out_stamp = stamp(out_index)
             self.trades_log.append(
                 (in_stamp, in_index, in_px, out_stamp, out_index, out_px,
                  result, notional, notional * result, reason, fees, [])
@@ -559,15 +658,21 @@ class Playback:
                 self.worst_loss = min(self.worst_loss, self.streak)
         self.fees = sum(t[5] for t in closed)
 
-        if bars:
-            self.first_close = bars[0].close
+        if length:
+            self.first_close = float(
+                span.closes[0] if span is not None else bars[0].close
+            )
             start = max(0, self.index - CHART_BARS)
-            self._window = deque(bars[start : self.index], maxlen=CHART_BARS)
-            self._previous = bars[self.index - 1] if self.index > 0 else None
+            self._window = deque(window(start, self.index), maxlen=CHART_BARS)
+            self._previous = (
+                (span.candle(self.index - 1) if span is not None
+                 else bars[self.index - 1])
+                if self.index > 0 else None
+            )
         self._closes = deque(maxlen=BOLLINGER_PERIOD)
         self._close_total = 0.0
         self._close_squares = 0.0
-        for bar in bars[max(0, self.index - BOLLINGER_PERIOD) : self.index]:
+        for bar in window(max(0, self.index - BOLLINGER_PERIOD), self.index):
             self._closes.append(bar.close)
             self._close_total += bar.close
             self._close_squares += bar.close * bar.close
@@ -596,11 +701,17 @@ class Playback:
         )
 
     def _advance_one(self) -> bool:
-        try:
-            candle = next(self._feed)
-        except StopIteration:
-            self._exhausted = True
-            return False
+        if self._span is not None:
+            if self.index >= self._span.length:
+                self._exhausted = True
+                return False
+            candle = self._span.candle(self.index)
+        else:
+            try:
+                candle = next(self._feed)
+            except StopIteration:
+                self._exhausted = True
+                return False
 
         if not self.first_close:
             self.first_close = candle.close
@@ -875,6 +986,102 @@ def random_entries(
     return entries
 
 
+def bollinger_entries_columns(closes) -> list[bool]:
+    """The built-in rule's entries over a closes array (close below the band)."""
+    import numpy as np
+
+    size = len(closes)
+    entries = np.zeros(size, dtype=bool)
+    period = BOLLINGER_PERIOD
+    if size <= period:
+        return entries.tolist()
+    cumulative = np.cumsum(np.insert(closes, 0, 0.0))
+    squares = np.cumsum(np.insert(np.asarray(closes, dtype=float) ** 2, 0, 0.0))
+    total = cumulative[period:] - cumulative[:-period]
+    total_sq = squares[period:] - squares[:-period]
+    mean = total / period
+    variance = np.maximum(0.0, total_sq / period - mean * mean)
+    lower = mean - np.sqrt(variance) * BOLLINGER_DEVIATIONS
+    entries[period - 1 :] = np.asarray(closes, dtype=float)[period - 1 :] < lower
+    return entries.tolist()
+
+
+def random_entries_columns(highs, lows, closes, settings, seed=1234, chance=0.03):
+    """`random_entries` over the span's columns, so no bars are built."""
+    rng = random.Random(seed)
+    size = len(closes)
+    entries = [False] * size
+    in_position = False
+    entry_price = 0.0
+    entry_index = 0
+    tp = settings["tp"]
+    sl = settings["sl"]
+    hold = 90
+    for index in range(1, size):
+        high = highs[index]
+        low = lows[index]
+        if in_position:
+            target = entry_price * (1.0 + tp / 100.0)
+            stop = entry_price * (1.0 - sl / 100.0)
+            if (tp > 0 and high >= target) or (sl > 0 and low <= stop) or (
+                index - entry_index >= hold
+            ):
+                in_position = False
+        elif rng.random() < chance:
+            entries[index] = True
+            in_position = True
+            entry_price = closes[index]
+            entry_index = index
+    return entries
+
+
+# The whole span as columns, keyed like the bar cache, so a run over the same
+# span is not re-read from disk.
+_SPAN_ARRAY_CACHE: dict[tuple, tuple] = {}
+
+
+def load_span(years: list[int], resolution: str) -> "ColumnSpan | None":
+    """The span as a `ColumnSpan`, read a year at a time.
+
+    A year's bars become arrays and are let go before the next year is read, so
+    a decade never holds a Candle per minute. None when nothing is on disk.
+    """
+    import numpy as np
+
+    key = (tuple(sorted(years)), resolution)
+    signature = _span_signature(years)
+    cached = _SPAN_ARRAY_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+
+    parts: list[ColumnSpan] = []
+    for year in sorted(years):
+        bars = list(iter_candles([year], resolution))
+        if bars:
+            parts.append(ColumnSpan(bars))
+    span: ColumnSpan | None = None
+    if parts:
+        span = ColumnSpan.__new__(ColumnSpan)
+        span.length = sum(part.length for part in parts)
+        for name in ("stamps", "opens", "highs", "lows", "closes", "volumes"):
+            setattr(
+                span, name, np.concatenate([getattr(p, name) for p in parts])
+            )
+        span._lists = None
+    _SPAN_ARRAY_CACHE[key] = (signature, span)
+    return span
+
+
+def span_columns(span: ColumnSpan) -> dict:
+    return {
+        "open": span.opens,
+        "high": span.highs,
+        "low": span.lows,
+        "close": span.closes,
+        "volume": span.volumes,
+    }
+
+
 
 # -- the three curves ------------------------------------------------------
 
@@ -897,12 +1104,15 @@ class BacktestSession:
     high: float = 0.0
     # When the span is held in memory, the core can jump the walk to a bar.
     bars: list | None = None
+    span: "ColumnSpan | None" = None
     closes: tuple | None = None
     highs: tuple | None = None
     lows: tuple | None = None
     settings: dict | None = None
     strategy_entries: list | None = None
     random_entries: list | None = None
+    strategy_entries_arr: object | None = None
+    random_entries_arr: object | None = None
 
     @property
     def index(self) -> int:
@@ -979,7 +1189,7 @@ class BacktestSession:
 
         return (
             core.available()
-            and self.bars is not None
+            and self.span is not None
             and self.settings is not None
             and self.strategy_entries is not None
             and self.random_entries is not None
@@ -989,29 +1199,30 @@ class BacktestSession:
         from lalala import core
 
         s = self.settings
-        closes = list(self.closes[:target])
-        highs = list(self.highs[:target])
-        lows = list(self.lows[:target])
+        # The span's columns go straight to the core (a NumPy slice is a view).
+        closes = self.span.closes[:target]
+        highs = self.span.highs[:target]
+        lows = self.span.lows[:target]
         args = (closes, highs, lows)
 
         def run(entries):
             return core.walk(
                 *args,
-                list(entries[:target]),
+                entries[:target],
                 s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
                 s["max_cash"], s["fee"], 90,
                 s.get("dynamic_tp", False), s.get("reverse", 0.0),
             )
 
-        strategy_trades, strategy_equity = run(self.strategy_entries)
-        random_trades, random_equity = run(self.random_entries)
-        self.strategy.adopt(strategy_trades, strategy_equity, self.bars, target)
-        self.random.adopt(random_trades, random_equity, self.bars, target)
+        strategy_trades, strategy_equity = run(self.strategy_entries_arr)
+        random_trades, random_equity = run(self.random_entries_arr)
+        self.strategy.adopt(strategy_trades, strategy_equity, self.span, target)
+        self.random.adopt(random_trades, random_equity, self.span, target)
         self.strategy_curve = strategy_equity
         self.random_curve = random_equity
-        first = closes[0] if closes else 0.0
+        first = float(closes[0]) if len(closes) else 0.0
         self.benchmark = [
-            s["capital"] * close / first if first else s["capital"]
+            s["capital"] * float(close) / first if first else s["capital"]
             for close in closes
         ]
         self.low = self.high = s["capital"]
@@ -1036,8 +1247,10 @@ def _walk_settings(params: dict) -> dict:
 
 
 # Above this many bars a span is streamed rather than held in memory, so the
-# core (which needs the bars) only drives the shorter runs.
-CORE_MAX = 1_500_000
+# core (which needs the bars) only drives the shorter runs. The array-backed
+# span holds a decade of minutes in ~300 MB, so the core reaches much further
+# than it did with a Candle per bar.
+CORE_MAX = 5_000_000
 
 
 def build_session(
@@ -1051,52 +1264,61 @@ def build_session(
 ) -> BacktestSession:
     """A run over the whole span.
 
-    A span small enough to hold is loaded and its entries worked out up front,
-    so the walk (and every seek) can be done by the core. A longer span is
-    streamed off disk and stepped in Python.
+    A span small enough to hold is loaded as columns and its entries worked out
+    up front, so the walk (and every seek) can be done by the core. A longer
+    span is streamed off disk and stepped in Python.
     """
     settings = _walk_settings(params)
-    loaded: list[Candle] | None = None
+    span: ColumnSpan | None = None
     total = count_bars(years, resolution)
     if entry_formula is not None or (total and total <= CORE_MAX):
-        loaded = load_all_candles(years, resolution)
-        if not loaded:
-            loaded = fallback if fallback is not None else sample_candles()
-        total = len(loaded)
+        span = load_span(years, resolution)
+        if span is None or span.length == 0:
+            span = ColumnSpan(fallback if fallback is not None else sample_candles())
+        total = span.length
     if not total:
-        loaded = fallback if fallback is not None else sample_candles()
-        total = len(loaded)
+        span = ColumnSpan(fallback if fallback is not None else sample_candles())
+        total = span.length
 
     stride = plan_stride(total)
     session = BacktestSession(strategy=None, random=None)
-    if loaded is not None:
-        feeds = [lambda: iter(loaded) for _ in range(2)]
+    if span is not None:
         session.settings = settings
-        session.bars = loaded
-        session.closes = tuple(bar.close for bar in loaded)
-        session.highs = tuple(bar.high for bar in loaded)
-        session.lows = tuple(bar.low for bar in loaded)
+        session.span = span
+        session.closes = span.closes
+        session.highs = span.highs
+        session.lows = span.lows
         if entry_formula is not None:
             from lalala.formula import ENTRY_FIELDS
             from lalala.formula_eval import entry_signals
 
             indices = set(
-                entry_signals(entry_formula, loaded, fields or ENTRY_FIELDS)
+                entry_signals(
+                    entry_formula, span_columns(span), fields or ENTRY_FIELDS
+                )
             )
-            strategy_entries = [i in indices for i in range(len(loaded))]
+            strategy_entries = [i in indices for i in range(total)]
         elif rule == "bollinger":
-            strategy_entries = bollinger_entries(loaded)
+            strategy_entries = bollinger_entries_columns(span.closes)
         else:
-            strategy_entries = [False] * len(loaded)
+            strategy_entries = [False] * total
         session.strategy_entries = strategy_entries
-        session.random_entries = random_entries(loaded, settings)
+        session.random_entries = random_entries_columns(
+            span.highs, span.lows, span.closes, settings
+        )
+        import numpy as np
+
+        session.strategy_entries_arr = np.asarray(strategy_entries, dtype=bool)
+        session.random_entries_arr = np.asarray(
+            session.random_entries, dtype=bool
+        )
         strategy = Playback(
-            feeds[0], rule=rule, total=total, stride=stride,
+            None, rule=rule, total=total, stride=stride, span=span,
             entries=set(i for i, on in enumerate(strategy_entries) if on),
             **settings,
         )
         random_buy = Playback(
-            feeds[1], rule="random", total=total, stride=stride,
+            None, rule="random", total=total, stride=stride, span=span,
             entries=set(i for i, on in enumerate(session.random_entries) if on),
             **settings,
         )

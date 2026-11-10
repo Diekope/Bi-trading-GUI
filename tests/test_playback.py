@@ -47,6 +47,9 @@ def app() -> QApplication:
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
     candles._ROW_CACHE.clear()
+    from lalala import strat_playback
+
+    strat_playback._SPAN_CACHE.clear()
 
 
 def _bar(index: int, close: float, high: float | None = None, low: float | None = None) -> Candle:
@@ -451,3 +454,27 @@ def test_the_results_curve_paints_before_any_run(app: QApplication) -> None:
 
     assert not tile.curve.grab().toImage().isNull()
     tile.close()
+
+
+def test_the_loaded_span_is_memoised(monkeypatch) -> None:
+    from lalala import strat_playback
+
+    _write(2021, 20)
+    calls = {"n": 0}
+    original = strat_playback.iter_candles
+
+    def counted(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(strat_playback, "iter_candles", counted)
+
+    first = strat_playback.load_all_candles([2021], "1m")
+    second = strat_playback.load_all_candles([2021], "1m")
+
+    assert calls["n"] == 1  # the second read is served from memory
+    assert len(first) == len(second) == 20
+
+    _write(2021, 5)  # the file changed: a new signature
+    strat_playback.load_all_candles([2021], "1m")
+    assert calls["n"] == 2

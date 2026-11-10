@@ -6,10 +6,10 @@ promised; it is a menu. The Rust core for the walk is **done** (see
 input.
 
 ## Backtest engine
-- **Wire the core for long spans too.** Today a span is streamed above a cap
-  (`CORE_MAX` bars) and the core only drives short/medium runs. Move the bar
-  loop fully into Rust (array-backed candle store) so a decade of minutes uses
-  the core as well.
+- ~~**Wire the core for long spans too.**~~ **Done.** A span is held as a
+  `ColumnSpan` (parallel NumPy arrays) instead of a Candle per bar, so the
+  core drives up to `CORE_MAX` (5M bars) — a decade of minutes fits in a few
+  hundred MB. The Rust core reads the arrays directly.
 - **Honour a saved strategy's exit rule.** An applied strategy uses its entry
   only; exits are the params' TP / SL / hold. Run the exit formula in the walk.
 - **Slippage** on top of the fee, and **per-venue fees**.

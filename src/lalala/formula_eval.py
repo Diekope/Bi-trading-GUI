@@ -486,15 +486,23 @@ def evaluate(formula: Formula, context: dict):
 def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
     """The bars where an entry rule is true.
 
-    A vectorised NumPy pass over a gap-free series; the list walk is the
-    reference and takes over whenever the fast path does not apply (a gap in a
-    field, a function it does not know, or no NumPy at all).
+    `bars` is a list of bars, or a mapping of field name to a whole series (the
+    column form the array-backed span carries). A vectorised NumPy pass over a
+    gap-free series; the list walk is the reference and takes over whenever the
+    fast path does not apply (a gap in a field, an unknown function, or no
+    NumPy at all).
     """
     if formula is None or formula.condition is None:
         return []
     fast = _numpy_signals(formula, bars, fields)
     if fast is not None:
         return fast
+    if isinstance(bars, dict):
+        length = len(next(iter(bars.values()))) if bars else 0
+        bars = [
+            {name: bars[name][index] for name in fields if name in bars}
+            for index in range(length)
+        ]
     values = evaluate(formula, bar_context(bars, fields))
     return [index for index, value in enumerate(values) if _truth(value)]
 
@@ -503,10 +511,20 @@ def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
     """The signals computed with NumPy, or None to fall back to the list walk."""
     if _np is None:
         return None
-    arrays = _numpy_context(bars, fields)
-    if arrays is None:
-        return None
-    length = len(next(iter(arrays.values())))
+    if isinstance(bars, dict):
+        arrays = {}
+        for name in fields:
+            if name not in bars:
+                return None
+            array = _np.asarray(bars[name], dtype=float)
+            if _np.isnan(array).any():
+                return None
+            arrays[name] = array
+    else:
+        arrays = _numpy_context(bars, fields)
+        if arrays is None:
+            return None
+    length = len(next(iter(arrays.values()))) if arrays else 0
     if length == 0:
         return []
     scope = dict(arrays)

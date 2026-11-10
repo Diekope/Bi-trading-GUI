@@ -5,6 +5,7 @@
 //! candle's range, a fee each way, a hold limit — but runs the bar loop in
 //! Rust, so a long span is walked without the Python-level cost.
 
+use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
 /// One closed trade:
@@ -32,15 +33,18 @@ fn budget(cash: f64, s: &Settings) -> f64 {
 
 /// Walk `closes` (with `highs`/`lows` for the exits), opening where `entries`
 /// is true. Returns the trades and the realised equity per bar.
+///
+/// The columns arrive as NumPy arrays, so a long span is not copied into a
+/// Python list first.
 #[pyfunction]
 #[pyo3(signature = (closes, highs, lows, entries, capital, tp, sl, position,
                     sizing, max_cash, fee, max_hold))]
 #[allow(clippy::too_many_arguments)]
 fn walk(
-    closes: Vec<f64>,
-    highs: Vec<f64>,
-    lows: Vec<f64>,
-    entries: Vec<bool>,
+    closes: PyReadonlyArray1<f64>,
+    highs: PyReadonlyArray1<f64>,
+    lows: PyReadonlyArray1<f64>,
+    entries: PyReadonlyArray1<bool>,
     capital: f64,
     tp: f64,
     sl: f64,
@@ -50,6 +54,10 @@ fn walk(
     fee: f64,
     max_hold: i64,
 ) -> PyResult<(Vec<Trade>, Vec<f64>)> {
+    let closes = closes.as_slice()?;
+    let highs = highs.as_slice()?;
+    let lows = lows.as_slice()?;
+    let entries = entries.as_slice()?;
     let n = closes.len();
     let s = Settings {
         tp,
@@ -115,7 +123,7 @@ fn walk(
                 qty = 0.0;
                 entry_cost = 0.0;
             }
-        } else if index != 0 && entries.get(index).copied().unwrap_or(false) {
+        } else if index != 0 && entries[index] {
             let notional = budget(cash, &s);
             if notional > 0.0 && close > 0.0 {
                 let cost = notional * s.fee;

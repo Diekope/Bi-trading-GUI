@@ -51,17 +51,24 @@ def walk(
     once the trade is in profit, a pull-back of `reverse` percent from the
     peak closes it.
     """
+    # The native core knows the plain walk only; the trailing take profit and
+    # risk sizing run in Python.
+    if _NATIVE and not dynamic_tp and sizing != "risk":
+        import numpy as np
+
+        # Already a float64 array (the span's columns): no copy. A list is
+        # copied once, in C, rather than element by element.
+        return _native_walk(
+            np.ascontiguousarray(closes, dtype=float),
+            np.ascontiguousarray(highs, dtype=float),
+            np.ascontiguousarray(lows, dtype=float),
+            np.ascontiguousarray(entries, dtype=bool),
+            capital, tp, sl, position, sizing, max_cash, fee, max_hold,
+        )
     closes = [float(value) for value in closes]
     highs = [float(value) for value in highs]
     lows = [float(value) for value in lows]
     entries = [bool(value) for value in entries]
-    # The native core knows the plain walk only; the trailing take profit and
-    # risk sizing run in Python.
-    if _NATIVE and not dynamic_tp and sizing != "risk":
-        return _native_walk(
-            closes, highs, lows, entries, capital, tp, sl, position,
-            sizing, max_cash, fee, max_hold,
-        )
     return _python_walk(
         closes, highs, lows, entries, capital, tp, sl, position, sizing,
         max_cash, fee, max_hold, dynamic_tp, reverse,
