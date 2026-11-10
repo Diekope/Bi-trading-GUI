@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+
+from lalala.data.jsonio import loads
 import threading
 import time
 from typing import Any
@@ -461,7 +463,7 @@ class MarketFeed(QObject):
     def dispatch(self, raw: str | bytes) -> None:
         """Route one websocket frame to a signal. Pure, so it is testable."""
         try:
-            message = json.loads(raw)
+            message = loads(raw)
         except (TypeError, ValueError):
             return
         if not isinstance(message, dict):

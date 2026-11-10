@@ -21,7 +21,7 @@ are JSON-encoded *strings*, and `volume` may be null on a fresh market.
 
 from __future__ import annotations
 
-import json
+from lalala.data.jsonio import loads
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -99,7 +99,7 @@ def _json_list(value: Any) -> list[Any]:
         return value
     if isinstance(value, str) and value.strip():
         try:
-            parsed = json.loads(value)
+            parsed = loads(value)
         except ValueError:
             return []
         return parsed if isinstance(parsed, list) else []

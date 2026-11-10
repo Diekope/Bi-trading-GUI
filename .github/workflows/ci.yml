@@ -40,13 +40,36 @@ jobs:
 
       # Under Xvfb, so Qt uses its xcb platform. Exit with os._exit: PySide6
       # finalisation after the session QApplication is gone segfaults on the
-      # runner (all tests pass, then a crash at shutdown), and skipping
-      # finalisation avoids it. Normal pytest still runs everywhere else.
+      # runner, and skipping finalisation avoids it. -n auto fans the tests
+      # over the cores.
       - name: Test
         run: |
           xvfb-run -a uv run python -c "
           import os, sys, pytest
-          code = pytest.main(['-q'])
+          code = pytest.main(['-q', '-n', 'auto'])
           sys.stdout.flush(); sys.stderr.flush()
           os._exit(int(code))
           "
+
+  # The Rust walk is optional; build it and check the native path agrees with
+  # the Python one.
+  native:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONFAULTHANDLER: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the project with the native core
+        run: uv sync --extra native
+
+      - name: The native walk matches the Python one
+        run: uv run pytest tests/test_core.py tests/test_playback.py -q

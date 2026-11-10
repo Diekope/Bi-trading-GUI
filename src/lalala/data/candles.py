@@ -25,8 +25,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 ASSET = "BTC"
 RESOLUTION = "1m"          # the only resolution ever downloaded
@@ -41,16 +39,41 @@ HISTORY_START_MS = 1_502_942_400_000  # 2017-08-17T04:00Z
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-SCHEMA = pa.schema(
-    [
-        ("timestamp", pa.int64()),
-        ("open", pa.float64()),
-        ("high", pa.float64()),
-        ("low", pa.float64()),
-        ("close", pa.float64()),
-        ("volume", pa.float64()),
-    ]
-)
+# pyarrow is a heavy import and the GUI should not pay for it until a candle
+# file is read or written, so it is imported on first use.
+_pa: tuple | None = None
+
+
+def _arrow() -> tuple:
+    global _pa
+    if _pa is None:
+        import pyarrow
+        import pyarrow.parquet
+
+        _pa = (pyarrow, pyarrow.parquet)
+    return _pa
+
+
+_SCHEMA = None
+
+
+def _schema():
+    global _SCHEMA
+    if _SCHEMA is None:
+        pa, _ = _arrow()
+        _SCHEMA = pa.schema(
+            [
+                ("timestamp", pa.int64()),
+                ("open", pa.float64()),
+                ("high", pa.float64()),
+                ("low", pa.float64()),
+                ("close", pa.float64()),
+                ("volume", pa.float64()),
+            ]
+        )
+    return _SCHEMA
+
+
 COLUMNS = ("open", "high", "low", "close", "volume")
 
 # Row counts are stable between writes, so a span change does not re-scan a
@@ -155,8 +178,9 @@ def store_signature(path: Path) -> tuple[int, int] | None:
     return (stat.st_mtime_ns, stat.st_size)
 
 
-def table(path: Path) -> pa.Table | None:
+def table(path: Path) -> "object | None":
     """The year's table, migrating a legacy CSV first. None when absent."""
+    pa, pq = _arrow()
     _ensure(path)
     try:
         return pq.read_table(path)
@@ -188,6 +212,7 @@ def row_count(path: Path) -> int:
     cached = _ROW_CACHE.get(key)
     if cached is not None:
         return cached
+    pa, pq = _arrow()
     try:
         count = pq.read_metadata(path).num_rows
     except (OSError, pa.ArrowInvalid):
@@ -240,6 +265,7 @@ def append_rows(
     if not rows:
         return 0
     ensure_data_dir()
+    pa, _ = _arrow()
     stamps, opens, highs, lows, closes, volumes = zip(*rows)
     fresh = pa.table(
         {
@@ -250,7 +276,7 @@ def append_rows(
             "close": pa.array(closes, pa.float64()),
             "volume": pa.array(volumes, pa.float64()),
         },
-        schema=SCHEMA,
+        schema=_schema(),
     )
     existing = table(path)
     combined = fresh if existing is None else pa.concat_tables([existing, fresh])
@@ -259,15 +285,17 @@ def append_rows(
     return len(rows)
 
 
-def _write_table(path: Path, data: pa.Table) -> None:
+def _write_table(path: Path, data) -> None:
+    _, pq = _arrow()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     pq.write_table(data, tmp, compression="zstd")
     os.replace(tmp, path)
 
 
-def _csv_table(path: Path) -> pa.Table:
+def _csv_table(path: Path):
     """Read a legacy CSV into a Table (used only for migration)."""
+    pa, _ = _arrow()
     stamps: list[int] = []
     columns: dict[str, list[float]] = {name: [] for name in COLUMNS}
     try:
@@ -284,13 +312,13 @@ def _csv_table(path: Path) -> pa.Table:
                 except ValueError:
                     continue
     except OSError:
-        return pa.table({}, schema=SCHEMA)
+        return pa.table({}, schema=_schema())
     return pa.table(
         {
             "timestamp": pa.array(stamps, pa.int64()),
             **{name: pa.array(values, pa.float64()) for name, values in columns.items()},
         },
-        schema=SCHEMA,
+        schema=_schema(),
     )
 
 

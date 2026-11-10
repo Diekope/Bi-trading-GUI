@@ -7,6 +7,7 @@ dependencies = [
     "PySide6>=6.7",
     "httpx>=0.27",
     "numpy>=2.4.6",
+    "orjson>=3.13.0",
     "pyarrow>=26.0.1",
     "websockets>=12",
 ]
@@ -20,6 +21,12 @@ venues = [
     "py-clob-client>=0.17",
     "eth-account>=0.11",
 ]
+# The Rust walk. Optional because it needs a Rust toolchain to build; the app
+# runs the same walk in Python without it. `uv sync --extra native` builds it.
+native = ["lalala-core"]
+
+[tool.uv.sources]
+lalala-core = { path = "rust/lalala_core" }
 
 [project.scripts]
 lalala = "lalala.__main__:main"
@@ -38,6 +45,7 @@ packages = ["src/lalala"]
 dev = [
     "pytest>=8",
     "pytest-qt>=4.4",
+    "pytest-xdist>=3.5",
     "ruff>=0.6",
 ]
 

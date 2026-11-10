@@ -43,6 +43,14 @@ keys present. Add them when you want them:
 uv sync --extra venues   # hyperliquid-python-sdk, py-clob-client, eth-account
 ```
 
+The backtest walk has a **Rust core** (`rust/lalala_core`). It is optional —
+the same walk runs in Python without it — but it is much faster, so build it
+where a Rust toolchain is available:
+
+```sh
+uv sync --extra native   # builds lalala-core with maturin
+```
+
 ### Settings
 
 The hub's Settings view (the gear in the rail) is live:
@@ -90,7 +98,7 @@ Lint and tests, exactly as CI runs them:
 
 ```sh
 uv run ruff check src tests
-uv run pytest -q
+uv run pytest -q -n auto   # xdist: the suite is embarrassingly parallel
 ```
 
 
@@ -322,6 +330,7 @@ src/lalala/
     candle_download.py Binance 1m fetch, paged and resumable, on its own loop
     market_data.py     parsing, price formatting, candles, bands, search
     polymarket_data.py slugs, Gamma/CLOB/WS parsing, formatting
+    jsonio.py          JSON parsing: orjson when installed, stdlib otherwise
     feed.py            Hyperliquid streams, latency probe
     polymarket_feed.py one 5m market: resolve, snapshot, stream, roll over
 
@@ -340,7 +349,10 @@ src/lalala/
     runs.py            saved backtest runs: span, params, strategy and trades
 
   ui/              everything Qt
-    theme.py, palette.py, fonts.py  colours, the hub palette, the bundled fonts
+    theme.py           the terminal palette + the stylesheet it applies
+    theme_colors.py, theme_qss.py  the palette and the sheet, split out
+    palette.py         the hub's palette (shared by the hub and Settings)
+    fonts.py           the bundled Inter / JetBrains Mono, registered at startup
     panels.py, cards.py             card chrome, the candle chart and market card
     polymarket_panel.py             outcome tiles, countdown, BTC/target chart, tape
     main_window.py                  the terminal: window, top bar, feed wiring

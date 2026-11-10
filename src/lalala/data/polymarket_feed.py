@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+
+from lalala.data.jsonio import loads
 import time
 from typing import Any
 
@@ -274,7 +276,7 @@ class PolymarketFeed(QObject):
     def dispatch(self, raw: str | bytes) -> None:
         """Route one websocket frame. Pure apart from the held-book update."""
         try:
-            payload = json.loads(raw)
+            payload = loads(raw)
         except (TypeError, ValueError):
             return
 

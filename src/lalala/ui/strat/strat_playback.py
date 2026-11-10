@@ -148,23 +148,6 @@ def _merge(group: list[Candle]) -> Candle:
     )
 
 
-def _parse(line: str) -> Candle | None:
-    parts = line.rstrip("\n").split(",")
-    if len(parts) < 6:
-        return None
-    try:
-        return Candle(
-            stamp=int(parts[0]),
-            open=float(parts[1]),
-            high=float(parts[2]),
-            low=float(parts[3]),
-            close=float(parts[4]),
-            volume=float(parts[5]),
-        )
-    except ValueError:
-        return None
-
-
 def _iter_file(path, factor: int) -> Iterator[Candle]:
     """One year, compacted `factor`-to-one, read straight from Parquet arrays."""
     from lalala.data import candles
@@ -269,7 +252,6 @@ class ColumnSpan:
 
     __slots__ = (
         "stamps", "opens", "highs", "lows", "closes", "volumes", "length",
-        "_lists",
     )
 
     def __init__(self, bars: list[Candle]) -> None:
@@ -283,7 +265,6 @@ class ColumnSpan:
         self.lows = np.fromiter((b.low for b in bars), float, length)
         self.closes = np.fromiter((b.close for b in bars), float, length)
         self.volumes = np.fromiter((b.volume for b in bars), float, length)
-        self._lists: tuple | None = None
 
     def candle(self, index: int) -> Candle:
         return Candle(
@@ -302,21 +283,10 @@ class ColumnSpan:
         (span.stamps, span.opens, span.highs, span.lows, span.closes,
          span.volumes) = data
         span.length = len(span.stamps)
-        span._lists = None
         return span
 
     def candles(self, start: int, stop: int) -> list[Candle]:
         return [self.candle(index) for index in range(max(0, start), min(stop, self.length))]
-
-    def as_lists(self) -> tuple:
-        """(closes, highs, lows) as plain lists, for the core; built once."""
-        if self._lists is None:
-            self._lists = (
-                self.closes.tolist(),
-                self.highs.tolist(),
-                self.lows.tolist(),
-            )
-        return self._lists
 
 
 def window_around(
@@ -722,9 +692,6 @@ class Playback:
                 else 0.0
             )
             self._last_equity = float(values[-1])
-
-    def _dd(self, equity: float) -> float:
-        return equity / self.peak - 1.0 if self.peak > 0 else 0.0
 
     def _compute_band(self):
         return _bollinger(
@@ -1316,11 +1283,11 @@ def _walk_settings(params: dict) -> dict:
     }
 
 
-# Above this many bars a span is streamed rather than held in memory, so the
-# core (which needs the bars) only drives the shorter runs. The array-backed
-# span holds a decade of minutes in ~300 MB, so the core reaches much further
-# than it did with a Candle per bar.
-CORE_MAX = 5_000_000
+# Above this many bars a span is streamed rather than held in memory. The
+# array-backed span is six float64 columns plus two bool entry columns — about
+# fifty bytes a bar — so twelve million bars is roughly 600 MB, comfortably
+# more than a decade of minutes with room for the store to keep growing.
+CORE_MAX = 12_000_000
 
 
 def build_session(
