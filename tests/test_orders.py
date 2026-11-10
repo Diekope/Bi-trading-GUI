@@ -203,6 +203,20 @@ def test_a_plain_error_passes_through() -> None:
     assert friendly_message(ValueError("boom")) == "boom"
 
 
+def test_a_stale_clob_client_reads_plainly() -> None:
+    from lalala.venues.base import friendly_message
+
+    text = friendly_message(
+        Exception(
+            "PolyApiException[status_code=400, error_message={'error': "
+            "'invalid order version, please use the latest clob-client'}]"
+        )
+    )
+
+    assert "out of date" in text.lower()
+    assert "clob v2" in text.lower()
+
+
 class _BalanceVenue:
     def __init__(self, free: float, **config) -> None:
         self.free = free

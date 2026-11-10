@@ -22,12 +22,21 @@ class VenueError(Exception):
 
 # A 403 from the CLOB is almost always a geoblock; say so plainly.
 _REGION_HINTS = ("region", "restricted", "not available in your")
+# The legacy client can no longer sign orders since the CLOB V2 cutover.
+_STALE_HINTS = ("order version", "order_version", "latest clob-client")
 
 
 def friendly_message(exc: object) -> str:
-    """A human line for an order failure — a region block, or the raw text."""
+    """A human line for an order failure — a region block, a stale client, or
+    the raw text."""
     text = str(exc)
     low = text.lower()
+    if any(hint in low for hint in _STALE_HINTS):
+        return (
+            "Polymarket's order client is out of date. Since the CLOB V2 "
+            "cutover the legacy py-clob-client can no longer place orders; the "
+            "venue SDK needs updating (polymarket-client / py-clob-client-v2)."
+        )
     if any(hint in low for hint in _REGION_HINTS) or "403" in text:
         return (
             "Trading is not allowed from your region. Polymarket's blocked "
