@@ -43,7 +43,7 @@ the default install, so the GUI opens with no credentials, network or wallet
 keys present. Add them when you want them:
 
 ```sh
-uv sync --extra venues   # hyperliquid-python-sdk, py-clob-client, eth-account
+uv sync --extra venues   # hyperliquid-python-sdk, polymarket-client, eth-account
 ```
 
 The backtest walk has a **Rust core** (`rust/lalala_core`). It is optional —
@@ -311,7 +311,7 @@ costs roughly the same as the candle feed instead of pinning a core.
 
 | Need | Consequence |
 | --- | --- |
-| Polymarket order signing is EIP-712 over secp256k1, plus L2 API creds derived from the wallet | Reimplementing this in C/C++ is the main source of rejected orders; `py-clob-client` is the maintained path |
+| Polymarket order signing is EIP-712 over secp256k1, plus L2 API creds derived from the wallet | Reimplementing this in C/C++ is the main source of rejected orders; `polymarket-client` is the maintained path (CLOB V2) |
 | Hyperliquid signing and WS framing | `hyperliquid-python-sdk` for orders; public data needs no SDK at all |
 | GUI must stay smooth while sockets stream | Qt6 renders in C++; Python only orchestrates, and all venue I/O lives on a separate asyncio thread |
 
