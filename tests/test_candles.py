@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from lalala import candles
-from lalala.candles import (
+from lalala.data import candles
+from lalala.data.candles import (
     COMPLETE,
     COMPLETE_STATE,
     MISSING,

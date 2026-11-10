@@ -7,7 +7,7 @@ from dataclasses import fields
 
 import pytest
 
-from lalala.settings import (
+from lalala.state.settings import (
     BacktestDefaults,
     GeneralSettings,
     Settings,

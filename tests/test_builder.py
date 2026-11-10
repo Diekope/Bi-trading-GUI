@@ -17,16 +17,16 @@ from PySide6.QtWidgets import (  # noqa: E402
     QScrollArea,
 )
 
-from lalala.strat_builder import (  # noqa: E402
+from lalala.ui.strat.strat_builder import (  # noqa: E402
     COLUMN_SHARES,
     TIMEFRAMES,
     LockedHandle,
     StrategyBuilderWindow,
 )
-from lalala.strat_rules import RULES_MODES as ENTRY_MODES  # noqa: E402
-from lalala.strat_saved import StrategyListTile  # noqa: E402
-from lalala.strategies import SavedStrategy  # noqa: E402
-from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
+from lalala.ui.strat.strat_rules import RULES_MODES as ENTRY_MODES  # noqa: E402
+from lalala.ui.strat.strat_saved import StrategyListTile  # noqa: E402
+from lalala.state.strategies import SavedStrategy  # noqa: E402
+from lalala.ui.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +39,7 @@ def app() -> QApplication:
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     """An empty candle store, so no test reads a developer's real history."""
-    from lalala import candles
+    from lalala.data import candles
 
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
     candles._ROW_CACHE.clear()
@@ -47,8 +47,8 @@ def store(tmp_path, monkeypatch):
 
 def _write_candles(year: int, count: int) -> None:
     """A little history for the report to read."""
-    from lalala import candles
-    from lalala.candles import append_rows, candle_file
+    from lalala.data import candles
+    from lalala.data.candles import append_rows, candle_file
 
     rows = []
     for index in range(count):
@@ -331,7 +331,7 @@ def test_the_formulas_page_builds_and_checks_a_formula(
 def test_building_a_formula_from_the_palette(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    from lalala.formula_builder import PALETTES
+    from lalala.ui.strat.formula_builder import PALETTES
 
     builder.mode_buttons["formula"].click()
     app.processEvents()
@@ -441,7 +441,7 @@ def test_only_one_entry_page_shows_at_a_time(
 def test_the_exit_tile_reads_the_trade_and_takes_no_indicators(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    from lalala.formula_builder import EXIT_PALETTES, PALETTES
+    from lalala.ui.strat.formula_builder import EXIT_PALETTES, PALETTES
 
     # Different palettes: the trade's own words, and no indicators.
     entry_groups = [title for title, _ in PALETTES]
@@ -586,8 +586,8 @@ def test_typing_the_code_reaches_the_rules_and_the_report(
 def test_the_report_follows_the_rules(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    from lalala import candles
-    from lalala.candles import append_rows, candle_file
+    from lalala.data import candles
+    from lalala.data.candles import append_rows, candle_file
 
     # A little history for the report to read.
     rows = []
@@ -644,7 +644,7 @@ def test_the_footer_saves_the_draft(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from lalala import strategies
+    from lalala.state import strategies
 
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
 
@@ -702,7 +702,7 @@ def test_saving_lists_it_in_the_rail(
 def test_clicking_a_saved_strategy_loads_it(
     app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
 ) -> None:
-    from lalala import strategies
+    from lalala.state import strategies
 
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
     strategies.save(
@@ -743,7 +743,7 @@ def test_create_a_strategy_starts_a_fresh_draft(
 def test_a_saved_strategy_can_be_deleted_after_a_prompt(
     app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
 ) -> None:
-    from lalala import strategies
+    from lalala.state import strategies
 
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
     builder.name_edit.setText("Dip")
@@ -761,7 +761,7 @@ def test_a_saved_strategy_can_be_deleted_after_a_prompt(
         return None
 
     monkeypatch.setattr(
-        "lalala.strat_builder.ConfirmDialog.exec", cancel
+        "lalala.ui.strat.strat_builder.ConfirmDialog.exec", cancel
     )
     builder.delete_button.click()
     app.processEvents()
@@ -773,7 +773,7 @@ def test_a_saved_strategy_can_be_deleted_after_a_prompt(
         return 1
 
     monkeypatch.setattr(
-        "lalala.strat_builder.ConfirmDialog.exec", confirm
+        "lalala.ui.strat.strat_builder.ConfirmDialog.exec", confirm
     )
     builder.delete_button.click()
     app.processEvents()
@@ -786,7 +786,7 @@ def test_a_saved_strategy_can_be_deleted_after_a_prompt(
 def test_the_delete_prompt_offers_reset_or_delete(
     app: QApplication, builder: StrategyBuilderWindow, tmp_path, monkeypatch
 ) -> None:
-    from lalala import strategies
+    from lalala.state import strategies
 
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
     builder.name_edit.setText("Dip")
@@ -800,7 +800,7 @@ def test_the_delete_prompt_offers_reset_or_delete(
         dialog.choice = "reset"
         return 1
 
-    monkeypatch.setattr("lalala.strat_builder.ConfirmDialog.exec", reset)
+    monkeypatch.setattr("lalala.ui.strat.strat_builder.ConfirmDialog.exec", reset)
     builder.delete_button.click()
     app.processEvents()
     assert [item.name for item in strategies.load()] == ["Dip"]
@@ -948,7 +948,7 @@ def test_the_value_rows_are_not_a_different_colour(
     # The rows in the vocabulary list and the values list are plain containers
     # on the card. Without a rule of their own they would paint the canvas
     # colour over it, which is what made them read darker.
-    from lalala.theme import STYLESHEET
+    from lalala.ui.theme import STYLESHEET
 
     assert "#valueRow" in STYLESHEET
     block = STYLESHEET.split("#valueRow")[1].split("}")[0]

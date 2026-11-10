@@ -313,55 +313,53 @@ dependency.
 
 ```
 src/lalala/
-  app.py           QApplication bootstrap
-  theme.py         colours + the whole stylesheet (app-level, so popups inherit)
-  palette.py       the hub's palette (shared by the hub and Settings)
-  fonts.py         the bundled Inter / JetBrains Mono, registered at startup
+  __main__.py      entry point for `lalala` and `python -m lalala`
+  app.py           QApplication bootstrap for the terminal
   logs.py          the silent log: a rotating file, never the console
-  main_hub.py      the hub window: rail, in-place views, feed wiring
-  hub_widgets.py   the hub's small builders and paint-it-yourself widgets
-  settings_view.py the Settings screen: accounts, defaults, safety limits
-  settings_widgets.py  the Settings builders and the venue connection tester
-  settings.py      chart feel from ~/.config/lalala/settings.json + env overrides
-  accounts.py      public account settings + the private keys, in the keychain
-  orders.py        placing orders: the worker, the arming gate, the adapters
-  positions.py     the one open paper position, shared across the hub's views
-  trade_form.py    the size / leverage / buy-sell form under a market's chart
-  strat.py         entry point for the blank backtest/strategy window
-  strat_window.py  second window: run + inputs on top, results below
-  strat_tiles.py   the history tile: span picker, resolution, coverage, actions
-  strat_playback.py the left tile: a streamed walk over the whole span
-  strat_params.py  the backtest tile: a gallery of run inputs
-  strat_strategy.py the strategy tile: which entry rule to run
-  strat_builder.py the builder window: strategy, entry and exit rules
-  strat_rules.py   one rules tile: Rules/Formula/Code over one formula
-  strat_conditions.py  the Rules tab: conditions in groups, read from a formula
-  autocomplete.py  completion for the code editor and the formula slots
-  formula.py       the entry/exit formula language: parse and check (no Qt)
-  formula_eval.py  run a formula over bars: indicators, signals, the walk
-  formula_builder.py the drag-and-drop formula builder (pills, chips, slots)
-  formula_palettes.py the builder's palettes: the sources you drag from
-  strat_report.py the right rail: the rule run over the candles on disk
-  strategies.py    saved strategies: one JSON file, read and replaced by name
-  runs.py          saved backtest runs: span, params, strategy and trades
-  core.py          the walk: the Rust core when built, Python fallback
-  strat_results.py the results tile: three live curves, legend underneath
-  candles.py       the local 1m candle store: paths, coverage, CSV helpers
-  candle_download.py  Binance 1m fetch, paged and resumable, on its own loop
-  main_window.py   window, top bar, feed wiring, tile lifecycle, watch set
-  panels.py        Card chrome, MAX_TILES
-  cards.py         CandleChart, Timeframes, MarketSearch, MarketCard
-  market_data.py   parsing, price formatting, candles, bands, search (no Qt)
-  feed.py          Hyperliquid streams, latency probe (QObject + asyncio)
-  polymarket_data.py   slugs, Gamma/CLOB/WS parsing, formatting (no Qt)
-  polymarket_feed.py   one 5m market: resolve, snapshot, stream, roll over
-  polymarket_panel.py  outcome tiles, countdown, BTC/target chart, tape (QPainter)
-  settings.py      chart feel from ~/.config/lalala/settings.json + env overrides
-  venues/
-    base.py         Venue protocol for order placement (not used by the UI yet)
-    hyperliquid.py  authenticated REST/WS adapter (orders, balances)
-    polymarket.py   CLOB adapter (orders, books)
-    runner.py       asyncio loop on a worker thread
+
+  data/            market data, storage and feeds (parsers are Qt-free)
+    candles.py         the local 1m store: Parquet paths, coverage, helpers
+    candle_download.py Binance 1m fetch, paged and resumable, on its own loop
+    market_data.py     parsing, price formatting, candles, bands, search
+    polymarket_data.py slugs, Gamma/CLOB/WS parsing, formatting
+    feed.py            Hyperliquid streams, latency probe
+    polymarket_feed.py one 5m market: resolve, snapshot, stream, roll over
+
+  engine/          the pure backtest engine (no Qt)
+    core.py            the walk: the Rust core when built, Python fallback
+    formula.py         the entry/exit formula language: parse and check
+    formula_eval.py    run a formula over bars: indicators, signals, the walk
+    formula_palettes.py the builder's palettes: the sources you drag from
+
+  state/           config and what persists between runs
+    settings.py        chart feel + defaults from ~/.config/lalala/settings.json
+    accounts.py        public account settings + the private keys, in the keychain
+    orders.py          placing orders: the worker, the arming gate, the adapters
+    positions.py       the one open paper position, shared across the hub's views
+    strategies.py      saved strategies: one JSON file, read and replaced by name
+    runs.py            saved backtest runs: span, params, strategy and trades
+
+  ui/              everything Qt
+    theme.py, palette.py, fonts.py  colours, the hub palette, the bundled fonts
+    panels.py, cards.py             card chrome, the candle chart and market card
+    polymarket_panel.py             outcome tiles, countdown, BTC/target chart, tape
+    main_window.py                  the terminal: window, top bar, feed wiring
+    strategy_bar.py, trade_form.py  the bar under the charts and the trade form
+    syntax.py, autocomplete.py      editor highlighting and completion
+    hub/           the hub shell
+      main_hub.py        rail, in-place views, feed wiring
+      hub_widgets.py     the hub's small builders and self-painted widgets
+      settings_view.py   the Settings screen
+      settings_widgets.py its builders and the venue connection tester
+    strat/         the backtest + builder windows
+      strat.py, strat_window.py, strat_tiles.py, strat_params.py,
+      strat_strategy.py, strat_results.py, strat_playback.py, strat_report.py,
+      strat_compare.py, strat_builder.py, strat_rules.py, strat_conditions.py,
+      strat_saved.py, strat_runs.py, formula_builder.py
+
+  venues/          order placement adapters
+    base.py, hyperliquid.py, polymarket.py, runner.py
+
 tests/             ~520 tests: parsing/search/aliases, slug math, candle + book
                    routing, chart pan/zoom, axis zoom, backfill paging,
                    shortcuts, overlays, the Polymarket panel, the split
@@ -628,7 +626,7 @@ dashed `drag a block here`, and a live pill reads `✓ valid`, `✗ not valid` o
 `— empty`.
 
 The chips are only an editor. The formula **text** is the truth: it is rebuilt
-from the chips and handed to `lalala.formula.parse`, so the same checker still
+from the chips and handed to `lalala.engine.formula.parse`, so the same checker still
 reports `line 2, column 9: unknown name 'clsoe'`, and the text is what a run
 would use.
 
@@ -689,7 +687,7 @@ It recomputes only when it is on show, so the walk does not run behind
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
 200 more behind them so the indicators have history), compacts them to the bar
-the STRATEGY tile names, and runs `lalala.formula_eval.backtest`.
+the STRATEGY tile names, and runs `lalala.engine.formula_eval.backtest`.
 
 Six figures in **one row** — `PnL`, `Sharpe`, `Max DD`, `Trades`, `Win rate`,
 and `Fees` — and under them three curves, drawn as **return since the start**,
@@ -856,11 +854,11 @@ opens one again: the controls are set back and the run is **walked straight to
 the end**, so every result and trade is there at once.
 
 The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
-extension wrapped by `lalala.core`). A span small enough to hold in memory
+extension wrapped by `lalala.engine.core`). A span small enough to hold in memory
 (≤ `CORE_MAX`, 1.5M bars) is loaded and its entries worked out up front, so the
 walk and every seek are a slice plus one native pass — **Finish** and a jump
 are instant. A longer span is streamed off disk and stepped in Python. When the
-extension is not built, `lalala.core` falls back to the same walk in Python, so
+extension is not built, `lalala.engine.core` falls back to the same walk in Python, so
 nothing depends on it. Build it with:
 `uv run maturin develop --release --manifest-path rust/lalala_core/Cargo.toml`.
 

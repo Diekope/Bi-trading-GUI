@@ -12,15 +12,15 @@ from PySide6.QtGui import QColor, QWheelEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.cards import format_axis_time  # noqa: E402
-from lalala.main_window import MainWindow  # noqa: E402
-from lalala.market_data import (  # noqa: E402
+from lalala.ui.cards import format_axis_time  # noqa: E402
+from lalala.ui.main_window import MainWindow  # noqa: E402
+from lalala.data.market_data import (  # noqa: E402
     TIMEFRAMES,
     Candle,
     CandleSeries,
     Market,
 )
-from lalala.theme import CANVAS, CARD_GAP, PANEL, apply_dark_theme  # noqa: E402
+from lalala.ui.theme import CANVAS, CARD_GAP, PANEL, apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")

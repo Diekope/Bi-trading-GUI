@@ -9,9 +9,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala import candles  # noqa: E402
-from lalala.candles import append_rows, candle_file  # noqa: E402
-from lalala.strat_playback import (  # noqa: E402
+from lalala.data import candles  # noqa: E402
+from lalala.data.candles import append_rows, candle_file  # noqa: E402
+from lalala.ui.strat.strat_playback import (  # noqa: E402
     BOLLINGER_PERIOD,
     Candle,
     Playback,
@@ -23,8 +23,8 @@ from lalala.strat_playback import (  # noqa: E402
     plan_stride,
     sample_candles,
 )
-from lalala.strat_results import ResultsTile  # noqa: E402
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.strat.strat_results import ResultsTile  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 PARAMS = {
     "initial_capital": 10_000.0,
@@ -47,7 +47,7 @@ def app() -> QApplication:
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
     candles._ROW_CACHE.clear()
-    from lalala import strat_playback
+    from lalala.ui.strat import strat_playback
 
     strat_playback._SPAN_CACHE.clear()
 
@@ -125,7 +125,7 @@ def test_an_empty_span_counts_nothing() -> None:
 
 
 def test_the_stride_keeps_a_run_watchable() -> None:
-    from lalala.strat_playback import MAX_TICKS
+    from lalala.ui.strat.strat_playback import MAX_TICKS
 
     assert plan_stride(400) == 1               # short runs play bar by bar
     assert plan_stride(MAX_TICKS) == 1
@@ -223,7 +223,7 @@ def test_a_stride_consumes_several_bars_at_once() -> None:
 
 
 def test_the_window_never_grows_past_the_chart() -> None:
-    from lalala.strat_playback import CHART_BARS
+    from lalala.ui.strat.strat_playback import CHART_BARS
 
     play = Playback(sample_candles(CHART_BARS + 50), rule="random", stride=25)
     while not play.done:
@@ -234,7 +234,7 @@ def test_the_window_never_grows_past_the_chart() -> None:
 
 
 def test_the_core_drives_a_seek_like_the_python_walk() -> None:
-    from lalala.strat_playback import build_session
+    from lalala.ui.strat.strat_playback import build_session
 
     params = {
         "initial_capital": 10_000.0, "tp": 2.0, "sl": 1.0, "position": 10.0,
@@ -257,7 +257,7 @@ def test_the_core_drives_a_seek_like_the_python_walk() -> None:
 
 
 def test_a_window_around_a_stamp_is_read() -> None:
-    from lalala.strat_playback import window_around
+    from lalala.ui.strat.strat_playback import window_around
 
     _write(2021, 300, price=200.0)
     # The stamp of bar 150 of 2021 (the writer uses index * 60_000).
@@ -268,8 +268,8 @@ def test_a_window_around_a_stamp_is_read() -> None:
 
 
 def test_a_saved_rule_can_drive_the_walk() -> None:
-    from lalala.formula import ENTRY_FIELDS, FUNCTIONS, parse
-    from lalala.strat_playback import build_session
+    from lalala.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from lalala.ui.strat.strat_playback import build_session
 
     formula = parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS)
     params = {
@@ -310,7 +310,7 @@ def test_one_position_at_a_time() -> None:
 
 
 def test_bollinger_bands_need_history_before_they_exist() -> None:
-    from lalala.strat_playback import bollinger_bands
+    from lalala.ui.strat.strat_playback import bollinger_bands
 
     candles_ = sample_candles(30)
     bands = bollinger_bands(candles_, period=20, deviations=2.0)
@@ -457,7 +457,7 @@ def test_the_results_curve_paints_before_any_run(app: QApplication) -> None:
 
 
 def test_the_loaded_span_is_memoised(monkeypatch) -> None:
-    from lalala import strat_playback
+    from lalala.ui.strat import strat_playback
 
     _write(2021, 20)
     calls = {"n": 0}

@@ -19,10 +19,10 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QPainterPath  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala import polymarket_feed  # noqa: E402
-from lalala.main_window import MainWindow  # noqa: E402
-from lalala.market_data import Candle, CandleSeries  # noqa: E402
-from lalala.polymarket_data import (  # noqa: E402
+from lalala.data import polymarket_feed  # noqa: E402
+from lalala.ui.main_window import MainWindow  # noqa: E402
+from lalala.data.market_data import Candle, CandleSeries  # noqa: E402
+from lalala.data.polymarket_data import (  # noqa: E402
     Level,
     PriceChange,
     PricePoint,
@@ -43,8 +43,8 @@ from lalala.polymarket_data import (  # noqa: E402
     slug_window,
     window_price_points,
 )
-from lalala.polymarket_feed import PolymarketFeed  # noqa: E402
-from lalala.polymarket_panel import (  # noqa: E402
+from lalala.data.polymarket_feed import PolymarketFeed  # noqa: E402
+from lalala.ui.polymarket_panel import (  # noqa: E402
     EASE_RANGE,
     FOCUS_MS,
     SAMPLE_EVERY_MS,
@@ -53,7 +53,7 @@ from lalala.polymarket_panel import (  # noqa: E402
     smooth_path,
     time_to_x,
 )
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 TOKENS = (
     "30110116130057740446680476683553482539418691871252512101755124689500345437707",

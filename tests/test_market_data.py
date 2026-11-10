@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala.market_data import (
+from lalala.data.market_data import (
     Book,
     Candle,
     CandleSeries,

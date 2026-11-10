@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from lalala import orders
-from lalala.accounts import (
+from lalala.state import orders
+from lalala.state.accounts import (
     Accounts,
     HL_KEY,
     PM_KEY,
@@ -17,7 +17,7 @@ from lalala.accounts import (
     save_accounts,
     set_secret,
 )
-from lalala.settings import Settings, save_trading_defaults, TradingDefaults
+from lalala.state.settings import Settings, save_trading_defaults, TradingDefaults
 from lalala.venues.base import OrderAck, OrderRequest
 
 

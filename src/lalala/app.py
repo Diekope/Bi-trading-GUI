@@ -5,10 +5,10 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from lalala.main_window import MainWindow
+from lalala.ui.main_window import MainWindow
 from lalala.logs import install_qt_handler, setup
-from lalala.settings import ensure_file
-from lalala.theme import apply_dark_theme
+from lalala.state.settings import ensure_file
+from lalala.ui.theme import apply_dark_theme
 
 
 def run(argv: list[str] | None = None) -> int:

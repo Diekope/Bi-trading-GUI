@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FUNCTIONS, parse
-from lalala.formula_eval import (
+from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, FUNCTIONS, parse
+from lalala.engine.formula_eval import (
     backtest,
     bar_context,
     entry_signals,
@@ -226,7 +226,7 @@ def test_the_new_indicators_run() -> None:
 
 
 def test_a_name_with_no_history_makes_a_rule_silent() -> None:
-    from lalala.formula import ENTRY_FIELDS
+    from lalala.engine.formula import ENTRY_FIELDS
 
     bars = _bars([1, 2, 3, 4, 5])
     # The rule validates, but `spread` carries nothing, so it never fires.
@@ -292,7 +292,7 @@ def test_a_run_with_no_bars_is_empty() -> None:
 def test_a_pnl_exit_names_take_profit_and_stop_loss() -> None:
     # A rule written against pnl — no tp or sl token in sight — must still
     # read as Take profit / Stop loss, not a bare Rule.
-    from lalala.formula_eval import _exit_reason
+    from lalala.engine.formula_eval import _exit_reason
 
     exit_ = parse("pnl >= 2 or pnl <= 0 - 2", EXIT_FIELDS, EXIT_FUNCTIONS)
     profit = {"price": 105.0, "entry": 100.0, "tp": 2.0, "sl": 2.0, "pnl": 5.0, "bars": 3}
@@ -303,7 +303,7 @@ def test_a_pnl_exit_names_take_profit_and_stop_loss() -> None:
 
 
 def test_a_tp_sl_exit_still_names_the_reason() -> None:
-    from lalala.formula_eval import _exit_reason
+    from lalala.engine.formula_eval import _exit_reason
 
     exit_ = parse("pnl >= tp or pnl <= 0 - sl", EXIT_FIELDS, EXIT_FUNCTIONS)
     profit = {"price": 105.0, "entry": 100.0, "tp": 2.0, "sl": 1.0, "pnl": 5.0, "bars": 3}
@@ -314,7 +314,7 @@ def test_a_tp_sl_exit_still_names_the_reason() -> None:
 
 
 def test_a_time_exit_still_reads_as_time() -> None:
-    from lalala.formula_eval import _exit_reason
+    from lalala.engine.formula_eval import _exit_reason
 
     exit_ = parse("bars >= 3", EXIT_FIELDS, EXIT_FUNCTIONS)
     context = {"price": 100.0, "entry": 100.0, "tp": 2.0, "sl": 1.0, "pnl": 0.0, "bars": 5}
@@ -333,7 +333,7 @@ def test_a_pnl_exit_reports_fewer_rules_in_a_run() -> None:
 
 
 def test_bar_context_reads_objects_and_dicts_alike() -> None:
-    from lalala.formula_eval import bar_context
+    from lalala.engine.formula_eval import bar_context
 
     object_bars = _bars([1.0, 2.0, 3.0])
     dict_bars = [
@@ -347,7 +347,7 @@ def test_bar_context_reads_objects_and_dicts_alike() -> None:
 
 
 def test_bar_context_reads_price_as_the_close_and_skips_bools() -> None:
-    from lalala.formula_eval import bar_context
+    from lalala.engine.formula_eval import bar_context
 
     # A bar object with no `price` reads the close for it, as the engine needs.
     class Bar:
@@ -380,7 +380,7 @@ def _wandering_bars(count: int) -> list:
 
 
 def test_the_numpy_signals_match_the_list_walk() -> None:
-    from lalala.formula_eval import _numpy_signals, bar_context, evaluate, _truth
+    from lalala.engine.formula_eval import _numpy_signals, bar_context, evaluate, _truth
 
     fields = ("open", "high", "low", "close", "volume")
     bars = _wandering_bars(2000)
@@ -412,7 +412,7 @@ def test_the_numpy_signals_match_the_list_walk() -> None:
 
 
 def test_the_numpy_signals_yield_to_the_list_walk_on_a_gap() -> None:
-    from lalala.formula_eval import _numpy_signals
+    from lalala.engine.formula_eval import _numpy_signals
 
     fields = ("close",)
     gappy = [{"close": 1.0}, {"close": None}, {"close": 3.0}]

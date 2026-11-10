@@ -12,14 +12,14 @@ import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy  # noqa: E402
 
-from lalala import candles  # noqa: E402
-from lalala.candles import append_rows, candle_file  # noqa: E402
-from lalala.panels import Card  # noqa: E402
-from lalala.strat_builder import StrategyBuilderWindow  # noqa: E402
-from lalala.strat_params import ParamsTile  # noqa: E402
-from lalala.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
-from lalala.strat_window import StratWindow  # noqa: E402
-from lalala.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
+from lalala.data import candles  # noqa: E402
+from lalala.data.candles import append_rows, candle_file  # noqa: E402
+from lalala.ui.panels import Card  # noqa: E402
+from lalala.ui.strat.strat_builder import StrategyBuilderWindow  # noqa: E402
+from lalala.ui.strat.strat_params import ParamsTile  # noqa: E402
+from lalala.ui.strat.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
+from lalala.ui.strat.strat_window import StratWindow  # noqa: E402
+from lalala.ui.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 # A year holds this many bars in the tests, so faking one stays cheap.
 TEST_BARS_PER_YEAR = 10
@@ -40,7 +40,7 @@ def small_year(monkeypatch, tmp_path):
         candles, "expected_rows", lambda year, now=None: TEST_BARS_PER_YEAR
     )
     monkeypatch.setattr(
-        "lalala.strat_tiles.expected_rows",
+        "lalala.ui.strat.strat_tiles.expected_rows",
         lambda year, now=None: TEST_BARS_PER_YEAR,
     )
     candles._ROW_CACHE.clear()
@@ -360,7 +360,7 @@ def test_finishing_swaps_the_button_to_start(
 
 
 def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
-    from lalala.strat_playback import DEFAULT_STRATEGY, STRATEGIES
+    from lalala.ui.strat.strat_playback import DEFAULT_STRATEGY, STRATEGIES
 
     tile = window.strategy
     labels = [tile.picker.itemText(i) for i in range(tile.picker.count())]
@@ -405,7 +405,7 @@ def test_the_strategy_tile_lists_saved_strategies(
 
 
 def test_a_run_saves_and_reloads(app: QApplication, window, monkeypatch, tmp_path) -> None:
-    from lalala import runs
+    from lalala.state import runs
 
     monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
     window.left.set_source([], "1m")
@@ -527,7 +527,7 @@ def test_run_becomes_pause_and_resume(app: QApplication, window) -> None:
 def test_the_header_has_restart_speed_and_a_progress_bar(
     app: QApplication, window
 ) -> None:
-    from lalala.strat_playback import SPEEDS
+    from lalala.ui.strat.strat_playback import SPEEDS
 
     playback = window.left
     assert playback.restart_button.text() == "Restart"
@@ -605,7 +605,7 @@ def test_the_results_switch_between_overview_and_trades(
 
 
 def test_the_parameters_start_from_the_settings_file(app: QApplication, window) -> None:
-    from lalala.settings import Settings
+    from lalala.state.settings import Settings
 
     defaults = Settings.load().backtest
     tile = window.params
@@ -625,7 +625,7 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
 
 
 def test_the_gallery_wraps_by_width(app: QApplication) -> None:
-    from lalala.strat_params import (
+    from lalala.ui.strat.strat_params import (
         NARROW_COLUMNS,
         WIDE_AT,
         WIDE_COLUMNS,
@@ -655,7 +655,7 @@ def test_the_sizing_mode_changes_what_position_means(
 ) -> None:
     from PySide6.QtGui import QValidator
 
-    from lalala.strat_params import SIZING_LABELS
+    from lalala.ui.strat.strat_params import SIZING_LABELS
 
     tile = window.params
     assert tile.sizing_mode() == "balance"

@@ -10,14 +10,14 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QTextCursor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
 
-from lalala.autocomplete import (  # noqa: E402
+from lalala.ui.autocomplete import (  # noqa: E402
     KEYWORDS,
     CodeEdit,
     attach_completer,
     vocabulary,
 )
-from lalala.formula import ENTRY_FIELDS, FUNCTIONS  # noqa: E402
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.engine.formula import ENTRY_FIELDS, FUNCTIONS  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")

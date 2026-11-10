@@ -10,8 +10,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.theme import apply_dark_theme  # noqa: E402
-from lalala.trade_form import TradeForm  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.trade_form import TradeForm  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -88,7 +88,7 @@ def test_the_form_stays_paper_when_not_connected(
 def test_the_form_is_a_dry_run_when_connected_but_not_armed(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    from lalala.accounts import (
+    from lalala.state.accounts import (
         Accounts,
         HL_KEY,
         HyperliquidAccount,

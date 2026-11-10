@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lalala import core
+from lalala.engine import core
 
 
 def _series(closes):

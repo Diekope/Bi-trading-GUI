@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from lalala import strategies
-from lalala.strategies import SavedStrategy
+from lalala.state import strategies
+from lalala.state.strategies import SavedStrategy
 
 
 @pytest.fixture(autouse=True)

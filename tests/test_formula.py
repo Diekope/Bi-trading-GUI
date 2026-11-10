@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala.formula import (
+from lalala.engine.formula import (
     FIELDS,
     FUNCTIONS,
     Assignment,
@@ -240,7 +240,7 @@ def test_every_function_in_the_catalogue_actually_checks() -> None:
 
 
 def test_the_exit_vocabulary_is_the_trade_and_no_indicators() -> None:
-    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+    from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 
     assert EXIT_FIELDS == ("price", "entry", "tp", "sl", "pnl", "bars")
     assert "sma" not in EXIT_FUNCTIONS
@@ -252,7 +252,7 @@ def test_the_exit_vocabulary_is_the_trade_and_no_indicators() -> None:
 
 
 def test_names_with_no_history_validate_but_carry_nothing() -> None:
-    from lalala.formula import ENTRY_FIELDS, NO_HISTORY
+    from lalala.engine.formula import ENTRY_FIELDS, NO_HISTORY
 
     assert NO_HISTORY == ("model_p", "spread", "liquidity", "days_left")
     # They are part of the entry vocabulary, so a rule may name them.
@@ -274,7 +274,7 @@ def test_the_new_indicators_are_in_the_catalogue() -> None:
 
 
 def test_the_exit_vocabulary_refuses_bar_names_and_indicators() -> None:
-    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+    from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 
     with pytest.raises(FormulaError) as caught:
         parse("close < 10", EXIT_FIELDS, EXIT_FUNCTIONS)

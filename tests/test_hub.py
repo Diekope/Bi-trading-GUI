@@ -11,10 +11,10 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QShortcut  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from lalala.main_hub import MainHubWindow  # noqa: E402
-from lalala.positions import store  # noqa: E402
-from lalala.settings import Settings, load_window_geometry, save_window_geometry  # noqa: E402
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.hub.main_hub import MainHubWindow  # noqa: E402
+from lalala.state.positions import store  # noqa: E402
+from lalala.state.settings import Settings, load_window_geometry, save_window_geometry  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -117,7 +117,7 @@ def test_the_home_shows_a_balance_card_per_provider(
 def test_a_connected_balance_card_shows_the_side(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    from lalala.accounts import (
+    from lalala.state.accounts import (
         Accounts,
         HL_KEY,
         HyperliquidAccount,
@@ -163,7 +163,7 @@ def test_the_rail_shows_a_compact_balance_per_venue(
 
 
 def test_money_short_reads_at_a_glance() -> None:
-    from lalala.main_hub import _money_short
+    from lalala.ui.hub.main_hub import _money_short
 
     assert _money_short(250.0) == "$250"
     assert _money_short(1_234.5) == "$1.2k"

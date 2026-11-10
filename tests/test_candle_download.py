@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from lalala import candles
-from lalala.candle_download import CandleDownloader, _clean
-from lalala.candles import candle_file, last_timestamp, row_count
+from lalala.data import candles
+from lalala.data.candle_download import CandleDownloader, _clean
+from lalala.data.candles import candle_file, last_timestamp, row_count
 
 JAN_2024_MS = 1_704_067_200_000  # 2024-01-01T00:00Z
 MINUTE = 60_000
@@ -50,7 +50,7 @@ class FakeClient:
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
-    monkeypatch.setattr("lalala.candle_download.PAUSE_S", 0)
+    monkeypatch.setattr("lalala.data.candle_download.PAUSE_S", 0)
     candles._ROW_CACHE.clear()
 
 

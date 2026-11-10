@@ -8,7 +8,7 @@ import stat
 
 import pytest
 
-from lalala.accounts import (
+from lalala.state.accounts import (
     Accounts,
     HL_KEY,
     HyperliquidAccount,
@@ -21,7 +21,7 @@ from lalala.accounts import (
     valid_address,
     valid_private_key,
 )
-from lalala.settings import Settings
+from lalala.state.settings import Settings
 
 
 @pytest.fixture
@@ -121,8 +121,8 @@ def test_private_key_validation(value: str, expected: bool) -> None:
 def test_the_settings_form_saves_and_flags_a_bad_address(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.settings_view import SettingsView
-    from lalala.theme import apply_dark_theme
+    from lalala.ui.hub.settings_view import SettingsView
+    from lalala.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -150,8 +150,8 @@ def test_the_settings_form_saves_and_flags_a_bad_address(paths) -> None:
 def test_the_settings_form_saves_backtest_defaults(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.settings_view import SettingsView
-    from lalala.theme import apply_dark_theme
+    from lalala.ui.hub.settings_view import SettingsView
+    from lalala.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -197,8 +197,8 @@ def test_the_settings_form_saves_backtest_defaults(paths) -> None:
 def test_the_settings_form_saves_trading_and_general(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.settings_view import SettingsView
-    from lalala.theme import apply_dark_theme
+    from lalala.ui.hub.settings_view import SettingsView
+    from lalala.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -238,9 +238,9 @@ def test_the_settings_form_saves_trading_and_general(paths) -> None:
 def test_saving_the_built_in_data_folder_keeps_the_file_portable(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.candles import default_candles_dir
-    from lalala.settings_view import SettingsView
-    from lalala.theme import apply_dark_theme
+    from lalala.data.candles import default_candles_dir
+    from lalala.ui.hub.settings_view import SettingsView
+    from lalala.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -258,8 +258,8 @@ def test_saving_the_built_in_data_folder_keeps_the_file_portable(paths) -> None:
 def test_disconnect_signs_the_venue_out(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.settings_view import SettingsView
-    from lalala.theme import apply_dark_theme
+    from lalala.ui.hub.settings_view import SettingsView
+    from lalala.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)

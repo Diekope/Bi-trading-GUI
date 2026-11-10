@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala.positions import PositionStore, change, store
+from lalala.state.positions import PositionStore, change, store
 
 
 def test_the_store_holds_one_position() -> None:

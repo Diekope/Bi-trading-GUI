@@ -11,9 +11,9 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.formula_builder import CallChip  # noqa: E402
-from lalala.strat_rules import RULES_MODES, RulesTile  # noqa: E402
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.strat.formula_builder import CallChip  # noqa: E402
+from lalala.ui.strat.strat_rules import RULES_MODES, RulesTile  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -380,7 +380,7 @@ def test_add_condition_and_group_change_the_formula(app: QApplication) -> None:
 
 
 def test_an_or_of_comparisons_is_one_or_group(app: QApplication) -> None:
-    from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS
+    from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 
     tile = RulesTile(
         "EXIT RULES", fields=EXIT_FIELDS, functions=EXIT_FUNCTIONS

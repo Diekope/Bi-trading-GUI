@@ -9,9 +9,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
-from lalala.candles import append_rows, candle_file  # noqa: E402
-from lalala.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse  # noqa: E402
-from lalala.strat_report import (  # noqa: E402
+from lalala.data.candles import append_rows, candle_file  # noqa: E402
+from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse  # noqa: E402
+from lalala.ui.strat.strat_report import (  # noqa: E402
     Bar,
     CurveChart,
     ReportTile,
@@ -19,7 +19,7 @@ from lalala.strat_report import (  # noqa: E402
     latest_year,
     load_bars,
 )
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -32,7 +32,7 @@ def app() -> QApplication:
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
-    from lalala import candles
+    from lalala.data import candles
 
     candles._ROW_CACHE.clear()
     yield
@@ -84,7 +84,7 @@ def test_the_tail_is_compacted_to_the_resolution() -> None:
 
 
 def test_load_bars_is_memoised_until_the_file_changes(monkeypatch) -> None:
-    from lalala import strat_report
+    from lalala.ui.strat import strat_report
 
     _write_year(2021, 500)
     calls = {"n": 0}

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala import runs
+from lalala.state import runs
 
 
 @pytest.fixture(autouse=True)

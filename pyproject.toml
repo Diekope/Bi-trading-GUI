@@ -23,9 +23,9 @@ venues = [
 
 [project.scripts]
 lalala = "lalala.__main__:main"
-lalala-hub = "lalala.main_hub:run"
-lalala-strat = "lalala.strat:run"
-lalala-builder = "lalala.strat_builder:run"
+lalala-hub = "lalala.ui.hub.main_hub:run"
+lalala-strat = "lalala.ui.strat.strat:run"
+lalala-builder = "lalala.ui.strat.strat_builder:run"
 
 [build-system]
 requires = ["hatchling"]
@@ -44,7 +44,7 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-exclude = ["rust", "src/lalala/fonts"]
+exclude = ["rust", "src/lalala/ui/assets"]
 
 [tool.ruff.lint]
 # A conservative set: real errors (undefined names, unused imports, bad syntax)

@@ -33,7 +33,7 @@ def _clean_position_store():
     Only touched, never created: most tests are not GUI tests and a QObject
     made with no application around is one more thing Qt has to unwind at exit.
     """
-    from lalala import positions
+    from lalala.state import positions
 
     if positions._store is not None:
         positions._store.clear()

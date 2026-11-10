@@ -9,15 +9,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.candles import append_rows, candle_file  # noqa: E402
-from lalala.strategies import SavedStrategy  # noqa: E402
-from lalala.strat_saved import (  # noqa: E402
+from lalala.data.candles import append_rows, candle_file  # noqa: E402
+from lalala.state.strategies import SavedStrategy  # noqa: E402
+from lalala.ui.strat.strat_saved import (  # noqa: E402
     DRAFT_BADGE,
     StrategyListTile,
     StrategyRow,
     strategy_pnl,
 )
-from lalala.theme import apply_dark_theme  # noqa: E402
+from lalala.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -31,7 +31,7 @@ def app() -> QApplication:
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
     monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
-    from lalala import candles
+    from lalala.data import candles
 
     candles._ROW_CACHE.clear()
     strategy_pnl.cache_clear()
