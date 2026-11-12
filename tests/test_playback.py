@@ -580,3 +580,23 @@ def test_a_strategy_that_goes_both_ways_seeks_like_it_steps() -> None:
     assert session.strategy.equity == pytest.approx(
         reference.strategy.equity, abs=1e-6
     )
+
+
+def test_slippage_reaches_the_walk_and_the_stepped_walk_agrees() -> None:
+    params = _walk_params(slippage=0.05)
+    assert build_session([], params, "bollinger", "1m").settings["slippage"] == pytest.approx(0.0005)
+
+    def make(slippage):
+        return build_session([], _walk_params(slippage=slippage), "bollinger", "1m")
+
+    session, reference = make(0.05), make(0.05)
+    for _ in range(300):
+        reference.strategy.step()
+    session.seek(300)
+    assert session.strategy.trades == reference.strategy.trades > 0
+    assert session.strategy.equity == pytest.approx(reference.strategy.equity, abs=1e-6)
+
+    # The same run with no slip ends better off.
+    frictionless = make(0.0)
+    frictionless.seek(300)
+    assert frictionless.strategy.equity > session.strategy.equity

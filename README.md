@@ -868,9 +868,15 @@ The right column's tiles **share its whole height** — the inputs take the most
 the small tiles the least — so they always fill it and never scroll. The
 results tile spans the window's full width below.
 
-Decided and hard-coded for the run (no switches in the UI): slippage is fixed,
-one position is held at a time, and a trade is refused across a data gap
-rather than filled through it.
+Decided and hard-coded for the run: one position is held at a time, and a trade
+is refused across a data gap rather than filled through it.
+
+**Slippage** is what a market fill gives away, per side, in percent (the
+*Slippage %* parameter, `slippage` in the settings file; 0.01 by default). An
+entry fills that much worse than the close it was decided on — higher for a
+long, lower for a short — and every exit slips against the trade, except the
+take profit, which is a resting limit order and fills at its price. The fee is
+charged on top. The builder's previews use the same 0.01%.
 
 A trade ends at the first of: its **stop**, its **take profit**, the strategy's
 **exit rule**, or the **hold limit** — by default **7 candles** (the *Hold

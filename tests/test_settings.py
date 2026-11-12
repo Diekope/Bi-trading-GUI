@@ -343,3 +343,11 @@ def test_the_default_hold_is_seven_candles(tmp_path) -> None:
     assert BacktestDefaults.load({"hold": 0}, {}).hold == 0
     assert BacktestDefaults.load({"hold": "12"}, {}).hold == 12
     assert BacktestDefaults.load({"hold": -4}, {}).hold == 0
+
+
+def test_slippage_is_a_setting() -> None:
+    from lalala.state.settings import BacktestDefaults
+
+    assert BacktestDefaults().slippage == 0.01
+    assert BacktestDefaults.load({"slippage": 0.25}, {}).slippage == 0.25
+    assert BacktestDefaults.load({"slippage": -1}, {}).slippage == 0.0

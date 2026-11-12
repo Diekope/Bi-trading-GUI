@@ -422,6 +422,7 @@ class Playback:
         side: str = "long",
         exit_formula=None,
         short_entries=None,
+        slippage: float = 0.0,
     ) -> None:
         self._span = span
         self._feed_factory = None if span is not None else _feed_factory(candles)
@@ -461,6 +462,7 @@ class Playback:
         self.dynamic_tp = dynamic_tp
         self.reverse = reverse
         self.exit_formula = exit_formula
+        self.slippage = slippage
         self.reset()
 
     # -- state -------------------------------------------------------------
@@ -831,10 +833,15 @@ class Playback:
             return
         self.direction = side
         cost = notional * self.fee
-        self.qty = notional / candle.close
+        # A market order: it fills a little worse than the close it was
+        # decided on.
+        fill = candle.close * (
+            (1.0 - self.slippage) if side == "short" else (1.0 + self.slippage)
+        )
+        self.qty = notional / fill
         self.cash -= notional + cost
         self.fees += cost
-        self.entry_price = candle.close
+        self.entry_price = fill
         self.entry_index = self.index
         self.entry_stamp = candle.stamp
         self.entry_notional = notional
@@ -906,6 +913,8 @@ class Playback:
             reason = "time"
         if price is None:
             return
+        if reason != "tp":  # a take profit is a limit order: no slip
+            price *= (1.0 + self.slippage) if short else (1.0 - self.slippage)
         value = (
             max(0.0, self.qty * (2.0 * self.entry_price - price))
             if short
@@ -1301,6 +1310,7 @@ class BacktestSession:
                 s["max_cash"], s["fee"], s.get("max_hold", DEFAULT_HOLD),
                 s.get("dynamic_tp", False), s.get("reverse", 0.0),
                 s.get("side", "long"), exit_formula, shorts,
+                s.get("slippage", 0.0),
             )
 
         strategy_trades, strategy_equity = run(
@@ -1336,6 +1346,7 @@ def _walk_settings(params: dict) -> dict:
         "max_cash": float(params["cash"] or 0.0),
         # The tile takes a percent; the walk a fraction per side.
         "fee": float(params.get("fee") or 0.0) / 100.0,
+        "slippage": float(params.get("slippage") or 0.0) / 100.0,
         "dynamic_tp": bool(params.get("dynamic_tp")),
         "reverse": float(params.get("dyn_tp_reverse") or 0.0),
         "side": "short" if params.get("side") == "short" else "long",

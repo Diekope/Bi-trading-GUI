@@ -57,6 +57,7 @@ TEMPLATE = {
         "position": 10.0,
         "cash": 2_000.0,
         "fee": 0.06,
+        "slippage": 0.01,
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "hold": 7,
@@ -105,6 +106,7 @@ class BacktestDefaults:
     position: float = 10.0             # read as `sizing` says
     cash: float = 2_000.0              # most that may sit in cash, dollars
     fee: float = 0.06                  # fee per side, percent
+    slippage: float = 0.01             # what a market fill gives away, percent
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     hold: int = 7                      # candles a trade may run; 0 = no limit
@@ -165,6 +167,9 @@ class BacktestDefaults:
             ),
             cash=_clamp(_number(values.get("cash"), defaults.cash), 0.0, 1e12),
             fee=_clamp(_number(values.get("fee"), defaults.fee), 0.0, 100.0),
+            slippage=_clamp(
+                _number(values.get("slippage"), defaults.slippage), 0.0, 100.0
+            ),
             dynamic_tp=_flag(values.get("dynamic_tp"), defaults.dynamic_tp),
             dyn_tp_reverse=_clamp(
                 _number(values.get("dyn_tp_reverse"), defaults.dyn_tp_reverse),
@@ -408,6 +413,7 @@ def save_backtest_defaults(
         "position": defaults.position,
         "cash": defaults.cash,
         "fee": defaults.fee,
+        "slippage": defaults.slippage,
         "dynamic_tp": defaults.dynamic_tp,
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
         "hold": defaults.hold,

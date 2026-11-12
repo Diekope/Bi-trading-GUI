@@ -6,9 +6,8 @@ the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
 ## Backtest engine
-- **Slippage** on top of the fee, and **per-venue fees**. Show whatever fees
-  and slippage are applied somewhere in the UI, so a result is interpretable
-  and shareable.
+- **Per-venue fees**, and a fee/slippage line in the results so a result is
+  interpretable and shareable.
 - **The streamed walk** (spans over `CORE_MAX` bars) still steps in Python.
 - **Mark open trades to market** in the equity curve; today an open position is
   carried at what it cost, which understates drawdown.

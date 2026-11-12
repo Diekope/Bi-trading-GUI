@@ -481,3 +481,86 @@ def test_the_python_fallback_runs_a_rule_the_core_cannot() -> None:
 
     odd = Formula(condition=Call("sma", (Number(1.0), Number(2.0))))
     assert core.compile_exit(odd) is None
+
+
+# -- slippage ----------------------------------------------------------------
+
+
+def _flat_trade(side="long", **more):
+    """A trade in at 100 and out at the hold limit at 100, so only the slip
+    and the fee can move the result."""
+    closes = [100.0] * 6
+    kwargs = dict(
+        capital=1_000.0, tp=50.0, sl=50.0, position=100.0, sizing="balance",
+        max_cash=1_000.0, fee=0.0, max_hold=2, side=side,
+    )
+    kwargs.update(more)
+    return core.walk(closes, closes, closes, [False, True] + [False] * 4, **kwargs)
+
+
+def test_no_slippage_changes_nothing() -> None:
+    trades, _ = _flat_trade()
+    assert trades[0][1] == trades[0][3] == 100.0
+    assert trades[0][4] == 0.0
+
+
+def test_a_long_buys_higher_and_sells_lower() -> None:
+    trades, equity = _flat_trade(slippage=0.001)
+    _i, in_px, _o, out_px, result, *_ = trades[0]
+    assert in_px == pytest.approx(100.1)
+    assert out_px == pytest.approx(99.9)
+    assert result < 0
+    assert equity[-1] < 1_000.0
+
+
+def test_a_short_sells_lower_and_buys_back_higher() -> None:
+    trades, _ = _flat_trade("short", slippage=0.001)
+    _i, in_px, _o, out_px, result, *_ = trades[0]
+    assert in_px == pytest.approx(99.9)
+    assert out_px == pytest.approx(100.1)
+    assert result < 0
+
+
+def test_a_take_profit_is_a_limit_order_and_does_not_slip() -> None:
+    closes = [100.0, 100.0, 103.0]
+    trades, _ = core.walk(
+        closes, [100.0, 100.0, 103.0], [100.0, 100.0, 100.0],
+        [False, True, False], capital=1_000.0, tp=2.0, sl=50.0, position=100.0,
+        sizing="balance", max_cash=1_000.0, fee=0.0, max_hold=9, slippage=0.001,
+    )
+    assert trades[0][7] == "tp"
+    assert trades[0][3] == pytest.approx(100.1 * 1.02)  # the target, off the filled entry
+
+
+def test_a_stop_slips_against_the_trade() -> None:
+    closes = [100.0, 100.0, 98.0]
+    trades, _ = core.walk(
+        closes, [100.0, 100.0, 100.0], [100.0, 100.0, 97.0],
+        [False, True, False], capital=1_000.0, tp=50.0, sl=1.0, position=100.0,
+        sizing="balance", max_cash=1_000.0, fee=0.0, max_hold=9, slippage=0.001,
+    )
+    assert trades[0][7] == "sl"
+    assert trades[0][3] == pytest.approx(100.1 * 0.99 * 0.999)
+
+
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_slippage_is_the_same_in_both_walks(side) -> None:
+    if not core.available():
+        pytest.skip("the native core is not built")
+
+    closes, highs, lows = _wiggle()
+    entries = [i % 11 == 3 for i in range(len(closes))]
+    rule = _rule("pnl >= 0.5 or bars >= 4")
+    native = core.walk(
+        closes, highs, lows, entries, capital=10_000.0, tp=1.5, sl=1.2,
+        position=10.0, sizing="balance", max_cash=5_000.0, fee=0.0006,
+        max_hold=20, side=side, exit_formula=rule, slippage=0.0005,
+    )
+    flat = [False] * len(closes)
+    longs, shorts = (entries, flat) if side == "long" else (flat, entries)
+    python = core._python_walk(
+        closes, highs, lows, longs, shorts, 10_000.0, 1.5, 1.2, 10.0,
+        "balance", 5_000.0, 0.0006, 20, False, 0.0, rule, 0.0005,
+    )
+    assert native[0] and native[0] == python[0]
+    assert native[1] == python[1]

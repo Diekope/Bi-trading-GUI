@@ -1167,3 +1167,17 @@ def test_leaving_both_hides_and_drops_the_short_rule(
     # A long strategy carries no stray short rule, whatever was typed.
     assert builder.short_entry_formula() == ""
     assert builder.report.short_rule is None
+
+
+def test_the_short_entry_tab_sits_between_entry_and_exit(
+    builder: StrategyBuilderWindow,
+) -> None:
+    builder.side.setCurrentText("Both")
+    layout = builder.rules.body.itemAt(0).layout()
+    order = [
+        layout.itemAt(i).widget().text()
+        for i in range(layout.count())
+        if layout.itemAt(i).widget() is not None
+        and layout.itemAt(i).widget().objectName() == "sideButton"
+    ]
+    assert order == ["LONG ENTRY", "SHORT ENTRY", "EXIT RULES"]

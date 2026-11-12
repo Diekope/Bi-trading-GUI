@@ -111,6 +111,11 @@ class ParamsTile(Card):
         self.sl_field = self._field(defaults.sl, 0.0, 100.0)
         self.cash_field = self._field(defaults.cash, 0.0, 1e12)
         self.fee_field = self._field(defaults.fee, 0.0, 100.0)
+        self.slippage_field = self._field(defaults.slippage, 0.0, 100.0)
+        self.slippage_field.setToolTip(
+            "What each market fill gives away, per side. A take profit is a "
+            "limit order and fills at its price."
+        )
         # Whole candles: a trade that has run this long is closed at the
         # close. Zero means no limit.
         self.hold_field = self._field(defaults.hold, 0.0, 1_000_000.0)
@@ -136,12 +141,13 @@ class ParamsTile(Card):
             _Element("SL %", self.sl_field),
             _Element("Max cash $", self.cash_field),
             _Element("Fee %", self.fee_field),
+            _Element("Slippage %", self.slippage_field),
             _Element("Hold (candles)", self.hold_field),
             _Element("Dynamic TP", self.dynamic_tp),
             _Element("Reverse % to close", self.reverse_field),
         ]
         self.position_element = self._elements[2]
-        self.reverse_element = self._elements[9]
+        self.reverse_element = self._elements[10]
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 0, 0, 0)
@@ -176,6 +182,7 @@ class ParamsTile(Card):
             self.sl_field,
             self.cash_field,
             self.fee_field,
+            self.slippage_field,
             self.hold_field,
             self.reverse_field,
         ):
@@ -201,6 +208,7 @@ class ParamsTile(Card):
             "sl": _number(self.sl_field.text()),
             "cash": _number(self.cash_field.text()),
             "fee": _number(self.fee_field.text()),
+            "slippage": _number(self.slippage_field.text()),
             "hold": _number(self.hold_field.text()),
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
@@ -215,6 +223,7 @@ class ParamsTile(Card):
             "sl": self.sl_field,
             "cash": self.cash_field,
             "fee": self.fee_field,
+            "slippage": self.slippage_field,
             "hold": self.hold_field,
             "dyn_tp_reverse": self.reverse_field,
         }

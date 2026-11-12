@@ -397,6 +397,7 @@ class SettingsView(QWidget):
         self._bt_start = _field("From", combo=years)
         self._bt_end = _field("To", combo=years)
         self._bt_fee = _field("Fees %")
+        self._bt_slippage = _field("Slippage %")
         self._bt_reverse = _field("Reverse % to close")
         self._bt_hold = _field("Hold (candles, 0 = no limit)")
         self._bt_dynamic = _check("Dynamic TP on by default", False)
@@ -413,6 +414,7 @@ class SettingsView(QWidget):
         grid.addWidget(self._bt_reverse, 3, 1)
         grid.addWidget(self._bt_dynamic, 3, 2)
         grid.addWidget(self._bt_hold, 4, 0)
+        grid.addWidget(self._bt_slippage, 4, 1)
         body.addLayout(grid)
 
         # The reverse field only matters while the trail is on.
@@ -561,6 +563,7 @@ class SettingsView(QWidget):
             self._bt_sl,
             self._bt_cash,
             self._bt_fee,
+            self._bt_slippage,
             self._bt_reverse,
             self._bt_hold,
             self._td_leverage,
@@ -600,6 +603,7 @@ class SettingsView(QWidget):
         self._bt_start.combo.setCurrentText(str(defaults.start_year))
         self._bt_end.combo.setCurrentText(str(defaults.end_year))
         self._bt_fee.edit.setText(_number_text(defaults.fee))
+        self._bt_slippage.edit.setText(_number_text(defaults.slippage))
         self._bt_reverse.edit.setText(_number_text(defaults.dyn_tp_reverse))
         self._bt_hold.edit.setText(_number_text(defaults.hold))
         self._bt_dynamic.box.setChecked(defaults.dynamic_tp)
@@ -756,6 +760,9 @@ class SettingsView(QWidget):
             ),
             cash=_read_number(self._bt_cash, "Max cash", problems, 0.0, 1e12),
             fee=_read_number(self._bt_fee, "Fees", problems, 0.0, 100.0),
+            slippage=_read_number(
+                self._bt_slippage, "Slippage", problems, 0.0, 100.0
+            ),
             dynamic_tp=self._bt_dynamic.box.isChecked(),
             dyn_tp_reverse=_read_number(
                 self._bt_reverse, "Reverse %", problems, 0.0, 100.0

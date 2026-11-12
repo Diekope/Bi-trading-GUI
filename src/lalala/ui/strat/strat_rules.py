@@ -617,12 +617,12 @@ class RulesSwitcher(Card):
     side_changed = Signal(str)
     mode_changed = Signal(str)
 
-    # The short entry is only offered for a strategy that goes both ways; it is
-    # last so the other two keep their places.
+    # The short entry is only offered for a strategy that goes both ways; it
+    # sits between the entry and the exit, in the order a trade reads.
     SIDES = (
         ("entry", "ENTRY RULES"),
-        ("exit", "EXIT RULES"),
         ("short", "SHORT ENTRY"),
+        ("exit", "EXIT RULES"),
     )
 
     def __init__(

@@ -477,3 +477,15 @@ def test_a_bar_both_rules_fire_on_opens_nothing() -> None:
     rule = parse("close > 0")
     exit_ = parse("bars >= 1", EXIT_FIELDS, EXIT_FUNCTIONS)
     assert backtest(bars, rule, exit_, short_entry=rule).trades == 0
+
+
+def test_slippage_costs_the_builders_preview_something() -> None:
+    entry = parse("close < 101")
+    exit_ = parse("bars >= 2", EXIT_FIELDS, EXIT_FUNCTIONS)
+    clean = backtest(_bars([100, 100, 100, 100, 100]), entry, exit_, slippage=0.0)
+    slipped = backtest(_bars([100, 100, 100, 100, 100]), entry, exit_, slippage=0.001)
+    assert slipped.pnl < clean.pnl
+    shorted = backtest(
+        _bars([100, 100, 100, 100, 100]), entry, exit_, short=True, slippage=0.001
+    )
+    assert shorted.pnl < clean.pnl

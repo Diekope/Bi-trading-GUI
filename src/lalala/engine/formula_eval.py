@@ -957,6 +957,11 @@ class Report:
 
 FEE = 0.0006
 
+# What each market fill gives away in the builder's previews, as a fraction
+# (0.01%): an entry fills a little above the close for a long, a little below
+# for a short, and an exit slips the other way.
+SLIPPAGE = 0.0001
+
 # Why a trade ended, in the words the results tile lists them under. The
 # clause of the exit rule that fired names it: one that reads `tp`, `sl` or
 # `bars` is take profit, stop loss or time; anything else is the rule's own
@@ -1033,7 +1038,7 @@ def _exit_reason(exit_, context: dict) -> str:
 
 def _walk(
     closes, signals, exit_, tp, sl, capital, fee, short=False,
-    short_signals=None,
+    short_signals=None, slippage=0.0,
 ):
     """Mark-to-market equity for one set of entries, one position at a time.
 
@@ -1083,9 +1088,11 @@ def _walk(
             if exit_ is None or exit_.condition is None or evaluate_scalar(
                 exit_, context
             ):
-                fees += quantity * price * fee
-                cash += worth(price) - quantity * price * fee
-                results.append(sign * change)
+                # The exit is a market order: it fills against the trade.
+                fill = price * ((1.0 + slippage) if going_short else (1.0 - slippage))
+                fees += quantity * fill * fee
+                cash += worth(fill) - quantity * fill * fee
+                results.append(sign * (fill / entry_price - 1.0) if entry_price else 0.0)
                 reasons.append(
                     REASON_END if exit_ is None else _exit_reason(exit_, context)
                 )
@@ -1093,9 +1100,10 @@ def _walk(
         elif cash > 0 and (index in longs) != (index in shorts):
             fees += cash * fee
             going_short = index in shorts
-            quantity = cash * (1.0 - fee) / price
+            fill = price * ((1.0 - slippage) if going_short else (1.0 + slippage))
+            quantity = cash * (1.0 - fee) / fill
             cash = 0.0
-            entry_price = price
+            entry_price = fill
             entry_index = index
         equity.append(cash + (worth(price) if quantity > 0 else 0.0))
 
@@ -1123,6 +1131,7 @@ def backtest(
     fields=ENTRY_FIELDS,
     short: bool = False,
     short_entry: Formula | None = None,
+    slippage: float = SLIPPAGE,
 ) -> Report:
     """The rule, a random-buy version of it, and buy and hold, over `bars`.
 
@@ -1145,13 +1154,13 @@ def backtest(
         else None
     )
     strategy, results, reasons, fees = _walk(
-        closes, signals, exit_, tp, sl, capital, fee, short, shorting
+        closes, signals, exit_, tp, sl, capital, fee, short, shorting, slippage
     )
 
     rng = random.Random(seed)
     picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
     random_curve, random_results, _, _ = _walk(
-        closes, picks, exit_, tp, sl, capital, fee, short
+        closes, picks, exit_, tp, sl, capital, fee, short, None, slippage
     )
 
     hold = [

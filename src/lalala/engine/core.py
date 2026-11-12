@@ -203,6 +203,7 @@ def walk(
     side="long",
     exit_formula=None,
     short_entries=None,
+    slippage=0.0,
 ):
     """Walk the bars, opening where an entry is true. One position at a time.
 
@@ -218,6 +219,10 @@ def walk(
     closes it. `exit_formula` is a parsed exit rule, checked on each bar's
     close while a trade is open, after the stop and take profit have had their
     say.
+
+    `slippage` is a fraction (0.0001 is 0.01%) each market fill gives away: an
+    entry fills that much worse than the close, and so does every exit except a
+    take profit, which is a resting limit order and fills at its price.
 
     A trade is `(entry index, entry price, exit index, exit price, result,
     fees, notional, reason, side)`.
@@ -249,7 +254,7 @@ def walk(
             flags(longs),
             flags(shorts),
             capital, tp, sl, position, sizing, max_cash, fee, int(max_hold),
-            bool(dynamic_tp), float(reverse), program, slots,
+            bool(dynamic_tp), float(reverse), program, slots, float(slippage),
         )
     # The Python walk indexes the columns one by one, and list indexing is
     # faster than NumPy scalar indexing, so lift to lists once.
@@ -266,7 +271,7 @@ def walk(
     return _python_walk(
         closes, highs, lows, listed(longs), listed(shorts), capital, tp, sl,
         position, sizing, max_cash, fee, int(max_hold), dynamic_tp, reverse,
-        exit_formula,
+        exit_formula, slippage,
     )
 
 
@@ -286,6 +291,7 @@ def exit_context(price, entry, tp, sl, bars, short=False) -> dict:
 def _python_walk(
     closes, highs, lows, longs, shorts, capital, tp, sl, position, sizing,
     max_cash, fee, max_hold, dynamic_tp=False, reverse=0.0, exit_formula=None,
+    slippage=0.0,
 ):
     fixed = sizing == "fixed"
     risk = sizing == "risk"
@@ -353,6 +359,8 @@ def _python_walk(
                 price = close
                 reason = "time"
             if price is not None:
+                if reason != "tp":  # a take profit is a limit order: no slip
+                    price *= (1.0 + slippage) if short else (1.0 - slippage)
                 # A long is worth qty * price; a short is its margin back plus
                 # what the price fell, which can never go below nothing.
                 value = (
@@ -391,9 +399,10 @@ def _python_walk(
             if notional > 0.0 and close > 0.0:
                 cost = notional * fee
                 short = bool(shorts[index])
-                qty = notional / close
+                fill = close * ((1.0 - slippage) if short else (1.0 + slippage))
+                qty = notional / fill
                 cash -= notional + cost
-                entry_price = close
+                entry_price = fill
                 entry_index = index
                 entry_fee = cost
                 entry_notional = notional

@@ -29,6 +29,7 @@ struct Settings {
     max_hold: i64,
     dynamic_tp: bool,
     reverse: f64,
+    slippage: f64,
 }
 
 fn budget(cash: f64, s: &Settings) -> f64 {
@@ -179,7 +180,7 @@ fn run_rule(program: &[(i64, f64)], vars: &mut [f64], stack: &mut Vec<f64>) -> b
 #[pyfunction]
 #[pyo3(signature = (closes, highs, lows, longs, shorts, capital, tp, sl, position,
                     sizing, max_cash, fee, max_hold, dynamic_tp=false, reverse=0.0,
-                    rule=None, slots=0))]
+                    rule=None, slots=0, slippage=0.0))]
 #[allow(clippy::too_many_arguments)]
 fn walk(
     closes: PyReadonlyArray1<f64>,
@@ -199,6 +200,7 @@ fn walk(
     reverse: f64,
     rule: Option<Vec<(i64, f64)>>,
     slots: usize,
+    slippage: f64,
 ) -> PyResult<(Vec<Trade>, Vec<f64>)> {
     let closes = closes.as_slice()?;
     let highs = highs.as_slice()?;
@@ -217,6 +219,7 @@ fn walk(
         max_hold,
         dynamic_tp,
         reverse,
+        slippage,
     };
 
     let mut trades: Vec<Trade> = Vec::new();
@@ -305,7 +308,13 @@ fn walk(
                 price = Some(close);
                 reason = "time";
             }
-            if let Some(price) = price {
+            if let Some(mut price) = price {
+                // A take profit is a resting limit order and fills at its
+                // price; every other exit is a market order and slips against
+                // the trade.
+                if reason != "tp" {
+                    price *= if short { 1.0 + s.slippage } else { 1.0 - s.slippage };
+                }
                 // A long is worth qty * price; a short is its margin back plus
                 // what the price fell, never less than nothing.
                 let value = if short {
@@ -340,9 +349,12 @@ fn walk(
             if notional > 0.0 && close > 0.0 {
                 let cost = notional * s.fee;
                 short = shorts[index];
-                qty = notional / close;
+                // The entry is a market order too: it fills a little worse
+                // than the close it was decided on.
+                let fill = close * if short { 1.0 - s.slippage } else { 1.0 + s.slippage };
+                qty = notional / fill;
                 cash -= notional + cost;
-                entry_price = close;
+                entry_price = fill;
                 entry_index = index;
                 entry_fee = cost;
                 entry_notional = notional;
