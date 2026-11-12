@@ -865,7 +865,7 @@ class MainHubWindow(QMainWindow):
         for strategy in saved[:4]:
             badge, tone = _pnl_badge(
                 strategy.entry, strategy.exit, strategy.timeframe,
-                strategy.side,
+                strategy.side, strategy.short_entry,
             )
             row = StrategyRow(strategy.name, badge, tone)
             row.clicked.connect(self._open_saved)

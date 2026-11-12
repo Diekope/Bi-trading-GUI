@@ -398,6 +398,7 @@ class SettingsView(QWidget):
         self._bt_end = _field("To", combo=years)
         self._bt_fee = _field("Fees %")
         self._bt_reverse = _field("Reverse % to close")
+        self._bt_hold = _field("Hold (candles, 0 = no limit)")
         self._bt_dynamic = _check("Dynamic TP on by default", False)
         grid.addWidget(self._bt_capital, 0, 0)
         grid.addWidget(self._bt_sizing, 0, 1)
@@ -411,6 +412,7 @@ class SettingsView(QWidget):
         grid.addWidget(self._bt_fee, 3, 0)
         grid.addWidget(self._bt_reverse, 3, 1)
         grid.addWidget(self._bt_dynamic, 3, 2)
+        grid.addWidget(self._bt_hold, 4, 0)
         body.addLayout(grid)
 
         # The reverse field only matters while the trail is on.
@@ -560,6 +562,7 @@ class SettingsView(QWidget):
             self._bt_cash,
             self._bt_fee,
             self._bt_reverse,
+            self._bt_hold,
             self._td_leverage,
             self._td_size,
             self._td_stake,
@@ -598,6 +601,7 @@ class SettingsView(QWidget):
         self._bt_end.combo.setCurrentText(str(defaults.end_year))
         self._bt_fee.edit.setText(_number_text(defaults.fee))
         self._bt_reverse.edit.setText(_number_text(defaults.dyn_tp_reverse))
+        self._bt_hold.edit.setText(_number_text(defaults.hold))
         self._bt_dynamic.box.setChecked(defaults.dynamic_tp)
         self._bt_reverse.setEnabled(defaults.dynamic_tp)
 
@@ -755,6 +759,9 @@ class SettingsView(QWidget):
             dynamic_tp=self._bt_dynamic.box.isChecked(),
             dyn_tp_reverse=_read_number(
                 self._bt_reverse, "Reverse %", problems, 0.0, 100.0
+            ),
+            hold=int(
+                _read_number(self._bt_hold, "Hold", problems, 0.0, 1_000_000.0)
             ),
             sizing=SIZING_MODES.get(
                 self._bt_sizing.combo.currentText(), "balance"

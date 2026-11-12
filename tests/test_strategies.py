@@ -112,3 +112,11 @@ def test_a_strategy_saved_before_shorting_reads_as_a_long(tmp_path) -> None:
 def test_an_unknown_side_is_a_long() -> None:
     strategies.save(SavedStrategy("Odd", "1m", "close > 1", "", "sideways"))
     assert strategies.load()[0].side == "long"
+
+
+def test_a_both_way_strategy_keeps_its_short_rule() -> None:
+    strategies.save(
+        SavedStrategy("Swing", "1h", "close < 1", "", "both", "close > 2")
+    )
+    found = strategies.load()[0]
+    assert (found.side, found.short_entry) == ("both", "close > 2")

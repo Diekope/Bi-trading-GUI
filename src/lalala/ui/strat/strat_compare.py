@@ -73,23 +73,30 @@ def _segments(bars, parts: int) -> list[list]:
 
 def walk_forward(
     bars, entry, exit_, tp: float, sl: float, folds: int = FOLDS,
-    short: bool = False,
+    short: bool = False, short_entry=None,
 ):
     """The return of each fold, so the caller can count the positive ones."""
     return [
-        backtest(chunk, entry, exit_, tp=tp, sl=sl, short=short).pnl
+        backtest(
+            chunk, entry, exit_, tp=tp, sl=sl, short=short,
+            short_entry=short_entry,
+        ).pnl
         for chunk in _segments(bars, folds)
     ]
 
 
 def sweep_returns(
-    bars, entry, exit_, tps=SWEEP_TPS, sls=SWEEP_SLS, short: bool = False
+    bars, entry, exit_, tps=SWEEP_TPS, sls=SWEEP_SLS, short: bool = False,
+    short_entry=None,
 ) -> list:
     """A return per (tp, sl) cell: rows are sl, columns tp."""
     grid: list[list[float]] = []
     for sl in sls:
         row = [
-            backtest(bars, entry, exit_, tp=tp, sl=sl, short=short).pnl
+            backtest(
+                bars, entry, exit_, tp=tp, sl=sl, short=short,
+                short_entry=short_entry,
+            ).pnl
             for tp in tps
         ]
         grid.append(row)
@@ -294,6 +301,7 @@ class ComparePage(QWidget):
         self.tp = 2.0
         self.sl = 1.0
         self.short = False
+        self.short_entry = None
         self.runs: list[dict] = []
         self.selected_name: str | None = None
         self._dirty = True
@@ -442,11 +450,17 @@ class ComparePage(QWidget):
             return
         try:
             entry, exit_ = self._rules_of(strategy)
+            short_entry = (
+                parse(strategy.short_entry)
+                if strategy.side == "both" and strategy.short_entry.strip()
+                else None
+            )
         except (FormulaError, ValueError):
             return
         report = backtest(
             self.bars, entry, exit_, tp=self.tp, sl=self.sl,
             short=getattr(strategy, "side", "long") == "short",
+            short_entry=short_entry,
         )
         colour = RUN_COLOURS[len(self.runs) % len(RUN_COLOURS)]
         label = strategy.name
@@ -532,7 +546,7 @@ class ComparePage(QWidget):
 
     def configure(
         self, bars, entry, exit_, report, tp: float, sl: float,
-        short: bool = False,
+        short: bool = False, short_entry=None,
     ) -> None:
         """Take new inputs; recompute on the next show (or now, if shown)."""
         self.bars = list(bars or [])
@@ -542,6 +556,7 @@ class ComparePage(QWidget):
         self.tp = tp
         self.sl = sl
         self.short = short
+        self.short_entry = short_entry
         self._clear_runs()
         self._dirty = True
         if self.isVisible():
@@ -655,7 +670,7 @@ class ComparePage(QWidget):
             return
         returns = walk_forward(
             self.bars, self.entry, self.exit, self.tp, self.sl,
-            short=self.short,
+            short=self.short, short_entry=self.short_entry,
         )
         positives = sum(1 for value in returns if value > 0)
         self.folds_row.setText(f"{positives} / {len(returns)} positive")
@@ -665,7 +680,10 @@ class ComparePage(QWidget):
             self.heatmap.set_values([])
             return
         self.heatmap.set_values(
-            sweep_returns(self.bars, self.entry, self.exit, short=self.short)
+            sweep_returns(
+                self.bars, self.entry, self.exit, short=self.short,
+                short_entry=self.short_entry,
+            )
         )
 
 

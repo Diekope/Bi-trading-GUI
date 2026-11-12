@@ -618,6 +618,7 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
         "tp": defaults.tp,
         "sl": defaults.sl,
         "cash": defaults.cash,
+        "hold": defaults.hold,
         "fee": defaults.fee,
         "dynamic_tp": defaults.dynamic_tp,
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
@@ -635,7 +636,7 @@ def test_the_gallery_wraps_by_width(app: QApplication) -> None:
     # window it lives in a narrow column and never reaches its wide layout.
     tile = ParamsTile()
     tile.show()
-    assert len(tile._elements) == 9
+    assert len(tile._elements) == 10
 
     tile.resize(WIDE_AT + 40, tile.height())
     app.processEvents()

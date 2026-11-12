@@ -32,7 +32,8 @@ def test_a_run_round_trips_through_the_file() -> None:
             trades=[TRADE],
             strategy_curve=[10_000.0, 10_050.0, 10_020.0],
             random_curve=[10_000.0, 9_990.0, 10_010.0],
-            side="short",
+            side="both",
+            short_entry="close > 2",
             strategy="Dip",
         )
     )
@@ -44,7 +45,8 @@ def test_a_run_round_trips_through_the_file() -> None:
     assert found.trades == [TRADE]
     assert found.strategy_curve == [10_000.0, 10_050.0, 10_020.0]
     assert found.random_curve == [10_000.0, 9_990.0, 10_010.0]
-    assert found.side == "short"
+    assert found.side == "both"
+    assert found.short_entry == "close > 2"
     assert found.strategy == "Dip"
 
 

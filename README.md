@@ -753,7 +753,14 @@ price rises; a short sells on it and gains as price falls, buying back at the
 exit. A short's take profit sits below the entry and its stop above, and `pnl`
 in an exit rule is signed for the side, so `pnl >= tp` means "in profit" either
 way. A short can lose at most its margin. One position is open at a time, long
-or short; a strategy that should trade both ways is two strategies for now.
+or short.
+
+**Both ways in one strategy.** Pick **Both** and a second tab, **SHORT ENTRY**,
+appears beside **LONG ENTRY** and **EXIT RULES**: the first rule opens longs,
+the second opens shorts, and the one exit rule closes whichever is open (its
+`pnl` is signed for the trade's side). While a trade is open the other rule is
+ignored; a bar both rules fire on opens nothing. The random-buy baseline a
+two-way strategy is compared with goes long.
 
 The text a build produces is parsed and checked as it is built: a sound formula
 gets no error line, a typo gets its place — `line 2, column 9: unknown name
@@ -861,9 +868,15 @@ The right column's tiles **share its whole height** — the inputs take the most
 the small tiles the least — so they always fill it and never scroll. The
 results tile spans the window's full width below.
 
-Decided and hard-coded for the run (no switches in the UI): fees and slippage
-are fixed, one position is held at a time, and a trade is refused across a
-data gap rather than filled through it.
+Decided and hard-coded for the run (no switches in the UI): slippage is fixed,
+one position is held at a time, and a trade is refused across a data gap
+rather than filled through it.
+
+A trade ends at the first of: its **stop**, its **take profit**, the strategy's
+**exit rule**, or the **hold limit** — by default **7 candles** (the *Hold
+(candles)* parameter, `hold` in the settings file; 0 means no limit). When one
+candle reaches both the stop and the take profit, the candle cannot say which
+came first, so the **stop is booked**.
 
 The **strategy tile** picks the entry rule: the two built-ins (**Random buy**,
 the baseline, and **Bollinger reversion**), then every **saved strategy** from
@@ -873,7 +886,7 @@ and so does its **exit rule**, checked at each bar's close while a trade is
 open, after the params' take profit and stop loss (which still act inside the
 bar) and before the hold limit; a trade it closes reads `Rule`. A saved
 strategy's side is honoured too. **SAVE RUN** keeps the run under a name: the
-span, resolution, parameters, the strategy (name, entry, exit, side), and what
+span, resolution, parameters, the strategy (name, entry, short entry, exit, side), and what
 it produced. The small facts go in `~/.config/lalala/runs.json`
 (`LALALA_RUNS` overrides it); the trades and both equity curves go in Parquet
 files in `runs_data/` beside it, so the index stays a few kilobytes. An older
@@ -886,10 +899,13 @@ The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
 extension wrapped by `lalala.engine.core`). A span small enough to hold in memory
 (≤ `CORE_MAX`, 1.5M bars) is loaded and its entries worked out up front, so the
 walk and every seek are a slice plus one native pass — **Finish** and a jump
-are instant. A longer span is streamed off disk and stepped in Python. When the
+are instant. The native pass does everything the Python one does: long and
+short, both ways at once, risk sizing, the trailing take profit, and the exit
+rule, which is compiled to a small program the core runs bar by bar
+(`compile_exit`). A longer span is streamed off disk and stepped in Python. When the
 extension is not built, `lalala.engine.core` falls back to the same walk in Python, so
-nothing depends on it. Build it with:
-`uv run maturin develop --release --manifest-path rust/lalala_core/Cargo.toml`.
+nothing depends on it. Build and install it with `uv sync --extra native`
+(uv rebuilds it when `rust/lalala_core/src` changes).
 
 ## Playback tile
 

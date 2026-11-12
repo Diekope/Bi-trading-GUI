@@ -128,7 +128,7 @@ def test_the_rules_got_the_upper_part_and_the_report_the_rest(
     assert column.widget(1) is builder.report
 
     # The switcher holds both rules but shows one at a time.
-    assert builder.rules.stack.count() == 2
+    assert builder.rules.stack.count() == 3  # entry, exit, and the short entry
     assert builder.rules.stack.widget(0) is builder.entry_tile
     assert builder.rules.stack.widget(1) is builder.exit_tile
     assert builder.rules.stack.currentWidget() is builder.entry_tile
@@ -145,10 +145,14 @@ def test_the_rules_got_the_upper_part_and_the_report_the_rest(
 def test_the_rule_titles_switch_between_the_two_tiles(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
-    assert [button.text() for button in builder.rules.side_buttons.values()] == [
-        "ENTRY RULES",
-        "EXIT RULES",
-    ]
+    # The short entry has a title too, but it is only offered for a strategy
+    # that trades both ways.
+    assert [
+        button.text()
+        for key, button in builder.rules.side_buttons.items()
+        if key != "short"
+    ] == ["ENTRY RULES", "EXIT RULES"]
+    assert builder.rules.side_buttons["short"].isHidden() is True
     for button in builder.rules.side_buttons.values():
         assert button.objectName() == "sideButton"
         assert button.isCheckable() is True
@@ -1118,3 +1122,48 @@ def test_the_side_is_saved_and_brought_back(
     assert builder.side_key() == "long"
     builder.load_strategy("Fade")
     assert builder.side_key() == "short"
+
+
+def test_a_both_way_strategy_has_a_second_entry_rule(
+    builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    buttons = builder.rules.side_buttons
+    assert buttons["short"].isHidden() is True
+
+    builder.side.setCurrentText("Both")
+    assert builder.side_key() == "both"
+    assert buttons["short"].isHidden() is False
+    assert buttons["entry"].text() == "LONG ENTRY"
+
+    builder.name_edit.setText("Swing")
+    builder.entry.set_text("close < sma(close, 5)")
+    builder.short.set_text("close > sma(close, 5)")
+    builder.exit.set_text("pnl >= tp or pnl <= 0 - sl")
+    builder.rules.set_side("short")
+    assert builder.rules.tile() is builder.short_tile
+    assert builder.draft_strategy().short_entry == "close > sma(close, 5)"
+
+    builder.save_draft()
+    builder.reset_draft()
+    assert builder.short.text() == ""
+    builder.load_strategy("Swing")
+    assert builder.side_key() == "both"
+    assert builder.short_entry_formula() == "close > sma(close, 5)"
+    assert builder.report.short_rule is not None
+
+
+def test_leaving_both_hides_and_drops_the_short_rule(
+    builder: StrategyBuilderWindow,
+) -> None:
+    builder.side.setCurrentText("Both")
+    builder.short.set_text("close > 1")
+    builder.rules.set_side("short")
+
+    builder.side.setCurrentText("Long")
+    assert builder.rules.side_buttons["short"].isHidden() is True
+    assert builder.rules.side() == "entry"
+    assert builder.rules.side_buttons["entry"].text() == "ENTRY RULES"
+    # A long strategy carries no stray short rule, whatever was typed.
+    assert builder.short_entry_formula() == ""
+    assert builder.report.short_rule is None

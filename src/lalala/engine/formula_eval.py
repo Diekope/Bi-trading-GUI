@@ -1031,13 +1031,24 @@ def _exit_reason(exit_, context: dict) -> str:
     return REASON_RULE
 
 
-def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
+def _walk(
+    closes, signals, exit_, tp, sl, capital, fee, short=False,
+    short_signals=None,
+):
     """Mark-to-market equity for one set of entries, one position at a time.
 
-    A short sells at the entry and buys back at the exit, so it gains as price
-    falls and its `pnl` (what an exit rule reads) is the price change reversed.
+    `signals` open longs (shorts when `short` is set). `short_signals`, when
+    given, open shorts too, so one rule set can trade both ways; a bar both
+    fire on is left alone. A short sells at the entry and buys back at the
+    exit, so it gains as price falls and its `pnl` (what an exit rule reads)
+    is the price change reversed.
+
     Also returns what each trade ended by, and the fees the walk paid.
     """
+    if short:
+        longs, shorts = set(), signals
+    else:
+        longs, shorts = signals, short_signals or set()
     equity: list[float] = []
     results: list[float] = []
     reasons: list[str] = []
@@ -1046,11 +1057,11 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
     quantity = 0.0
     entry_price = 0.0
     entry_index = 0
-    sign = -1.0 if short else 1.0
+    going_short = False
 
     def worth(price: float) -> float:
         """What the open position is worth at `price`."""
-        if short:
+        if going_short:
             return max(0.0, quantity * (2.0 * entry_price - price))
         return quantity * price
 
@@ -1059,6 +1070,7 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
             equity.append(equity[-1] if equity else capital)
             continue
         if quantity > 0:
+            sign = -1.0 if going_short else 1.0
             change = (price / entry_price - 1.0) if entry_price else 0.0
             context = {
                 "price": price,
@@ -1078,8 +1090,9 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
                     REASON_END if exit_ is None else _exit_reason(exit_, context)
                 )
                 quantity = 0.0
-        elif index in signals and cash > 0:
+        elif cash > 0 and (index in longs) != (index in shorts):
             fees += cash * fee
+            going_short = index in shorts
             quantity = cash * (1.0 - fee) / price
             cash = 0.0
             entry_price = price
@@ -1092,7 +1105,7 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
         if price:
             fees += quantity * price * fee
             change = (price / entry_price - 1.0) if entry_price else 0.0
-            results.append(sign * change)
+            results.append((-change if going_short else change))
             reasons.append(REASON_END)
     return equity, results, reasons, fees
 
@@ -1109,6 +1122,7 @@ def backtest(
     entry_chance: float = 0.03,
     fields=ENTRY_FIELDS,
     short: bool = False,
+    short_entry: Formula | None = None,
 ) -> Report:
     """The rule, a random-buy version of it, and buy and hold, over `bars`.
 
@@ -1124,8 +1138,14 @@ def backtest(
         return Report(capital, [], [], [], 0, 0)
 
     signals = set(entry_signals(entry, bars, fields))
+    # A second entry rule opens shorts, beside the first one's longs.
+    shorting = (
+        set(entry_signals(short_entry, bars, fields))
+        if short_entry is not None and not short
+        else None
+    )
     strategy, results, reasons, fees = _walk(
-        closes, signals, exit_, tp, sl, capital, fee, short
+        closes, signals, exit_, tp, sl, capital, fee, short, shorting
     )
 
     rng = random.Random(seed)

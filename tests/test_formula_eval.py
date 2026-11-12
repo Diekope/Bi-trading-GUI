@@ -457,3 +457,23 @@ def test_simulate_marks_a_short_exit_on_the_fall() -> None:
     _, short_exits = simulate(_falling(), entry, exit_, short=True)
     _, long_exits = simulate(_falling(), entry, exit_)
     assert short_exits and not long_exits
+
+
+def test_one_rule_set_can_go_long_and_short() -> None:
+    bars = _bars([100, 98, 98, 98, 102, 102, 100, 100, 100])
+    longs = parse("close < 99")
+    shorts = parse("close > 101")
+    exit_ = parse("bars >= 2", EXIT_FIELDS, EXIT_FUNCTIONS)
+
+    both = backtest(bars, longs, exit_, short_entry=shorts)
+    long_only = backtest(bars, longs, exit_)
+    assert both.trades > long_only.trades
+    # The short leg made money as price fell from 102 to 100.
+    assert both.wins >= 1
+
+
+def test_a_bar_both_rules_fire_on_opens_nothing() -> None:
+    bars = _bars([100, 100, 100, 100])
+    rule = parse("close > 0")
+    exit_ = parse("bars >= 1", EXIT_FIELDS, EXIT_FUNCTIONS)
+    assert backtest(bars, rule, exit_, short_entry=rule).trades == 0

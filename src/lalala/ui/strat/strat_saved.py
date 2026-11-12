@@ -45,7 +45,8 @@ DRAFT_BADGE = "draft"
 
 @lru_cache(maxsize=256)
 def strategy_pnl(
-    entry: str, exit_: str, timeframe: str, side: str = "long"
+    entry: str, exit_: str, timeframe: str, side: str = "long",
+    short_entry: str = "",
 ) -> float | None:
     """The return a strategy made over the tail of candles, or None.
 
@@ -60,11 +61,17 @@ def strategy_pnl(
         exit_formula = (
             parse(exit_, EXIT_FIELDS, EXIT_FUNCTIONS) if exit_.strip() else None
         )
+        short_formula = (
+            parse(short_entry, ENTRY_FIELDS, FUNCTIONS)
+            if side == "both" and short_entry.strip()
+            else None
+        )
     except FormulaError:
         return None
     report = backtest(
         bars, entry_formula, exit_formula, tp=PREVIEW_TP, sl=PREVIEW_SL,
         short=side == "short",
+        short_entry=short_formula,
     )
     return report.pnl
 
@@ -215,7 +222,7 @@ class StrategyListTile(Card):
                 badge, colour = _badge(
                     strategy_pnl(
                         strategy.entry, strategy.exit, strategy.timeframe,
-                        strategy.side,
+                        strategy.side, strategy.short_entry,
                     )
                 )
             row = StrategyRow(strategy.name, badge, colour, draft_flag, self)
@@ -238,11 +245,15 @@ class StrategyListTile(Card):
         for item in self._saved:
             if item.name != candidate.name:
                 continue
-            if (item.timeframe, item.entry, item.exit, item.side) == (
+            if (
+                item.timeframe, item.entry, item.exit, item.side,
+                item.short_entry,
+            ) == (
                 candidate.timeframe,
                 candidate.entry,
                 candidate.exit,
                 candidate.side,
+                candidate.short_entry,
             ):
                 return True
         return False

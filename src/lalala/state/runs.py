@@ -51,6 +51,7 @@ class SavedRun:
     entry: str = ""
     exit: str = ""
     side: str = "long"
+    short_entry: str = ""
     params: dict = field(default_factory=dict)
     trades: list = field(default_factory=list)
     strategy_curve: list = field(default_factory=list)
@@ -68,6 +69,7 @@ class SavedRun:
             "entry": self.entry,
             "exit": self.exit,
             "side": self.side,
+            "short_entry": self.short_entry,
             "params": dict(self.params),
             "trade_count": self.trade_count or len(self.trades),
         }
@@ -107,7 +109,7 @@ def _from_index(item: dict) -> SavedRun | None:
     if not name:
         return None
     years = item.get("years", [])
-    side = "short" if item.get("side") == "short" else "long"
+    side = item.get("side") if item.get("side") in ("short", "both") else "long"
     inline = list(item.get("trades", []) or [])
     return SavedRun(
         name=name,
@@ -118,6 +120,7 @@ def _from_index(item: dict) -> SavedRun | None:
         entry=str(item.get("entry", "")),
         exit=str(item.get("exit", "")),
         side=side,
+        short_entry=str(item.get("short_entry", "")),
         params=dict(item.get("params", {}) or {}),
         trades=inline,
         trade_count=int(item.get("trade_count", len(inline)) or 0),

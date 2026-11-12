@@ -534,3 +534,49 @@ def test_an_exit_rule_drives_the_walk_and_the_seek_agrees() -> None:
     assert session.strategy.equity == pytest.approx(
         reference.strategy.equity, abs=1e-6
     )
+
+
+def test_a_trade_holds_seven_candles_by_default() -> None:
+    from lalala.engine.core import DEFAULT_HOLD
+
+    assert DEFAULT_HOLD == 7
+    session = build_session([], {k: v for k, v in _walk_params().items()}, "bollinger", "1m")
+    assert session.settings["max_hold"] == 7
+    assert session.strategy.max_hold == 7
+
+
+def test_the_hold_parameter_reaches_the_walk() -> None:
+    session = build_session([], _walk_params(hold=3), "bollinger", "1m")
+    assert session.strategy.max_hold == 3
+    session.seek(400)
+    held = [t[4] - t[1] for t in session.strategy.trades_log]
+    assert held and max(held) <= 3
+    assert build_session([], _walk_params(hold=0), "bollinger", "1m").strategy.max_hold == 0
+
+
+def test_a_strategy_that_goes_both_ways_seeks_like_it_steps() -> None:
+    from lalala.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+
+    longs = parse("close < sma(close, 8)", ENTRY_FIELDS, FUNCTIONS)
+    shorts = parse("close > sma(close, 8) + 1", ENTRY_FIELDS, FUNCTIONS)
+
+    def make():
+        return build_session(
+            [], _walk_params(hold=10), "saved", "1m", entry_formula=longs,
+            side="both", short_entry_formula=shorts,
+        )
+
+    session, reference = make(), make()
+    for _ in range(500):
+        reference.strategy.step()
+    session.seek(500)
+
+    sides = {record[-1] for record in reference.strategy.trades_log}
+    assert sides == {"long", "short"}
+    assert session.strategy.trades == reference.strategy.trades
+    assert [r[-1] for r in session.strategy.trades_log] == [
+        r[-1] for r in reference.strategy.trades_log
+    ]
+    assert session.strategy.equity == pytest.approx(
+        reference.strategy.equity, abs=1e-6
+    )

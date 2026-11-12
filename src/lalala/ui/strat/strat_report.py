@@ -415,6 +415,7 @@ class ReportTile(Card):
         self.tp = PREVIEW_TP
         self.sl = PREVIEW_SL
         self.side = "long"
+        self.short_rule = None
         # What the rule's names read on the newest bar, for the panel beside
         # the editor: (values, result).
         self.watch: tuple = ({}, None)
@@ -523,12 +524,17 @@ class ReportTile(Card):
     # -- what to show ------------------------------------------------------
 
     def configure(
-        self, entry, exit_, resolution: str | None = None, side: str = "long"
+        self, entry, exit_, resolution: str | None = None, side: str = "long",
+        short_rule=None,
     ) -> None:
-        """Take the rules, the bar and the side, then show them once."""
+        """Take the rules, the bar and the side, then show them once.
+
+        For a strategy that goes both ways `entry` opens longs and
+        `short_rule` opens shorts."""
         self.entry_rule = entry
         self.exit_rule = exit_
-        self.side = "short" if side == "short" else "long"
+        self.side = side if side in ("short", "both") else "long"
+        self.short_rule = short_rule if self.side == "both" else None
         if resolution is not None:
             self.resolution = resolution
         self.refresh()
@@ -560,6 +566,7 @@ class ReportTile(Card):
             tp=self.tp,
             sl=self.sl,
             short=self.side == "short",
+            short_entry=self.short_rule,
         )
         self.note.setText(
             f"{year} · {self.resolution} · {len(bars):,} bars"
@@ -570,6 +577,7 @@ class ReportTile(Card):
         self.compare.configure(
             bars, self.entry_rule, self.exit_rule, report, self.tp, self.sl,
             self.side == "short",
+            self.short_rule,
         )
         self.reasons_note.setText(
             f"{report.trades:,} trades · {len(report.reasons)} ways they ended"

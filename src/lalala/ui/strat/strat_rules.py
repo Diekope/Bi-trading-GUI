@@ -617,17 +617,25 @@ class RulesSwitcher(Card):
     side_changed = Signal(str)
     mode_changed = Signal(str)
 
-    SIDES = (("entry", "ENTRY RULES"), ("exit", "EXIT RULES"))
+    # The short entry is only offered for a strategy that goes both ways; it is
+    # last so the other two keep their places.
+    SIDES = (
+        ("entry", "ENTRY RULES"),
+        ("exit", "EXIT RULES"),
+        ("short", "SHORT ENTRY"),
+    )
 
     def __init__(
         self,
         entry: RulesTile,
         exit_: RulesTile,
         parent: QWidget | None = None,
+        short_entry: RulesTile | None = None,
     ) -> None:
         super().__init__(parent)
         self.entry = entry
         self.exit = exit_
+        self.short_entry = short_entry
         self.current_side = "entry"
 
         header = QHBoxLayout()
@@ -640,6 +648,8 @@ class RulesSwitcher(Card):
         self.sides.setExclusive(True)
         self.side_buttons: dict[str, QPushButton] = {}
         for index, (key, label) in enumerate(self.SIDES):
+            if key == "short" and short_entry is None:
+                continue
             button = QPushButton(label, self)
             button.setObjectName("sideButton")
             button.setProperty("side", key)
@@ -674,7 +684,9 @@ class RulesSwitcher(Card):
         # border inside it.
         self.stack = QStackedWidget(self)
         self.stack.setObjectName("rulesStack")
-        for tile in (entry, exit_):
+        for tile in (entry, exit_, short_entry):
+            if tile is None:
+                continue
             tile.setProperty("inset", True)
             tile.body.setContentsMargins(0, 0, 0, 0)
             tile.style().unpolish(tile)
@@ -685,10 +697,24 @@ class RulesSwitcher(Card):
 
         entry.mode_changed.connect(self._side_mode_changed)
         exit_.mode_changed.connect(self._side_mode_changed)
+        if short_entry is not None:
+            short_entry.mode_changed.connect(self._side_mode_changed)
+            self.side_buttons["short"].setVisible(False)
 
     def tile(self) -> RulesTile:
         """The rule currently on top."""
+        if self.current_side == "short" and self.short_entry is not None:
+            return self.short_entry
         return self.entry if self.current_side == "entry" else self.exit
+
+    def set_both(self, both: bool) -> None:
+        """Offer the short entry (and name the first one the long's), or not."""
+        if self.short_entry is None:
+            return
+        self.side_buttons["short"].setVisible(both)
+        self.side_buttons["entry"].setText("LONG ENTRY" if both else "ENTRY RULES")
+        if not both and self.current_side == "short":
+            self.set_side("entry")
 
     def side(self) -> str:
         return self.current_side

@@ -9,13 +9,7 @@ log and the run log all exist.
 - **Slippage** on top of the fee, and **per-venue fees**. Show whatever fees
   and slippage are applied somewhere in the UI, so a result is interpretable
   and shareable.
-- **A strategy that trades both ways** (a long entry rule and a short one in
-  the same strategy). One position at a time is deliberate and stays.
-- **The exit rule in the native core.** It runs in Python for now, so a rule
-  that closes trades is slower than the plain walk on a long span.
-- **A trade that hits its take profit and stop in one candle** is booked as the
-  take profit. The candle cannot say which came first; booking the stop is the
-  cautious choice.
+- **The streamed walk** (spans over `CORE_MAX` bars) still steps in Python.
 - **Mark open trades to market** in the equity curve; today an open position is
   carried at what it cost, which understates drawdown.
 - **A worker thread for the run.** `finish()` and `seek` block the UI; move the

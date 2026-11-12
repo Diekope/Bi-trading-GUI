@@ -333,3 +333,13 @@ def test_the_path_can_be_redirected(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "elsewhere.json"))
 
     assert settings_path() == tmp_path / "elsewhere.json"
+
+
+def test_the_default_hold_is_seven_candles(tmp_path) -> None:
+    from lalala.state.settings import BacktestDefaults
+
+    assert BacktestDefaults().hold == 7
+    assert BacktestDefaults.load({}, {}).hold == 7
+    assert BacktestDefaults.load({"hold": 0}, {}).hold == 0
+    assert BacktestDefaults.load({"hold": "12"}, {}).hold == 12
+    assert BacktestDefaults.load({"hold": -4}, {}).hold == 0

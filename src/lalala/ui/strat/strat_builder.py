@@ -208,8 +208,11 @@ class StrategyBuilderWindow(QMainWindow):
         )
         # The two rules are one tile now: their titles switch between them,
         # and the Rules / Formula / Code pills belong to the side on top.
+        # A strategy that goes both ways has a second entry rule for its shorts.
+        self.short_tile = RulesTile("SHORT ENTRY RULES", header=False)
         self.rules = RulesSwitcher(
-            self.entry_tile, self.exit_tile, self.right_column
+            self.entry_tile, self.exit_tile, self.right_column,
+            short_entry=self.short_tile,
         )
         # Under the rules: what they did over the candles on disk.
         self.report = ReportTile(self.right_column)
@@ -240,7 +243,7 @@ class StrategyBuilderWindow(QMainWindow):
         # profit as price rises) or a short (sell, profit as price falls).
         self.side = QComboBox(self.strategy_tile)
         self.side.setObjectName("strategySide")
-        self.side.addItems(["Long", "Short"])
+        self.side.addItems(["Long", "Short", "Both"])
         self.side.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
@@ -265,6 +268,7 @@ class StrategyBuilderWindow(QMainWindow):
         # pills over one formula each. Nothing is shared between them.
         self.entry = self.entry_tile
         self.exit = self.exit_tile
+        self.short = self.short_tile
 
         # The entry/exit tiles are the same widget; these are the entry's, kept
         # here because that is the one the window's fit and signals act on.
@@ -276,10 +280,12 @@ class StrategyBuilderWindow(QMainWindow):
         self.code_error = self.entry.code_error
         self.entry.changed.connect(self._formula_changed)
         self.entry.mode_changed.connect(self.entry_mode_changed)
+        self.short.changed.connect(self._short_changed)
         self.exit.changed.connect(self._exit_changed)
         self.exit.mode_changed.connect(self.exit_mode_changed)
         self.timeframe.currentTextChanged.connect(self._sync_report)
         self.timeframe.currentTextChanged.connect(self._describe_draft)
+        self.side.currentTextChanged.connect(self._side_changed)
         self.side.currentTextChanged.connect(self._sync_report)
         self.side.currentTextChanged.connect(self._describe_draft)
         self.side.currentTextChanged.connect(self._refresh_saved)
@@ -306,6 +312,7 @@ class StrategyBuilderWindow(QMainWindow):
         self._fit_pending = False
         self.entry_tile.installEventFilter(self)
         self.exit_tile.installEventFilter(self)
+        self.short_tile.installEventFilter(self)
 
         for column in (self.left_column, self.right_column):
             self.splitter.addWidget(column)
@@ -370,6 +377,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.side.setCurrentIndex(0)
         self.entry.reset_draft()
         self.exit.reset_draft()
+        self.short.reset_draft()
         self._describe_draft()
         self._sync_report()
         self._refresh_saved()
@@ -380,7 +388,11 @@ class StrategyBuilderWindow(QMainWindow):
         if not name:
             self.draft.setText("give it a name first")
             return
-        if self.entry.error() or self.exit.error():
+        if (
+            self.entry.error()
+            or self.exit.error()
+            or (self.side_key() == "both" and self.short.error())
+        ):
             self.draft.setText("fix the rules before saving")
             return
         saved = strategies.save(
@@ -390,6 +402,7 @@ class StrategyBuilderWindow(QMainWindow):
                 entry=self.entry_formula(),
                 exit=self.exit_formula(),
                 side=self.side_key(),
+                short_entry=self.short_entry_formula(),
             )
         )
         self.draft.setText(f"saved “{name}” · {len(saved)} kept")
@@ -405,11 +418,28 @@ class StrategyBuilderWindow(QMainWindow):
             entry=self.entry_formula(),
             exit=self.exit_formula(),
             side=self.side_key(),
+            short_entry=self.short_entry_formula(),
         )
 
     def side_key(self) -> str:
-        """`long` or `short`, as the strategy stores it."""
-        return "short" if self.side.currentText() == "Short" else "long"
+        """`long`, `short` or `both`, as the strategy stores it."""
+        return {"Short": "short", "Both": "both"}.get(
+            self.side.currentText(), "long"
+        )
+
+    def short_entry_formula(self) -> str:
+        """The text of the short entry rule — empty unless the strategy goes
+        both ways, so a long or short strategy never carries a stray one."""
+        return self.short.text() if self.side_key() == "both" else ""
+
+    def _side_changed(self, _text: str = "") -> None:
+        """Show the short entry only for a strategy that goes both ways."""
+        self.rules.set_both(self.side_key() == "both")
+
+    def _short_changed(self) -> None:
+        self._schedule_fit()
+        self._sync_report()
+        self._refresh_saved()
 
     def _refresh_saved(self) -> None:
         """List the kept drafts, the one being written among them."""
@@ -449,8 +479,11 @@ class StrategyBuilderWindow(QMainWindow):
             return
         self.name_edit.setText(found.name)
         self.timeframe.setCurrentText(found.timeframe)
-        self.side.setCurrentText("Short" if found.side == "short" else "Long")
+        self.side.setCurrentText(
+            {"short": "Short", "both": "Both"}.get(found.side, "Long")
+        )
         self.entry.set_text(found.entry)
+        self.short.set_text(found.short_entry)
         self.exit.set_text(found.exit)
         self._describe_draft()
         self._sync_report()
@@ -478,6 +511,7 @@ class StrategyBuilderWindow(QMainWindow):
             self.exit.parsed(),
             self.timeframe.currentText(),
             self.side_key(),
+            self.short.parsed() if self.side_key() == "both" else None,
         )
         self.report.set_selected(
             self.left.selected_name if hasattr(self, "left") else None
@@ -589,7 +623,7 @@ class StrategyBuilderWindow(QMainWindow):
 
     def eventFilter(self, obj, event):  # noqa: N802
         if (
-            obj in (self.entry_tile, self.exit_tile)
+            obj in (self.entry_tile, self.exit_tile, self.short_tile)
             and self._column_set
             and event.type() == QEvent.Type.LayoutRequest
         ):

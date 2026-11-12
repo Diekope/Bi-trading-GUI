@@ -59,6 +59,7 @@ TEMPLATE = {
         "fee": 0.06,
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
+        "hold": 7,
         "sizing": "balance",
         "timeframe": "1m",
         "start_year": FIRST_YEAR,
@@ -106,6 +107,7 @@ class BacktestDefaults:
     fee: float = 0.06                  # fee per side, percent
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
+    hold: int = 7                      # candles a trade may run; 0 = no limit
     sizing: str = "balance"            # balance % | fixed $ | risk %
     timeframe: str = "1m"              # resolution the 1m bars compact to
     start_year: int = FIRST_YEAR       # first year of history
@@ -168,6 +170,9 @@ class BacktestDefaults:
                 _number(values.get("dyn_tp_reverse"), defaults.dyn_tp_reverse),
                 0.0,
                 100.0,
+            ),
+            hold=int(
+                _clamp(_number(values.get("hold"), defaults.hold), 0, 1_000_000)
             ),
             sizing=_choice(values.get("sizing"), defaults.sizing),
             timeframe=timeframe,
@@ -405,6 +410,7 @@ def save_backtest_defaults(
         "fee": defaults.fee,
         "dynamic_tp": defaults.dynamic_tp,
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
+        "hold": defaults.hold,
         "sizing": defaults.sizing,
         "timeframe": defaults.timeframe,
         "start_year": defaults.start_year,

@@ -205,13 +205,14 @@ class StrategyRow(QFrame):
 
 
 def _pnl_badge(
-    entry: str, exit_: str, timeframe: str, side: str = "long"
+    entry: str, exit_: str, timeframe: str, side: str = "long",
+    short_entry: str = "",
 ) -> tuple[str, str]:
     """(glyph, colour) for a strategy's return, or ('', '') when unknown."""
     try:
         from lalala.ui.strat.strat_saved import strategy_pnl
 
-        pnl = strategy_pnl(entry, exit_, timeframe, side)
+        pnl = strategy_pnl(entry, exit_, timeframe, side, short_entry)
     except Exception:  # noqa: BLE001 - a status row must never take down the hub
         pnl = None
     if pnl is None:

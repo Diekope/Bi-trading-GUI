@@ -147,7 +147,8 @@ class StratWindow(QMainWindow):
         from lalala.engine.formula import ENTRY_FIELDS
 
         self.left.set_saved_strategy(
-            item.name, item.entry, ENTRY_FIELDS, item.exit, item.side
+            item.name, item.entry, ENTRY_FIELDS, item.exit, item.side,
+            item.short_entry,
         )
 
     # -- saved runs --------------------------------------------------------
@@ -168,6 +169,7 @@ class StratWindow(QMainWindow):
                 entry=self.left.saved_entry(),
                 exit=self.left.saved_exit(),
                 side=self.left.side(),
+                short_entry=self.left.saved_short(),
                 params=self.params.params(),
                 trades=[
                     list(record)
@@ -194,7 +196,7 @@ class StratWindow(QMainWindow):
         if item.rule == "saved" and item.entry:
             self.left.set_saved_strategy(
                 item.strategy or item.name, item.entry, ENTRY_FIELDS,
-                item.exit, item.side,
+                item.exit, item.side, item.short_entry,
             )
         else:
             self.left.set_strategy(item.rule)
