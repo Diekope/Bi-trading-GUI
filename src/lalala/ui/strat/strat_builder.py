@@ -236,9 +236,24 @@ class StrategyBuilderWindow(QMainWindow):
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
 
+        # Which way the strategy trades: its entry rule opens a long (buy,
+        # profit as price rises) or a short (sell, profit as price falls).
+        self.side = QComboBox(self.strategy_tile)
+        self.side.setObjectName("strategySide")
+        self.side.addItems(["Long", "Short"])
+        self.side.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
         row.addWidget(self.name_edit, 1)
         row.addWidget(self.timeframe)
         self.strategy_tile.body.addLayout(row)
+
+        # The side gets its own row: the rail is too narrow for three fields.
+        self.side.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.strategy_tile.body.addWidget(self.side)
 
         # The strategy tile is only as tall as its title and row; the two
         # below it share whatever is left.
@@ -265,6 +280,9 @@ class StrategyBuilderWindow(QMainWindow):
         self.exit.mode_changed.connect(self.exit_mode_changed)
         self.timeframe.currentTextChanged.connect(self._sync_report)
         self.timeframe.currentTextChanged.connect(self._describe_draft)
+        self.side.currentTextChanged.connect(self._sync_report)
+        self.side.currentTextChanged.connect(self._describe_draft)
+        self.side.currentTextChanged.connect(self._refresh_saved)
         self.name_edit.textChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._refresh_saved)
         self.left.chosen.connect(self.load_strategy)
@@ -349,6 +367,7 @@ class StrategyBuilderWindow(QMainWindow):
         """Clear the draft back to nothing."""
         self.name_edit.setText("")
         self.timeframe.setCurrentIndex(0)
+        self.side.setCurrentIndex(0)
         self.entry.reset_draft()
         self.exit.reset_draft()
         self._describe_draft()
@@ -370,6 +389,7 @@ class StrategyBuilderWindow(QMainWindow):
                 timeframe=self.timeframe.currentText(),
                 entry=self.entry_formula(),
                 exit=self.exit_formula(),
+                side=self.side_key(),
             )
         )
         self.draft.setText(f"saved “{name}” · {len(saved)} kept")
@@ -384,7 +404,12 @@ class StrategyBuilderWindow(QMainWindow):
             timeframe=self.timeframe.currentText(),
             entry=self.entry_formula(),
             exit=self.exit_formula(),
+            side=self.side_key(),
         )
+
+    def side_key(self) -> str:
+        """`long` or `short`, as the strategy stores it."""
+        return "short" if self.side.currentText() == "Short" else "long"
 
     def _refresh_saved(self) -> None:
         """List the kept drafts, the one being written among them."""
@@ -424,6 +449,7 @@ class StrategyBuilderWindow(QMainWindow):
             return
         self.name_edit.setText(found.name)
         self.timeframe.setCurrentText(found.timeframe)
+        self.side.setCurrentText("Short" if found.side == "short" else "Long")
         self.entry.set_text(found.entry)
         self.exit.set_text(found.exit)
         self._describe_draft()
@@ -451,6 +477,7 @@ class StrategyBuilderWindow(QMainWindow):
             self.entry.parsed(),
             self.exit.parsed(),
             self.timeframe.currentText(),
+            self.side_key(),
         )
         self.report.set_selected(
             self.left.selected_name if hasattr(self, "left") else None

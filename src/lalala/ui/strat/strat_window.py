@@ -146,7 +146,9 @@ class StratWindow(QMainWindow):
         """Point the run at a saved strategy's entry rule."""
         from lalala.engine.formula import ENTRY_FIELDS
 
-        self.left.set_saved_strategy(item.name, item.entry, ENTRY_FIELDS)
+        self.left.set_saved_strategy(
+            item.name, item.entry, ENTRY_FIELDS, item.exit, item.side
+        )
 
     # -- saved runs --------------------------------------------------------
 
@@ -162,12 +164,17 @@ class StratWindow(QMainWindow):
                 years=list(range(start, end + 1)),
                 resolution=resolution,
                 rule=self.left.rule_key(),
+                strategy=self.left.saved_name(),
                 entry=self.left.saved_entry(),
+                exit=self.left.saved_exit(),
+                side=self.left.side(),
                 params=self.params.params(),
                 trades=[
                     list(record)
                     for record in self.left.session.strategy.trades_log
                 ],
+                strategy_curve=self.left.session.strategy_curve,
+                random_curve=self.left.session.random_curve,
             )
         )
         self.save_run.set_saved(name)
@@ -185,7 +192,10 @@ class StratWindow(QMainWindow):
         if item.params:
             self.params.set_params(item.params)
         if item.rule == "saved" and item.entry:
-            self.left.set_saved_strategy(item.name, item.entry, ENTRY_FIELDS)
+            self.left.set_saved_strategy(
+                item.strategy or item.name, item.entry, ENTRY_FIELDS,
+                item.exit, item.side,
+            )
         else:
             self.left.set_strategy(item.rule)
         self._sync_playback()

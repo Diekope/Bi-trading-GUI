@@ -46,6 +46,8 @@ from PySide6.QtWidgets import (
 )
 
 from lalala.data.candles import candle_file
+from lalala.engine.core import exit_context
+from lalala.engine.formula_eval import evaluate_scalar
 from lalala.ui.cards import mono_font
 from lalala.ui.panels import Card
 from lalala.ui.theme import ACCENT, DOWN, TEXT_FAINT, TEXT_MUTED, UP
@@ -417,6 +419,8 @@ class Playback:
         dynamic_tp: bool = False,
         reverse: float = 0.0,
         span: "ColumnSpan | None" = None,
+        side: str = "long",
+        exit_formula=None,
     ) -> None:
         self._span = span
         self._feed_factory = None if span is not None else _feed_factory(candles)
@@ -444,6 +448,8 @@ class Playback:
         self.entry_chance = entry_chance
         self.dynamic_tp = dynamic_tp
         self.reverse = reverse
+        self.side = "short" if side == "short" else "long"
+        self.exit_formula = exit_formula
         self.reset()
 
     # -- state -------------------------------------------------------------
@@ -623,7 +629,8 @@ class Playback:
             out_stamp = stamp(out_index)
             self.trades_log.append(
                 (in_stamp, in_index, in_px, out_stamp, out_index, out_px,
-                 result, notional, notional * result, reason, fees, [])
+                 result, notional, notional * result, reason, fees, [],
+                 self.side)
             )
             self.markers.append((in_index, "in", in_px))
             self.markers.append((out_index, "out", out_px))
@@ -803,48 +810,80 @@ class Playback:
         self.entry_notional = notional
         self.entry_fee = cost
         self.entry_cost = notional + cost
-        self._peak = candle.high
+        self._peak = candle.low if self.side == "short" else candle.high
         self._path = [candle.close]
         self.markers.append((self.index, "in", candle.close))
 
     def _manage(self, candle: Candle) -> None:
         self._path.append(candle.close)
-        target = self.entry_price * (1.0 + self.tp / 100.0)
-        stop = self.entry_price * (1.0 - self.sl / 100.0)
-        if self.dynamic_tp and self.reverse > 0.0:
-            self._peak = max(self._peak, candle.high)
-        trail = self._peak * (1.0 - self.reverse / 100.0) if self._peak else 0.0
+        short = self.side == "short"
+        if short:
+            target = self.entry_price * (1.0 - self.tp / 100.0)
+            stop = self.entry_price * (1.0 + self.sl / 100.0)
+            if self.dynamic_tp and self.reverse > 0.0:
+                self._peak = min(self._peak, candle.low)
+            trail = (
+                self._peak * (1.0 + self.reverse / 100.0) if self._peak else 0.0
+            )
+            hit_tp = self.tp > 0 and candle.low <= target
+            hit_sl = self.sl > 0 and candle.high >= stop
+            hit_trail = (
+                self.dynamic_tp and self.reverse > 0
+                and 0 < self._peak < self.entry_price and candle.high >= trail
+            )
+        else:
+            target = self.entry_price * (1.0 + self.tp / 100.0)
+            stop = self.entry_price * (1.0 - self.sl / 100.0)
+            if self.dynamic_tp and self.reverse > 0.0:
+                self._peak = max(self._peak, candle.high)
+            trail = (
+                self._peak * (1.0 - self.reverse / 100.0) if self._peak else 0.0
+            )
+            hit_tp = self.tp > 0 and candle.high >= target
+            hit_sl = self.sl > 0 and candle.low <= stop
+            hit_trail = (
+                self.dynamic_tp and self.reverse > 0
+                and self._peak > self.entry_price and candle.low <= trail
+            )
         price: float | None = None
         reason = "time"
-        if self.tp > 0 and candle.high >= target:
+        if hit_tp:
             price = target
             reason = "tp"
-        elif self.sl > 0 and candle.low <= stop:
+        elif hit_sl:
             price = stop
             reason = "sl"
-        elif (
-            self.dynamic_tp
-            and self.reverse > 0
-            and self._peak > self.entry_price
-            and candle.low <= trail
-        ):
+        elif hit_trail:
             price = trail
             reason = "tp"
+        elif self.exit_formula is not None and evaluate_scalar(
+            self.exit_formula,
+            exit_context(
+                candle.close, self.entry_price, self.tp, self.sl,
+                self.index - self.entry_index, short,
+            ),
+        ):
+            price = candle.close
+            reason = "rule"
         elif self.index - self.entry_index >= self.max_hold:
             price = candle.close
             reason = "time"
         if price is None:
             return
-        proceeds = self.qty * price
-        cost = proceeds * self.fee
-        self.cash += proceeds - cost
+        value = (
+            max(0.0, self.qty * (2.0 * self.entry_price - price))
+            if short
+            else self.qty * price
+        )
+        cost = self.qty * price * self.fee
+        self.cash += value - cost
         self.fees += cost
         invested = self.entry_cost
         self.qty = 0.0
         self.entry_cost = 0.0
         self.markers.append((self.index, "out", price))
         self._book(
-            proceeds - cost, invested, candle.stamp, price, reason,
+            value - cost, invested, candle.stamp, price, reason,
             self.entry_fee + cost, self._path, self.index,
         )
 
@@ -876,6 +915,7 @@ class Playback:
                 reason,
                 fees,
                 _slim(path or []),
+                self.side,
             )
         )
         if result > 0:
@@ -1004,6 +1044,7 @@ def random_entries(
         settings["sl"],
         90,
         chance,
+        settings.get("side") == "short",
     )
 
 
@@ -1118,6 +1159,7 @@ class BacktestSession:
     random_entries: list | None = None
     strategy_entries_arr: object | None = None
     random_entries_arr: object | None = None
+    exit_formula: object | None = None
 
     @property
     def index(self) -> int:
@@ -1213,17 +1255,20 @@ class BacktestSession:
         lows = self.span.lows[:target]
         args = (closes, highs, lows)
 
-        def run(entries):
+        def run(entries, exit_formula):
             return core.walk(
                 *args,
                 entries[:target],
                 s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
                 s["max_cash"], s["fee"], 90,
                 s.get("dynamic_tp", False), s.get("reverse", 0.0),
+                s.get("side", "long"), exit_formula,
             )
 
-        strategy_trades, strategy_equity = run(self.strategy_entries_arr)
-        random_trades, random_equity = run(self.random_entries_arr)
+        strategy_trades, strategy_equity = run(
+            self.strategy_entries_arr, self.exit_formula
+        )
+        random_trades, random_equity = run(self.random_entries_arr, None)
         self.strategy.adopt(strategy_trades, strategy_equity, self.span, target)
         self.random.adopt(random_trades, random_equity, self.span, target)
         self.strategy_curve = strategy_equity
@@ -1253,6 +1298,7 @@ def _walk_settings(params: dict) -> dict:
         "fee": float(params.get("fee") or 0.0) / 100.0,
         "dynamic_tp": bool(params.get("dynamic_tp")),
         "reverse": float(params.get("dyn_tp_reverse") or 0.0),
+        "side": "short" if params.get("side") == "short" else "long",
     }
 
 
@@ -1271,6 +1317,8 @@ def build_session(
     fallback: list[Candle] | None = None,
     entry_formula=None,
     fields=None,
+    exit_formula=None,
+    side: str = "long",
 ) -> BacktestSession:
     """A run over the whole span.
 
@@ -1279,6 +1327,8 @@ def build_session(
     span is streamed off disk and stepped in Python.
     """
     settings = _walk_settings(params)
+    if side == "short":
+        settings["side"] = "short"
     span: ColumnSpan | None = None
     total = count_bars(years, resolution)
     if entry_formula is not None or (total and total <= CORE_MAX):
@@ -1294,6 +1344,7 @@ def build_session(
     session = BacktestSession(strategy=None, random=None)
     if span is not None:
         session.settings = settings
+        session.exit_formula = exit_formula
         session.span = span
         session.closes = span.closes
         session.highs = span.highs
@@ -1325,6 +1376,7 @@ def build_session(
         strategy = Playback(
             None, rule=rule, total=total, stride=stride, span=span,
             entries=set(i for i, on in enumerate(strategy_entries) if on),
+            exit_formula=exit_formula,
             **settings,
         )
         random_buy = Playback(
@@ -1335,7 +1387,8 @@ def build_session(
     else:
         feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
         strategy = Playback(
-            feeds[0], rule=rule, total=total, stride=stride, **settings
+            feeds[0], rule=rule, total=total, stride=stride,
+            exit_formula=exit_formula, **settings,
         )
         random_buy = Playback(
             feeds[1], rule="random", total=total, stride=stride, **settings
@@ -1638,6 +1691,9 @@ class PlaybackTile(Card):
         self._entry_fields = None
         self._saved_name = ""
         self._saved_entry = ""
+        self._saved_exit = ""
+        self._exit_formula = None
+        self._wanted_side = "long"
 
         # Header: the title over its status line, then Restart, a speed picker
         # and the Run / Pause button, as in the mock.
@@ -1874,6 +1930,8 @@ class PlaybackTile(Card):
             self._wanted_resolution,
             entry_formula=self._entry_formula,
             fields=self._entry_fields,
+            exit_formula=self._exit_formula,
+            side=self._wanted_side,
         )
         self.playback = self.session.strategy
         self.player.playback = self.playback
@@ -1924,6 +1982,9 @@ class PlaybackTile(Card):
         self._entry_fields = None
         self._saved_name = ""
         self._saved_entry = ""
+        self._saved_exit = ""
+        self._exit_formula = None
+        self._wanted_side = "long"
         self._describe()
 
     def rule_key(self) -> str:
@@ -1932,20 +1993,46 @@ class PlaybackTile(Card):
     def saved_entry(self) -> str:
         return self._saved_entry
 
-    def set_saved_strategy(self, name: str, entry: str, fields=None) -> bool:
-        """Point the run at a saved strategy's entry rule.
+    def saved_name(self) -> str:
+        return self._saved_name
 
-        The rule is parsed once, here; a rule the language cannot read is
-        refused and the built-in is kept.
+    def saved_exit(self) -> str:
+        return self._saved_exit
+
+    def side(self) -> str:
+        return self._wanted_side
+
+    def set_saved_strategy(
+        self, name: str, entry: str, fields=None, exit: str = "",
+        side: str = "long",
+    ) -> bool:
+        """Point the run at a saved strategy: its entry rule, exit rule, side.
+
+        The rules are parsed once, here; a rule the language cannot read is
+        refused and the built-in is kept. An empty exit rule leaves the
+        parameters' take profit, stop loss and hold limit as the only exits.
         """
-        from lalala.engine.formula import ENTRY_FIELDS, FUNCTIONS, FormulaError, parse
+        from lalala.engine.formula import (
+            ENTRY_FIELDS,
+            EXIT_FIELDS,
+            EXIT_FUNCTIONS,
+            FUNCTIONS,
+            FormulaError,
+            parse,
+        )
 
         try:
             formula = parse(entry, fields or ENTRY_FIELDS, FUNCTIONS)
+            exit_formula = (
+                parse(exit, EXIT_FIELDS, EXIT_FUNCTIONS) if exit.strip() else None
+            )
         except FormulaError:
             self._describe()
             return False
         self._wanted_rule = "saved"
+        self._exit_formula = exit_formula
+        self._saved_exit = exit
+        self._wanted_side = "short" if side == "short" else "long"
         self._entry_formula = formula
         self._entry_fields = tuple(fields or ENTRY_FIELDS)
         self._saved_name = name

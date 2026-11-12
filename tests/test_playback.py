@@ -478,3 +478,59 @@ def test_the_loaded_span_is_memoised(monkeypatch) -> None:
     _write(2021, 5)  # the file changed: a new signature
     strat_playback.load_all_candles([2021], "1m")
     assert calls["n"] == 2
+
+
+def _walk_params(**more):
+    return {
+        "initial_capital": 10_000.0, "tp": 2.0, "sl": 1.0, "position": 10.0,
+        "sizing": "balance", "cash": 2_000.0, "fee": 0.06, **more,
+    }
+
+
+def test_a_short_seek_matches_the_stepped_walk() -> None:
+    session = build_session([], _walk_params(), "bollinger", "1m", side="short")
+    reference = build_session([], _walk_params(), "bollinger", "1m", side="short")
+    for _ in range(300):
+        reference.strategy.step()
+        reference.random.step()
+
+    session.seek(300)
+    assert session.strategy.trades == reference.strategy.trades
+    assert session.strategy.trades > 0
+    assert session.strategy.equity == pytest.approx(
+        reference.strategy.equity, abs=1e-6
+    )
+    assert session.random.trades == reference.random.trades
+    # Every logged trade says which way it went.
+    assert {record[-1] for record in session.strategy.trades_log} == {"short"}
+
+
+def test_an_exit_rule_drives_the_walk_and_the_seek_agrees() -> None:
+    from lalala.engine.formula import (
+        ENTRY_FIELDS,
+        EXIT_FIELDS,
+        EXIT_FUNCTIONS,
+        FUNCTIONS,
+        parse,
+    )
+
+    entry = parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS)
+    rule = parse("pnl >= 0.3", EXIT_FIELDS, EXIT_FUNCTIONS)
+
+    def make():
+        return build_session(
+            [], _walk_params(tp=20.0, sl=20.0), "saved", "1m",
+            entry_formula=entry, exit_formula=rule,
+        )
+
+    session, reference = make(), make()
+    for _ in range(300):
+        reference.strategy.step()
+    session.seek(300)
+
+    reasons = {record[9] for record in reference.strategy.trades_log}
+    assert "rule" in reasons
+    assert session.strategy.trades == reference.strategy.trades
+    assert session.strategy.equity == pytest.approx(
+        reference.strategy.equity, abs=1e-6
+    )

@@ -1092,3 +1092,29 @@ def test_it_does_not_run_anything(builder: StrategyBuilderWindow) -> None:
     # Nothing in it starts a walk or touches the candle store.
     assert not hasattr(builder, "playback")
     assert not hasattr(builder, "session")
+
+
+def test_a_strategy_can_be_set_to_short(builder: StrategyBuilderWindow) -> None:
+    assert builder.side_key() == "long"
+    builder.side.setCurrentText("Short")
+    assert builder.side_key() == "short"
+    assert builder.draft_strategy().side == "short"
+    assert builder.report.side == "short"
+
+    builder.reset_draft()
+    assert builder.side_key() == "long"
+
+
+def test_the_side_is_saved_and_brought_back(
+    builder: StrategyBuilderWindow, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    builder.name_edit.setText("Fade")
+    builder.entry.set_text("close > sma(close, 5)")
+    builder.side.setCurrentText("Short")
+    builder.save_draft()
+
+    builder.reset_draft()
+    assert builder.side_key() == "long"
+    builder.load_strategy("Fade")
+    assert builder.side_key() == "short"

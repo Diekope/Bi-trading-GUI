@@ -420,3 +420,40 @@ def test_the_numpy_signals_yield_to_the_list_walk_on_a_gap() -> None:
 
     # A None cannot be lifted to an array, so the fast path declines.
     assert _numpy_signals(formula, gappy, fields) is None
+
+
+# -- shorting ---------------------------------------------------------------
+
+
+def _falling():
+    return _bars([100, 100, 98, 96, 94, 92, 90])
+
+
+def test_a_short_gains_as_price_falls_and_a_long_loses() -> None:
+    entry = parse("close < 101")
+    exit_ = parse("bars >= 3", EXIT_FIELDS, EXIT_FUNCTIONS)
+    long = backtest(_falling(), entry, exit_, tp=2.0, sl=1.0)
+    short = backtest(_falling(), entry, exit_, tp=2.0, sl=1.0, short=True)
+
+    assert long.pnl < 0 < short.pnl
+    assert short.wins == short.trades
+
+
+def test_a_short_exit_rule_reads_pnl_the_way_the_trade_feels() -> None:
+    # pnl is positive for a short when the price has dropped.
+    entry = parse("close < 101")
+    exit_ = parse("pnl >= 4", EXIT_FIELDS, EXIT_FUNCTIONS)
+    short = backtest(_falling(), entry, exit_, short=True)
+    long = backtest(_falling(), entry, exit_)
+
+    assert short.trades >= 1
+    assert short.reasons  # it closed on its own rule, not at the end of data
+    assert long.trades == 1 and long.wins == 0  # never reached +4%, ended open
+
+
+def test_simulate_marks_a_short_exit_on_the_fall() -> None:
+    entry = parse("close < 101")
+    exit_ = parse("pnl >= 4", EXIT_FIELDS, EXIT_FUNCTIONS)
+    _, short_exits = simulate(_falling(), entry, exit_, short=True)
+    _, long_exits = simulate(_falling(), entry, exit_)
+    assert short_exits and not long_exits

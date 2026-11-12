@@ -814,6 +814,7 @@ def simulate(
     exit_: Formula | None,
     tp: float = 2.0,
     sl: float = 1.0,
+    short: bool = False,
 ) -> tuple[list[int], list[int]]:
     """Walk the bars: open on an entry signal, close when the exit says so.
 
@@ -847,7 +848,7 @@ def simulate(
             "entry": entry_price,
             "tp": tp,
             "sl": sl,
-            "pnl": profit,
+            "pnl": -profit if short else profit,
             "bars": index - entry_index,
         }
         if evaluate_scalar(exit_, context):
@@ -1030,9 +1031,11 @@ def _exit_reason(exit_, context: dict) -> str:
     return REASON_RULE
 
 
-def _walk(closes, signals, exit_, tp, sl, capital, fee):
+def _walk(closes, signals, exit_, tp, sl, capital, fee, short=False):
     """Mark-to-market equity for one set of entries, one position at a time.
 
+    A short sells at the entry and buys back at the exit, so it gains as price
+    falls and its `pnl` (what an exit rule reads) is the price change reversed.
     Also returns what each trade ended by, and the fees the walk paid.
     """
     equity: list[float] = []
@@ -1043,28 +1046,34 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee):
     quantity = 0.0
     entry_price = 0.0
     entry_index = 0
+    sign = -1.0 if short else 1.0
+
+    def worth(price: float) -> float:
+        """What the open position is worth at `price`."""
+        if short:
+            return max(0.0, quantity * (2.0 * entry_price - price))
+        return quantity * price
 
     for index, price in enumerate(closes):
         if price is None:
             equity.append(equity[-1] if equity else capital)
             continue
         if quantity > 0:
-            profit = (price / entry_price - 1.0) * 100.0 if entry_price else 0.0
+            change = (price / entry_price - 1.0) if entry_price else 0.0
             context = {
                 "price": price,
                 "entry": entry_price,
                 "tp": tp,
                 "sl": sl,
-                "pnl": profit,
+                "pnl": sign * change * 100.0,
                 "bars": index - entry_index,
             }
             if exit_ is None or exit_.condition is None or evaluate_scalar(
                 exit_, context
             ):
-                notional = quantity * price
-                fees += notional * fee
-                cash += notional * (1.0 - fee)
-                results.append(price / entry_price - 1.0 if entry_price else 0.0)
+                fees += quantity * price * fee
+                cash += worth(price) - quantity * price * fee
+                results.append(sign * change)
                 reasons.append(
                     REASON_END if exit_ is None else _exit_reason(exit_, context)
                 )
@@ -1075,15 +1084,15 @@ def _walk(closes, signals, exit_, tp, sl, capital, fee):
             cash = 0.0
             entry_price = price
             entry_index = index
-        equity.append(cash + quantity * price)
+        equity.append(cash + (worth(price) if quantity > 0 else 0.0))
 
     # A trade still open at the last bar ends there.
     if quantity > 0:
         price = closes[-1]
         if price:
-            notional = quantity * price
-            fees += notional * fee
-            results.append(price / entry_price - 1.0 if entry_price else 0.0)
+            fees += quantity * price * fee
+            change = (price / entry_price - 1.0) if entry_price else 0.0
+            results.append(sign * change)
             reasons.append(REASON_END)
     return equity, results, reasons, fees
 
@@ -1099,6 +1108,7 @@ def backtest(
     seed: int = 7,
     entry_chance: float = 0.03,
     fields=ENTRY_FIELDS,
+    short: bool = False,
 ) -> Report:
     """The rule, a random-buy version of it, and buy and hold, over `bars`.
 
@@ -1115,13 +1125,13 @@ def backtest(
 
     signals = set(entry_signals(entry, bars, fields))
     strategy, results, reasons, fees = _walk(
-        closes, signals, exit_, tp, sl, capital, fee
+        closes, signals, exit_, tp, sl, capital, fee, short
     )
 
     rng = random.Random(seed)
     picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
     random_curve, random_results, _, _ = _walk(
-        closes, picks, exit_, tp, sl, capital, fee
+        closes, picks, exit_, tp, sl, capital, fee, short
     )
 
     hold = [

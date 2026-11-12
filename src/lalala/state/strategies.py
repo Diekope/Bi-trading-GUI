@@ -1,6 +1,7 @@
 """Saved strategies: the drafts worth keeping, in one JSON file.
 
-A strategy is a name, the bar it reads and both rules as text — the same text
+A strategy is a name, the bar it reads, which way it trades (long or short)
+and both rules as text — the same text
 the tiles stand for. Keeping it as text rather than as chips means it can be
 read and checked with the same parser as anything typed by hand, and it does
 not care how it was written.
@@ -38,6 +39,7 @@ class SavedStrategy:
     timeframe: str
     entry: str
     exit: str
+    side: str = "long"
 
     def as_dict(self) -> dict:
         return {
@@ -45,6 +47,7 @@ class SavedStrategy:
             "timeframe": self.timeframe,
             "entry": self.entry,
             "exit": self.exit,
+            "side": self.side,
         }
 
 
@@ -75,6 +78,7 @@ def load() -> list[SavedStrategy]:
                 timeframe=str(item.get("timeframe", "1m")),
                 entry=str(item.get("entry", "")),
                 exit=str(item.get("exit", "")),
+                side=_side(item.get("side")),
             )
         )
     return out
@@ -92,10 +96,17 @@ def save(strategy: SavedStrategy) -> list[SavedStrategy]:
             timeframe=strategy.timeframe,
             entry=strategy.entry,
             exit=strategy.exit,
+            side=_side(strategy.side),
         )
     )
     _write(kept)
     return kept
+
+
+def _side(value: object) -> str:
+    """`short` or `long`; anything else, including a file from before shorting,
+    is a long."""
+    return "short" if value == "short" else "long"
 
 
 def remove(name: str) -> list[SavedStrategy]:

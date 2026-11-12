@@ -84,7 +84,8 @@ the buttons. Wiring is in `lalala/orders.py`.
 ### Saved state
 
 `~/.config/lalala/` holds `settings.json`, `strategies.json`, `runs.json` and
-the key store. Point these elsewhere with `LALALA_SETTINGS`, `LALALA_SECRETS`,
+the key store, and `runs_data/` beside it with each saved run's trades and
+equity curves as Parquet. Point these elsewhere with `LALALA_SETTINGS`, `LALALA_SECRETS`,
 `LALALA_STRATEGIES` and `LALALA_RUNS`; `LALALA_KEYCHAIN=0` forces the file
 store, and `LALALA_DATA` overrides the candle folder.
 
@@ -746,6 +747,14 @@ is checked a bar at a time against the open trade's numbers.
 when the exit rule says so. That is what the preview's markers are, and it is
 the shape a real run would take.
 
+**Long or short.** A strategy has a **side**, picked under its name in the
+STRATEGY tile and saved with it. A long buys on the entry rule and gains as
+price rises; a short sells on it and gains as price falls, buying back at the
+exit. A short's take profit sits below the entry and its stop above, and `pnl`
+in an exit rule is signed for the side, so `pnl >= tp` means "in profit" either
+way. A short can lose at most its margin. One position is open at a time, long
+or short; a strategy that should trade both ways is two strategies for now.
+
 The text a build produces is parsed and checked as it is built: a sound formula
 gets no error line, a typo gets its place — `line 2, column 9: unknown name
 'clsoe'`, or `fill the empty slot before this can be read` while a slot is
@@ -860,11 +869,18 @@ The **strategy tile** picks the entry rule: the two built-ins (**Random buy**,
 the baseline, and **Bollinger reversion**), then every **saved strategy** from
 `strategies.json`. Picking a saved one points the run at its entry rule — the
 rule is checked over the whole span and the walk opens on the bars it fires on
-(exits stay the params' TP / SL / hold). **SAVE RUN** keeps the run under a
-name — the span, resolution, parameters, strategy and every trade, in
-`~/.config/lalala/runs.json` (`LALALA_RUNS` overrides it) — and **LOAD RUN**
-opens one again: the controls are set back and the run is **walked straight to
-the end**, so every result and trade is there at once.
+and so does its **exit rule**, checked at each bar's close while a trade is
+open, after the params' take profit and stop loss (which still act inside the
+bar) and before the hold limit; a trade it closes reads `Rule`. A saved
+strategy's side is honoured too. **SAVE RUN** keeps the run under a name: the
+span, resolution, parameters, the strategy (name, entry, exit, side), and what
+it produced. The small facts go in `~/.config/lalala/runs.json`
+(`LALALA_RUNS` overrides it); the trades and both equity curves go in Parquet
+files in `runs_data/` beside it, so the index stays a few kilobytes. An older
+`runs.json` with its trades inline is migrated on first read (the original is
+kept as `runs.json.bak`). **LOAD RUN** opens one again: the controls are set
+back, including the saved strategy's exit and side, and the run is **walked
+straight to the end**, so every result and trade is there at once.
 
 The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
 extension wrapped by `lalala.engine.core`). A span small enough to hold in memory

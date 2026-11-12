@@ -6,14 +6,18 @@ the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
 ## Backtest engine
-- **Honour a saved strategy's exit rule.** An applied strategy uses its entry
-  only; exits are the params' TP / SL / hold. Run the exit formula in the walk.
 - **Slippage** on top of the fee, and **per-venue fees**. Show whatever fees
   and slippage are applied somewhere in the UI, so a result is interpretable
   and shareable.
-- **Risk % and Fixed $ sizing** exercised in the walk (the modes exist in the
-  tile; the walk reads `balance` and `fixed`).
-- **Shorting** and **more than one position**.
+- **A strategy that trades both ways** (a long entry rule and a short one in
+  the same strategy). One position at a time is deliberate and stays.
+- **The exit rule in the native core.** It runs in Python for now, so a rule
+  that closes trades is slower than the plain walk on a long span.
+- **A trade that hits its take profit and stop in one candle** is booked as the
+  take profit. The candle cannot say which came first; booking the stop is the
+  cautious choice.
+- **Mark open trades to market** in the equity curve; today an open position is
+  carried at what it cost, which understates drawdown.
 - **A worker thread for the run.** `finish()` and `seek` block the UI; move the
   walk off the main thread.
 - **Sanity clamps:** max cash <= capital, position value <= capital, and the
@@ -22,8 +26,8 @@ log and the run log all exist.
   needs N bars of history before it counts.
 
 ## Results & visualisation
-- **Store the curves in a saved run** (span, params, strategy and trades now)
-  so Load redraws the Overview instantly instead of re-running.
+- **Load a saved run from its stored trades and curves** instead of walking it
+  again. They are saved in Parquet now, but Load still re-runs the walk.
 - **Overlay a saved run's curve** on the current one.
 - **Export trades to CSV**.
 - **A Compare part in the backtest window** — it lives only in the builder.

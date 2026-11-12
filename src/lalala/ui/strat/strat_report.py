@@ -414,6 +414,7 @@ class ReportTile(Card):
         self.resolution = "1h"
         self.tp = PREVIEW_TP
         self.sl = PREVIEW_SL
+        self.side = "long"
         # What the rule's names read on the newest bar, for the panel beside
         # the editor: (values, result).
         self.watch: tuple = ({}, None)
@@ -521,10 +522,13 @@ class ReportTile(Card):
 
     # -- what to show ------------------------------------------------------
 
-    def configure(self, entry, exit_, resolution: str | None = None) -> None:
-        """Take the rules and the bar, then show them once."""
+    def configure(
+        self, entry, exit_, resolution: str | None = None, side: str = "long"
+    ) -> None:
+        """Take the rules, the bar and the side, then show them once."""
         self.entry_rule = entry
         self.exit_rule = exit_
+        self.side = "short" if side == "short" else "long"
         if resolution is not None:
             self.resolution = resolution
         self.refresh()
@@ -555,15 +559,17 @@ class ReportTile(Card):
             self.exit_rule,
             tp=self.tp,
             sl=self.sl,
+            short=self.side == "short",
         )
         self.note.setText(
             f"{year} · {self.resolution} · {len(bars):,} bars"
-            f" · tp {self.tp:g} / sl {self.sl:g}"
+            f" · {self.side} · tp {self.tp:g} / sl {self.sl:g}"
         )
         self.chart.set_report(report)
         self.reasons.set_report(report)
         self.compare.configure(
-            bars, self.entry_rule, self.exit_rule, report, self.tp, self.sl
+            bars, self.entry_rule, self.exit_rule, report, self.tp, self.sl,
+            self.side == "short",
         )
         self.reasons_note.setText(
             f"{report.trades:,} trades · {len(report.reasons)} ways they ended"

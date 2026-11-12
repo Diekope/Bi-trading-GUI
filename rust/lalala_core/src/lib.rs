@@ -1,7 +1,7 @@
 //! A native core for the backtest walk.
 //!
 //! The Python walk (`strat_playback.Playback`) is the reference; this mirrors
-//! it exactly — one position at a time, take profit and stop loss read off a
+//! it exactly — one position at a time, long or short, take profit and stop loss read off a
 //! candle's range, a fee each way, a hold limit — but runs the bar loop in
 //! Rust, so a long span is walked without the Python-level cost.
 
@@ -17,6 +17,8 @@ struct Settings {
     sl: f64,
     position: f64,
     fixed: bool,
+    risk: bool,
+    short: bool,
     max_cash: f64,
     fee: f64,
     max_hold: i64,
@@ -26,6 +28,14 @@ fn budget(cash: f64, s: &Settings) -> f64 {
     let deployable = cash.min(s.max_cash);
     if s.fixed {
         s.position.clamp(0.0, deployable)
+    } else if s.risk {
+        // A stop-out should cost `position` percent of the cash in play, so a
+        // wider stop means a smaller position.
+        if s.sl > 0.0 {
+            (deployable * s.position.max(0.0) / s.sl).clamp(0.0, deployable)
+        } else {
+            deployable
+        }
     } else {
         deployable * s.position.max(0.0) / 100.0
     }
@@ -38,7 +48,7 @@ fn budget(cash: f64, s: &Settings) -> f64 {
 /// Python list first.
 #[pyfunction]
 #[pyo3(signature = (closes, highs, lows, entries, capital, tp, sl, position,
-                    sizing, max_cash, fee, max_hold))]
+                    sizing, max_cash, fee, max_hold, short=false))]
 #[allow(clippy::too_many_arguments)]
 fn walk(
     closes: PyReadonlyArray1<f64>,
@@ -53,6 +63,7 @@ fn walk(
     max_cash: f64,
     fee: f64,
     max_hold: i64,
+    short: bool,
 ) -> PyResult<(Vec<Trade>, Vec<f64>)> {
     let closes = closes.as_slice()?;
     let highs = highs.as_slice()?;
@@ -64,6 +75,8 @@ fn walk(
         sl,
         position,
         fixed: sizing == "fixed",
+        risk: sizing == "risk",
+        short,
         max_cash,
         fee,
         max_hold,
@@ -86,14 +99,21 @@ fn walk(
         let low = lows[index];
 
         if qty > 0.0 {
-            let target = entry_price * (1.0 + s.tp / 100.0);
-            let stop = entry_price * (1.0 - s.sl / 100.0);
+            let (target, stop, hit_tp, hit_sl) = if s.short {
+                let target = entry_price * (1.0 - s.tp / 100.0);
+                let stop = entry_price * (1.0 + s.sl / 100.0);
+                (target, stop, s.tp > 0.0 && low <= target, s.sl > 0.0 && high >= stop)
+            } else {
+                let target = entry_price * (1.0 + s.tp / 100.0);
+                let stop = entry_price * (1.0 - s.sl / 100.0);
+                (target, stop, s.tp > 0.0 && high >= target, s.sl > 0.0 && low <= stop)
+            };
             let mut price: Option<f64> = None;
             let mut reason = "time";
-            if s.tp > 0.0 && high >= target {
+            if hit_tp {
                 price = Some(target);
                 reason = "tp";
-            } else if s.sl > 0.0 && low <= stop {
+            } else if hit_sl {
                 price = Some(stop);
                 reason = "sl";
             } else if (index as i64) - (entry_index as i64) >= s.max_hold {
@@ -101,12 +121,18 @@ fn walk(
                 reason = "time";
             }
             if let Some(price) = price {
-                let proceeds = qty * price;
-                let cost = proceeds * s.fee;
-                cash += proceeds - cost;
+                // A long is worth qty * price; a short is its margin back plus
+                // what the price fell, never less than nothing.
+                let value = if s.short {
+                    (qty * (2.0 * entry_price - price)).max(0.0)
+                } else {
+                    qty * price
+                };
+                let cost = qty * price * s.fee;
+                cash += value - cost;
                 let invested = entry_cost;
                 let result = if invested > 0.0 {
-                    (proceeds - cost) / invested - 1.0
+                    (value - cost) / invested - 1.0
                 } else {
                     0.0
                 };
@@ -145,7 +171,7 @@ fn walk(
 }
 
 #[pyfunction]
-#[pyo3(signature = (highs, lows, closes, draws, tp, sl, max_hold, chance))]
+#[pyo3(signature = (highs, lows, closes, draws, tp, sl, max_hold, chance, short=false))]
 #[allow(clippy::too_many_arguments)]
 fn random_entries(
     highs: PyReadonlyArray1<f64>,
@@ -156,6 +182,7 @@ fn random_entries(
     sl: f64,
     max_hold: i64,
     chance: f64,
+    short: bool,
 ) -> PyResult<Vec<bool>> {
     let highs = highs.as_slice()?;
     let lows = lows.as_slice()?;
@@ -174,10 +201,17 @@ fn random_entries(
 
     for index in 1..n {
         if in_position {
-            let target = entry_price * (1.0 + tp / 100.0);
-            let stop = entry_price * (1.0 - sl / 100.0);
-            if (tp > 0.0 && highs[index] >= target)
-                || (sl > 0.0 && lows[index] <= stop)
+            let (hit_tp, hit_sl) = if short {
+                let target = entry_price * (1.0 - tp / 100.0);
+                let stop = entry_price * (1.0 + sl / 100.0);
+                (tp > 0.0 && lows[index] <= target, sl > 0.0 && highs[index] >= stop)
+            } else {
+                let target = entry_price * (1.0 + tp / 100.0);
+                let stop = entry_price * (1.0 - sl / 100.0);
+                (tp > 0.0 && highs[index] >= target, sl > 0.0 && lows[index] <= stop)
+            };
+            if hit_tp
+                || hit_sl
                 || ((index as i64) - entry_index >= max_hold)
             {
                 in_position = false;

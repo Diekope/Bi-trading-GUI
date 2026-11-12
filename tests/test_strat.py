@@ -733,3 +733,35 @@ def test_every_input_marks_the_tile_changed(window) -> None:
     tile.dynamic_tp.setChecked(True)
     assert len(seen) == 3
 
+
+
+def test_a_run_keeps_its_exit_rule_and_side(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    from lalala.state import runs
+
+    monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
+    window.left.set_source([], "1m")
+    assert window.left.set_saved_strategy(
+        "Fade", "close > sma(close, 5)", None, "pnl >= 0.5 or pnl <= -0.5", "short"
+    )
+    window.left.restart()
+    window.left.finish()
+
+    window.save_run.save_requested.emit("fade run")
+    app.processEvents()
+
+    saved = runs.get("fade run")
+    assert saved.strategy == "Fade"
+    assert saved.exit == "pnl >= 0.5 or pnl <= -0.5"
+    assert saved.side == "short"
+    assert len(saved.trades) == window.left.playback.trades
+    assert len(saved.strategy_curve) > 0
+
+    # Loading it points the run at the same strategy again.
+    window.left.set_strategy("bollinger")
+    window.load_run.load_requested.emit("fade run")
+    app.processEvents()
+    assert window.left.saved_exit() == "pnl >= 0.5 or pnl <= -0.5"
+    assert window.left.side() == "short"
+    assert window.left.saved_name() == "Fade"

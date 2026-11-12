@@ -95,3 +95,20 @@ def test_entries_without_a_name_are_dropped() -> None:
     assert [item.name for item in kept] == ["Dip"]
     assert kept[0].exit == ""  # a missing rule is empty, not a failure
 
+
+
+def test_a_strategy_remembers_its_side() -> None:
+    strategies.save(SavedStrategy("Fade", "1h", "close > sma(close, 5)", "", "short"))
+    assert strategies.load()[0].side == "short"
+
+
+def test_a_strategy_saved_before_shorting_reads_as_a_long(tmp_path) -> None:
+    (tmp_path / "strategies.json").write_text(
+        json.dumps([{"name": "Old", "timeframe": "1m", "entry": "close > 1", "exit": ""}])
+    )
+    assert strategies.load()[0].side == "long"
+
+
+def test_an_unknown_side_is_a_long() -> None:
+    strategies.save(SavedStrategy("Odd", "1m", "close > 1", "", "sideways"))
+    assert strategies.load()[0].side == "long"

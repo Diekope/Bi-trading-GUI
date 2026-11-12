@@ -294,6 +294,7 @@ class ResultsTile(Card):
             ("tp", "Take profit", UP),
             ("sl", "Stop loss", DOWN),
             ("time", "Time", BAND),
+            ("rule", "Rule", TEXT_MUTED),
         ):
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
@@ -412,7 +413,7 @@ class ResultsTile(Card):
         self.pnl_bars.set_values([record[6] for record in play.trades_log])
         self.drawdown.set_curve(session.strategy_curve)
 
-        reasons = {"tp": 0, "sl": 0, "time": 0}
+        reasons = {"tp": 0, "sl": 0, "time": 0, "rule": 0}
         for record in play.trades_log:
             reasons[record[9]] = reasons.get(record[9], 0) + 1
         total = max(1, sum(reasons.values()))
@@ -606,7 +607,7 @@ class TradesPage(QWidget):
 
     # How many of the newest trades the table reads; a run can hold far more.
     SHOWN = 400
-    REASONS = {"tp": "TP", "sl": "SL", "time": "Time"}
+    REASONS = {"tp": "TP", "sl": "SL", "time": "Time", "rule": "Rule"}
     COLUMNS = ("Entry", "Market", "Side", "In → Out", "Size", "PnL", "Exit")
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -630,13 +631,13 @@ class TradesPage(QWidget):
         self.search.setPlaceholderText("search a trade…")
         self.search.setFixedWidth(200)
         self.side = QComboBox()
-        self.side.addItems(["side: all", "Long"])
+        self.side.addItems(["side: all", "Long", "Short"])
         self.side.setFixedWidth(110)
         self.outcome = QComboBox()
         self.outcome.addItems(["result: all", "win", "loss"])
         self.outcome.setFixedWidth(130)
         self.exit = QComboBox()
-        self.exit.addItems(["exit: all", "TP", "SL", "Time"])
+        self.exit.addItems(["exit: all", "TP", "SL", "Time", "Rule"])
         self.exit.setFixedWidth(140)
         self.count = QLabel("0 trades")
         self.count.setObjectName("hintLabel")
@@ -757,6 +758,7 @@ class TradesPage(QWidget):
                 reason,
                 fees,
                 path,
+                direction,
             ) = record
             self.trades.append(
                 {
@@ -773,7 +775,7 @@ class TradesPage(QWidget):
                     "reason": reason,
                     "fees": fees,
                     "path": path,
-                    "side": "Long",
+                    "side": "Short" if direction == "short" else "Long",
                     "market": "BTC",
                 }
             )

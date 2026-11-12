@@ -581,7 +581,7 @@ class MainHubWindow(QMainWindow):
             span = f"{years[0]} → {years[-1]}" if years else "—"
             values["Last backtest"].setText(run.name)
             self._stat_subs["Last backtest"].setText(
-                f"{span} · {len(run.trades):,} trades"
+                f"{span} · {run.trade_count:,} trades"
             )
         else:
             values["Last backtest"].setText("—")
@@ -864,7 +864,8 @@ class MainHubWindow(QMainWindow):
 
         for strategy in saved[:4]:
             badge, tone = _pnl_badge(
-                strategy.entry, strategy.exit, strategy.timeframe
+                strategy.entry, strategy.exit, strategy.timeframe,
+                strategy.side,
             )
             row = StrategyRow(strategy.name, badge, tone)
             row.clicked.connect(self._open_saved)
