@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal
 
 from lalala.data.candles import (
     MINUTE_MS,
+    _stamp,
     append_rows,
     candle_file,
     last_timestamp,
@@ -129,12 +130,6 @@ class CandleDownloader(QObject):
             payload = response.json()
             return payload if isinstance(payload, list) else []
         raise RuntimeError("binance kept rate limiting")
-
-
-def _stamp(year: int, month: int, day: int) -> int:
-    return int(
-        datetime(year, month, day, tzinfo=timezone.utc).timestamp() * 1000
-    )
 
 
 def _now_ms() -> int:

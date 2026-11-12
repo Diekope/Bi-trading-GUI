@@ -13,49 +13,18 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from lalala.ui.hub.hub_widgets import _accent, _button, _dot, _label
 from lalala.ui.palette import DOWN_SOFT
 from lalala.venues import get_venue
 from lalala.venues.base import friendly_message
 from lalala.venues.runner import AsyncRunner
-
-
-def _label(text: str, name: str = "", *, rich: bool = False) -> QLabel:
-    label = QLabel(text)
-    if name:
-        label.setObjectName(name)
-    if rich:
-        label.setTextFormat(Qt.TextFormat.RichText)
-    return label
-
-
-def _dot(color: str, size: int = 10) -> QFrame:
-    dot = QFrame()
-    dot.setFixedSize(size, size)
-    dot.setStyleSheet(
-        f"background-color: {color}; border: none; border-radius: {size // 2}px;"
-    )
-    return dot
-
-
-def _button(text: str, name: str) -> QPushButton:
-    button = QPushButton(text)
-    button.setObjectName(name)
-    button.setCursor(Qt.CursorShape.PointingHandCursor)
-    return button
-
-
-def _accent(text: str, color: str, size: int = 9) -> str:
-    return f'<span style="color:{color};font-size:{size}px">{text}</span>'
 
 
 class _ConnectionTester(QObject):

@@ -44,6 +44,7 @@ from lalala.engine.formula_eval import (
     watch_values,
 )
 from lalala.ui.panels import Card
+from lalala.ui.strat.strat_playback import _money
 from lalala.ui.theme import (
     ACCENT,
     BAND,
@@ -278,10 +279,6 @@ class CurveChart(QWidget):
 
 def _percent(value: float) -> str:
     return f"{value * 100:+,.2f}%"
-
-
-def _money(value: float) -> str:
-    return f"${value:,.0f}"
 
 
 class ReasonBars(QWidget):

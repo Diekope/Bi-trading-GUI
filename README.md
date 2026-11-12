@@ -387,9 +387,10 @@ tests/             ~520 tests: parsing/search/aliases, slug math, candle + book
                    in-place navigation, the paper position, and the Settings
                    screen and its account store
 
-Downloaded history lives in `data/candles/` — one OHLCV CSV per year,
-`BTC-<year>-1m.csv`, with a header row and columns
-`timestamp, open, high, low, close, volume`. Only BTC is fetched, and only at
+Downloaded history lives in `data/candles/` — one OHLCV Parquet file per
+year, `BTC-<year>-1m.parquet`, with columns
+`timestamp, open, high, low, close, volume`. A legacy `BTC-<year>-1m.csv` is
+converted to Parquet the first time its year is read. Only BTC is fetched, and only at
 1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, so the
 store never holds the same data twice. The history tile reads those files to
 report which years of the selected span are missing (red) or only partly
