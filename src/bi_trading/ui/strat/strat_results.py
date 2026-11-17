@@ -18,7 +18,7 @@ to draw it.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
@@ -543,7 +543,7 @@ class DrawdownCurve(QWidget):
         painter.drawPolygon(area)
         painter.setPen(QPen(QColor(DOWN), 1.2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for start, end in zip(points, points[1:]):
+        for start, end in zip(points, points[1:], strict=False):
             painter.drawLine(start, end)
         painter.setFont(mono_font(7))
         painter.setPen(QColor(TEXT_MUTED))
@@ -595,7 +595,7 @@ class TradeSpark(QWidget):
         painter.setPen(QPen(QColor("#c9cad0"), 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         points = [point(i, p) for i, p in enumerate(path)]
-        for start, end in zip(points, points[1:]):
+        for start, end in zip(points, points[1:], strict=False):
             painter.drawLine(start, end)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(ACCENT))
@@ -895,7 +895,7 @@ def _moment(milliseconds: int) -> str:
     if not milliseconds:
         return "—"
     return datetime.fromtimestamp(
-        milliseconds / 1000, tz=timezone.utc
+        milliseconds / 1000, tz=UTC
     ).strftime("%d %b %H:%M")
 
 

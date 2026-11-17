@@ -8,6 +8,8 @@ imports them back, so every name still lives there too.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
@@ -21,6 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 from bi_trading.ui.palette import ACCENT, AMBER_DOT, BORDER, DOWN, INDIGO, TRACK, UP
+
+log = logging.getLogger(__name__)
 
 # Section icons, from lateral.html (24x24 stroke paths), keyed by section.
 ICONS: dict[str, str] = {
@@ -44,6 +48,7 @@ ICONS: dict[str, str] = {
         '2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 '
         '2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
     ),
+    "logs": '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
     "quit": '<path d="M12 3v9"/><path d="M6.6 5.6a8 8 0 1 0 10.8 0"/>',
 }
 
@@ -148,7 +153,7 @@ class EquityCurve(QWidget):
             scaled = [
                 QPointF(x / 260.0 * width, y / 120.0 * height) for x, y in points
             ]
-            for start, end in zip(scaled, scaled[1:]):
+            for start, end in zip(scaled, scaled[1:], strict=False):
                 painter.drawLine(start, end)
 
 
@@ -213,7 +218,8 @@ def _pnl_badge(
         from bi_trading.ui.strat.strat_saved import strategy_pnl
 
         pnl = strategy_pnl(entry, exit_, timeframe, side, short_entry)
-    except Exception:  # noqa: BLE001 - a status row must never take down the hub
+    except Exception:  # a status row must never take down the hub
+        log.warning("could not score a saved strategy", exc_info=True)
         pnl = None
     if pnl is None:
         return "", ""

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import httpx
 from PySide6.QtCore import QObject, Signal
@@ -76,7 +76,8 @@ class CandleDownloader(QObject):
                 for year in years:
                     await self._fetch_year(client, year)
             self.finished.emit()
-        except Exception as exc:  # network, parse, rate limit: all the same
+        except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError) as exc:
+            # network, parse, rate limit, a full disk: all the same here
             log.warning("candle download stopped: %s", exc)
             self.failed.emit(f"{type(exc).__name__}: {exc}")
         finally:
@@ -113,7 +114,7 @@ class CandleDownloader(QObject):
     async def _klines(
         self, client: httpx.AsyncClient, start_ms: int, end_ms: int
     ) -> list[list]:
-        params = {
+        params: dict[str, str | int] = {
             "symbol": SYMBOL,
             "interval": "1m",
             "startTime": start_ms,
@@ -133,7 +134,7 @@ class CandleDownloader(QObject):
 
 
 def _now_ms() -> int:
-    return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    return int(datetime.now(tz=UTC).timestamp() * 1000)
 
 
 def _clean(raw: list) -> tuple[int, float, float, float, float, float] | None:

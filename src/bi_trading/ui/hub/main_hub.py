@@ -127,6 +127,9 @@ SECTIONS: tuple[tuple[str, str], ...] = (
     ("backtest", "Backtest engine"),
 )
 
+# A venue round trip slower than this (ms) is logged as a warning.
+LATENCY_LIMIT_MS = 250
+
 # The venues whose round trip the rail reports: (key, name, dot colour).
 VENUES: tuple[tuple[str, str, str], ...] = (
     ("pm", "Polymarket", PM_DOT),
@@ -150,6 +153,7 @@ from bi_trading.ui.hub.hub_widgets import (  # noqa: E402
 
 # Bottom rail entries that have no view yet: (icon key, label).
 RAIL_EXTRAS: tuple[tuple[str, str], ...] = (
+    ("logs", "Logs"),
     ("settings", "Settings"),
 )
 
@@ -194,6 +198,9 @@ class MainHubWindow(QMainWindow):
         self._last_hl: float | None = None
         self._btc_price: float | None = None
         self._balance_wired = False
+        self._slow: dict[str, bool] = {}
+        self._up: dict[str, bool] = {}
+        self._seen_up: set[str] = set()
         self._online = autostart
 
         root = QWidget(self)
@@ -224,9 +231,11 @@ class MainHubWindow(QMainWindow):
 
         self.feed = MarketFeed(self)
         self.feed.latency.connect(self._on_hl_latency)
+        self.feed.connected.connect(self._on_hl_connected)
         self.feed.mids_updated.connect(self._on_mids)
         self.polymarket_feed = PolymarketFeed(self)
         self.polymarket_feed.latency.connect(self._on_pm_latency)
+        self.polymarket_feed.status.connect(self._on_pm_status)
         self.polymarket_feed.market_ready.connect(self._on_pm_market)
         self.polymarket_feed.book_updated.connect(self._on_pm_book)
         if autostart:
@@ -247,6 +256,7 @@ class MainHubWindow(QMainWindow):
             ("Ctrl+2", "live"),
             ("Ctrl+3", "builder"),
             ("Ctrl+4", "backtest"),
+            ("Ctrl+5", "logs"),
             ("Ctrl+,", "settings"),
         ):
             QShortcut(
@@ -319,6 +329,12 @@ class MainHubWindow(QMainWindow):
             from bi_trading.ui.strat.strat_window import StratWindow
 
             return StratWindow()
+        if key == "logs":
+            from bi_trading.ui.hub.logs_view import LogsView
+
+            logs = LogsView()
+            logs.open_live.connect(lambda: self._open("live"))
+            return logs
         if key == "settings":
             from bi_trading.ui.hub.settings_view import SettingsView
 
@@ -437,10 +453,63 @@ class MainHubWindow(QMainWindow):
     def _on_hl_latency(self, milliseconds: float) -> None:
         self._last_hl = milliseconds
         self._latency_labels["hl"].setText(f"{milliseconds:.0f}ms")
+        self._watch_latency("hyperliquid", "Hyperliquid", milliseconds)
 
     def _on_pm_latency(self, milliseconds: int) -> None:
         self._last_pm = int(milliseconds)
         self._latency_labels["pm"].setText(f"{int(milliseconds)}ms")
+        self._watch_latency("polymarket", "Polymarket", float(milliseconds))
+
+    def _watch_latency(self, source: str, name: str, milliseconds: float) -> None:
+        """One warning when a venue's round trip crosses the limit, one when it recovers."""
+        slow = milliseconds > LATENCY_LIMIT_MS
+        if slow == self._slow.get(source, False):
+            return
+        self._slow[source] = slow
+        from bi_trading.state.events import event_log
+
+        if slow:
+            event_log().record(
+                "warn", source, "LATENCY",
+                f"High latency {milliseconds:.0f} ms (limit {LATENCY_LIMIT_MS} ms)",
+                latency_ms=milliseconds,
+            )
+        else:
+            event_log().record(
+                "info", source, "LATENCY",
+                f"{name} latency back to {milliseconds:.0f} ms",
+                latency_ms=milliseconds,
+            )
+
+    def _on_hl_connected(self, up: bool) -> None:
+        self._note_connection("hyperliquid", "Hyperliquid", up)
+
+    def _on_pm_status(self, status: str) -> None:
+        if status in ("reconnecting", "closed"):
+            self._note_connection("polymarket", "Polymarket", False, status)
+        elif status == "live":
+            self._note_connection("polymarket", "Polymarket", True)
+
+    def _note_connection(
+        self, source: str, name: str, up: bool, status: str = ""
+    ) -> None:
+        """Log a connection coming or going, once per change."""
+        if self._up.get(source) == up:
+            return
+        known = source in self._up
+        self._up[source] = up
+        if not known and not up:
+            return  # not connected yet is not news
+        from bi_trading.state.events import event_log
+
+        if up:
+            word = "reconnected" if source in self._seen_up else "connected"
+            self._seen_up.add(source)
+            event_log().record("info", "system", "CONNECTION", f"{name} {word}")
+        else:
+            event_log().record(
+                "warn", "system", "CONNECTION", f"{name} {status or 'disconnected'}"
+            )
 
     # -- live data for the Live card ---------------------------------------
 
@@ -927,7 +996,7 @@ class MainHubWindow(QMainWindow):
 
         try:
             geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
-        except Exception:  # a window that never showed has nothing to save
+        except RuntimeError:  # a window that never showed has nothing to save
             geometry = ""
         if geometry:
             save_window_geometry(geometry)

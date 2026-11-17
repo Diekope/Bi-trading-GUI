@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 import threading
 from collections.abc import Coroutine
 from concurrent.futures import Future
@@ -19,15 +20,14 @@ T = TypeVar("T")
 # Every runner that is running, so an exit can stop them all. A daemon asyncio
 # thread left running while Qt and the interpreter finalize segfaults; stopping
 # them here, before finalization, keeps the exit clean.
-_LIVE: list["AsyncRunner"] = []
+_LIVE: list[AsyncRunner] = []
 
 
 def _stop_all() -> None:
     for runner in list(_LIVE):
-        try:
+        # An exit must not raise: a loop already closed is fine.
+        with contextlib.suppress(RuntimeError, OSError):
             runner.stop()
-        except Exception:  # noqa: BLE001 - an exit must not raise
-            pass
 
 
 atexit.register(_stop_all)
@@ -42,7 +42,7 @@ class AsyncRunner:
         self._started = False
         self._lock = threading.Lock()
 
-    def start(self) -> "AsyncRunner":
+    def start(self) -> AsyncRunner:
         with self._lock:
             if not self._started:
                 self._thread.start()
@@ -95,7 +95,7 @@ class AsyncRunner:
 
         self._loop.create_task(shutdown())
 
-    def __enter__(self) -> "AsyncRunner":
+    def __enter__(self) -> AsyncRunner:
         return self.start()
 
     def __exit__(self, *exc: object) -> None:

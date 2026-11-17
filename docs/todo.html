@@ -79,10 +79,10 @@
   <section>
     <h2>Quality</h2>
     <ul>
+    <li data-p="low" data-id="-logos-instead-of-color-for-the-polymarket-an"><input type="checkbox"><span><b>Logos instead of color</b> for the polymarket and kalshi color dots.</span><span class="tag low">Low</span></li>
     <li data-p="low" data-id="-visual-regression-screenshot-tests-for-the"><input type="checkbox"><span><b>Visual regression / screenshot tests</b> for the two windows.</span><span class="tag low">Low</span></li>
-    <li data-p="med" data-id="-stricter-lint-rules-up-b905-sim105-"><input type="checkbox"><span><b>Stricter lint rules</b> (<code>UP</code>, <code>B905</code>, <code>SIM105</code>) and a type checker in CI.</span><span class="tag med">Medium</span></li>
-    <li data-p="med" data-id="-narrow-the-broad-except-exception-handlers-"><input type="checkbox"><span><b>Narrow the broad <code>except Exception</code> handlers</b> in the venues, feeds and order store, and log what they swallow.</span><span class="tag med">Medium</span></li>
     <li data-p="low" data-id="-split-the-largest-modules-strat-playback-p"><input type="checkbox"><span><b>Split the largest modules</b> (<code>strat_playback.py</code>, <code>formula_builder.py</code>, <code>theme_qss.py</code>, <code>cards.py</code>).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-type-check-the-qt-widget-modules-mypy-cover"><input type="checkbox"><span><b>Type-check the Qt widget modules.</b> mypy covers the engine, data, state and venues; <code>bi_trading.ui.*</code> is excluded in <code>pyproject.toml</code> (Optional layouts and items in the PySide6 stubs, and a few widgets that shadow a QWidget method such as <code>self.size</code>). Clear them module by module.</span><span class="tag low">Low</span></li>
     </ul>
   </section>
 </main>

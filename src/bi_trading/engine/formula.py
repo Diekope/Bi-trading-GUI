@@ -275,7 +275,7 @@ def scan(text: str) -> list[Token]:
             continue
         line, column = _linecol(text, match.start())
         tokens.append(
-            Token(match.lastgroup, match.group(), match.start(), line, column)
+            Token(str(match.lastgroup), match.group(), match.start(), line, column)
         )
     if pos != len(text):
         line, column = _linecol(text, pos)
@@ -297,10 +297,19 @@ class _Parser:
     def _peek(self) -> Token | None:
         return self.tokens[self.i] if self.i < len(self.tokens) else None
 
-    def _next(self) -> Token | None:
+    def _next(self) -> Token:
+        """The next token. Callers have looked first; running out is a failure."""
         tok = self._peek()
-        if tok is not None:
-            self.i += 1
+        if tok is None:
+            raise self._failure("unexpected end of the formula")
+        self.i += 1
+        return tok
+
+    def _need(self) -> Token:
+        """The token under the cursor, which must exist."""
+        tok = self._peek()
+        if tok is None:
+            raise self._failure("unexpected end of the formula")
         return tok
 
     def _end(self) -> tuple[int, int]:
@@ -329,10 +338,10 @@ class _Parser:
 
     # -- grammar -----------------------------------------------------------
 
-    def program(self) -> tuple[list, list]:
+    def program(self) -> list[tuple[Token, object]]:
         statements: list[tuple[Token, object]] = []
         while self._peek() is not None:
-            if self._peek().kind == "newline":
+            if self._need().kind == "newline":
                 self._next()
                 continue
             statements.append(self.statement())
@@ -347,7 +356,7 @@ class _Parser:
         return statements
 
     def statement(self) -> tuple[Token, object]:
-        first = self._peek()
+        first = self._need()
         node = self.expression()
         # `name = expr` is the only assignment shape.
         if isinstance(node, Name) and self._is_op("="):
@@ -391,8 +400,8 @@ class _Parser:
 
     def additive(self) -> object:
         node = self.multiplicative()
-        while self._peek() is not None and self._peek().kind == "op" and (
-            self._peek().text in ("+", "-")
+        while self._peek() is not None and self._need().kind == "op" and (
+            self._need().text in ("+", "-")
         ):
             op = self._next().text
             node = Binary(op, node, self.multiplicative())
@@ -400,8 +409,8 @@ class _Parser:
 
     def multiplicative(self) -> object:
         node = self.unary()
-        while self._peek() is not None and self._peek().kind == "op" and (
-            self._peek().text in ("*", "/", "%")
+        while self._peek() is not None and self._need().kind == "op" and (
+            self._need().text in ("*", "/", "%")
         ):
             op = self._next().text
             node = Binary(op, node, self.unary())

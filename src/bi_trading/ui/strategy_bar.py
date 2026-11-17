@@ -115,8 +115,11 @@ class StrategyBar(Card):
 
     def set_reading(
         self, close: float | None, band: float | None, warming: bool = False
-    ) -> None:
-        """`warming` holds the signal off while the history is still too short."""
+    ) -> bool:
+        """`warming` holds the signal off while the history is still too short.
+
+        Returns whether the signal holds.
+        """
         self.close_label.setText("—" if close is None else f"{close:,.1f}")
         self.band_label.setText("—" if band is None else f"{band:,.1f}")
         holds = (
@@ -131,6 +134,7 @@ class StrategyBar(Card):
             style = self.signal_label.style()
             style.unpolish(self.signal_label)
             style.polish(self.signal_label)
+        return holds
 
     def set_bets(self, up: float | None, down: float | None) -> None:
         self.bet_up.setText("Bet UP —" if up is None else f"Bet UP {up * 100:.0f}¢")

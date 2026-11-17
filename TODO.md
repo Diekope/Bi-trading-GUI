@@ -36,9 +36,11 @@ log and the run log all exist.
 - [low] **A light theme.**
 
 ## Quality
+- [low] **Logos instead of color** for the polymarket and kalshi color dots.
 - [low] **Visual regression / screenshot tests** for the two windows.
-- [med] **Stricter lint rules** (`UP`, `B905`, `SIM105`) and a type checker in CI.
-- [med] **Narrow the broad `except Exception` handlers** in the venues, feeds and
-  order store, and log what they swallow.
 - [low] **Split the largest modules** (`strat_playback.py`, `formula_builder.py`,
   `theme_qss.py`, `cards.py`).
+- [low] **Type-check the Qt widget modules.** mypy covers the engine, data, state
+  and venues; `bi_trading.ui.*` is excluded in `pyproject.toml` (Optional
+  layouts and items in the PySide6 stubs, and a few widgets that shadow a
+  QWidget method such as `self.size`). Clear them module by module.

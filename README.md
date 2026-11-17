@@ -41,6 +41,7 @@ Details: [docs/configuration.md](docs/configuration.md).
 | Strategy builder | Drag-and-drop formula builder, rules, code view, saved strategies | [docs/strategy-builder.md](docs/strategy-builder.md) |
 | Formulas | The entry/exit formula language and its evaluator | [docs/formulas.md](docs/formulas.md) |
 | Backtest | Candle store and download, run controls, results, playback | [docs/backtest.md](docs/backtest.md) |
+| Logs | The trading record: orders, fills, signals, warnings, with the why | [docs/logs.md](docs/logs.md) |
 | Configuration | Settings, trading safety, saved state, logging | [docs/configuration.md](docs/configuration.md) |
 | Architecture | Why Python, source layout, data sources | [docs/architecture.md](docs/architecture.md) |
 

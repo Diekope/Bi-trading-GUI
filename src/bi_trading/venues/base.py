@@ -11,7 +11,8 @@ the Qt event-loop thread. Run one asyncio loop in a worker thread (see
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import AsyncIterator, Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
 
 Side = Literal["buy", "sell"]
 

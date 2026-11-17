@@ -292,7 +292,7 @@ class Chip(QFrame):
     """One token on a line. A `None` token is an empty slot to be filled."""
 
     def __init__(
-        self, token, builder: "FormulaBuilder", parent=None, fixed: bool = False
+        self, token, builder: FormulaBuilder, parent=None, fixed: bool = False
     ) -> None:
         super().__init__(parent)
         self.token = token
@@ -433,7 +433,7 @@ class NameChip(Chip):
     stands for onto the line after the `=`.
     """
 
-    def __init__(self, token, builder: "FormulaBuilder", parent=None) -> None:
+    def __init__(self, token, builder: FormulaBuilder, parent=None) -> None:
         super().__init__(token, builder, parent)
         self.edit = QLineEdit(str(token or ""), self)
         self.edit.setObjectName("chipNameEdit")
@@ -481,7 +481,7 @@ class CallChip(Chip):
         series: str,
         params,
         label: str,
-        builder: "FormulaBuilder",
+        builder: FormulaBuilder,
         parent=None,
     ) -> None:
         self.func = func
@@ -618,7 +618,7 @@ class FlowHolder(QWidget):
 class ChipStrip(QFrame):
     """A line: a caption, a run of chips, and a way to take the line away."""
 
-    def __init__(self, builder: "FormulaBuilder", parent=None) -> None:
+    def __init__(self, builder: FormulaBuilder, parent=None) -> None:
         super().__init__(parent)
         self.builder = builder
         self.setObjectName("chipStrip")

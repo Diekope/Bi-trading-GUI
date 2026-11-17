@@ -16,6 +16,9 @@ evaluated a bar at a time against the open trade's numbers.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import operator
 from collections import deque
 from dataclasses import dataclass, field
@@ -23,7 +26,7 @@ from dataclasses import dataclass, field
 try:  # a fast, vectorised path for the entry rule; the list walk is the reference
     import numpy as _np
 except ModuleNotFoundError:  # pragma: no cover - numpy is a hard dependency
-    _np = None
+    _np = None  # type: ignore[assignment]
 
 from bi_trading.engine.formula import (
     ENTRY_FIELDS,
@@ -165,10 +168,11 @@ def _ema(values, period: int):
 
 
 def _rsi(values, period: int):
-    out = [None] * len(values)
+    out: list[float | None] = [None] * len(values)
     gains: list[float] = []
     losses: list[float] = []
-    average_gain = average_loss = None
+    average_gain: float | None = None
+    average_loss: float | None = None
     previous = None
     for index, value in enumerate(values):
         if value is None:
@@ -191,8 +195,10 @@ def _rsi(values, period: int):
             average_gain = sum(gains) / period
             average_loss = sum(losses) / period
         else:
+            assert average_loss is not None  # set together with average_gain
             average_gain = (average_gain * (period - 1) + gain) / period
             average_loss = (average_loss * (period - 1) + loss) / period
+        assert average_gain is not None and average_loss is not None
         out[index] = _rsi_value(average_gain, average_loss)
     return out
 
@@ -265,7 +271,7 @@ def _zscore(values, period: int):
     return [
         None if value is None or mean is None or deviation in (None, 0)
         else (value - mean) / deviation
-        for value, mean, deviation in zip(values, middle, spread)
+        for value, mean, deviation in zip(values, middle, spread, strict=False)
     ]
 
 
@@ -297,7 +303,7 @@ def _pairwise(values, function):
 
 def _between(left, right, function):
     out = []
-    for a, b in zip(left, right):
+    for a, b in zip(left, right, strict=False):
         out.append(None if a is None or b is None else function(a, b))
     return out
 
@@ -437,29 +443,29 @@ def _eval(node, scope: dict):
             right = _eval(node.right, scope)
             if node.op == "and":
                 return [1.0 if _truth(a) and _truth(b) else 0.0
-                        for a, b in zip(left, right)]
+                        for a, b in zip(left, right, strict=False)]
             return [1.0 if _truth(a) or _truth(b) else 0.0
-                    for a, b in zip(left, right)]
+                    for a, b in zip(left, right, strict=False)]
         left = _eval(node.left, scope)
         right = _eval(node.right, scope)
         simple = _SIMPLE_OP.get(node.op)
         if simple is not None:
             return [
                 None if a is None or b is None else float(simple(a, b))
-                for a, b in zip(left, right)
+                for a, b in zip(left, right, strict=False)
             ]
         if node.op == "/":
             return [
                 None if a is None or b is None or b == 0 else a / b
-                for a, b in zip(left, right)
+                for a, b in zip(left, right, strict=False)
             ]
         if node.op == "%":
             return [
                 None if a is None or b is None or b == 0 else a % b
-                for a, b in zip(left, right)
+                for a, b in zip(left, right, strict=False)
             ]
-        out = []
-        for a, b in zip(left, right):
+        out: list[float | None] = []
+        for a, b in zip(left, right, strict=False):
             if a is None or b is None:
                 out.append(None)
                 continue
@@ -484,7 +490,7 @@ def evaluate(formula: Formula, context: dict):
 
 
 def entry_signals(
-    formula: Formula, bars, fields=ENTRY_FIELDS, warmup: int = 0
+    formula: Formula | None, bars, fields=ENTRY_FIELDS, warmup: int = 0
 ) -> list[int]:
     """The bars where an entry rule is true, from bar `warmup` on.
 
@@ -503,7 +509,7 @@ def entry_signals(
     return picked
 
 
-def _entry_signals(formula: Formula, bars, fields) -> list[int]:
+def _entry_signals(formula: Formula | None, bars, fields) -> list[int]:
     if formula is None or formula.condition is None:
         return []
     fast = _numpy_signals(formula, bars, fields)
@@ -524,7 +530,7 @@ def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
     if _np is None:
         return None
     if isinstance(bars, dict):
-        arrays = {}
+        arrays: dict[str, Any] = {}
         for name in fields:
             if name not in bars:
                 return None
@@ -533,9 +539,10 @@ def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
                 return None
             arrays[name] = array
     else:
-        arrays = _numpy_context(bars, fields)
-        if arrays is None:
+        context = _numpy_context(bars, fields)
+        if context is None:
             return None
+        arrays = context
     length = len(next(iter(arrays.values()))) if arrays else 0
     if length == 0:
         return []
@@ -559,6 +566,7 @@ def _numpy_context(bars, fields) -> dict | None:
 
     if not bars:
         return {name: _np.array([], dtype=float) for name in fields}
+    getters: dict[str, Callable[[Any], Any]]
     if isinstance(bars[0], dict):
         getters = {name: methodcaller("get", name) for name in fields}
     else:
@@ -883,7 +891,7 @@ def curve_sharpe(curve) -> float:
     """Mean over deviation of the per-bar returns, not annualised."""
     returns = [
         value / previous - 1.0
-        for previous, value in zip(curve, curve[1:])
+        for previous, value in zip(curve, curve[1:], strict=False)
         if previous > 0
     ]
     if len(returns) < 2:
@@ -1125,7 +1133,7 @@ def _walk(
         if price:
             fees += quantity * price * fee
             change = (price / entry_price - 1.0) if entry_price else 0.0
-            results.append((-change if going_short else change))
+            results.append(-change if going_short else change)
             reasons.append(REASON_END)
     return equity, results, reasons, fees
 

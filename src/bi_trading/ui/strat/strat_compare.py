@@ -274,7 +274,7 @@ class SweepLegend(QWidget):
         painter.setFont(mono_font(8))
         step = self.width() / len(SWEEP_CAPTIONS)
         for index, (colour, caption) in enumerate(
-            zip(SWEEP_COLOURS, SWEEP_CAPTIONS)
+            zip(SWEEP_COLOURS, SWEEP_CAPTIONS, strict=False)
         ):
             left = index * step
             painter.setPen(Qt.PenStyle.NoPen)

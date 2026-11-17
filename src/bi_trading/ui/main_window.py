@@ -162,6 +162,7 @@ class MainWindow(QMainWindow):
         # Bars of history before the signal counts, the same setting the
         # backtest uses (0 is off). Read once: this runs on every tick.
         self._warmup = _read_warmup()
+        self._signal_on = False  # the strategy's signal last tick, to log a change
         self.strategy_bar.bet.connect(self._place_bet)
         self._bet_wired = False
         layout.addWidget(self.strategy_bar)
@@ -299,7 +300,18 @@ class MainWindow(QMainWindow):
             bands = bollinger_bands(candles[-20:])
             last = bands[-1] if bands else None
             band = last[2] if last else None
-        bar.set_reading(close, band, warming=len(candles) < self._warmup)
+        warming = len(candles) < self._warmup
+        holds = bar.set_reading(close, band, warming=warming)
+        if holds and not self._signal_on and close is not None and band is not None:
+            from bi_trading.state.events import event_log
+
+            event_log().record(
+                "info", "strategy", "SIGNAL",
+                f"Bollinger reversion · close {close:,.1f} < band {band:,.1f}",
+                "auto", strategy="Bollinger reversion",
+                why=["close < band", f"close {close:,.1f} · band {band:,.1f}", "→ TRUE"],
+            )
+        self._signal_on = holds
         bar.set_bets(
             self.polymarket.up_tile.price, self.polymarket.down_tile.price
         )
@@ -408,7 +420,7 @@ class MainWindow(QMainWindow):
             svc.placed.connect(self._on_bet_placed)
             svc.failed.connect(self._on_bet_failed)
             self._bet_wired = True
-        svc.submit("polymarket", order, config_for("polymarket"))
+        svc.submit("polymarket", order, config_for("polymarket"))  # a manual bet
 
     def _on_bet_placed(self, venue: str, summary: str) -> None:
         if venue == "polymarket":
@@ -517,5 +529,6 @@ def _read_warmup() -> int:
 
     try:
         return max(0, int(Settings.load().backtest.warmup))
-    except Exception:  # noqa: BLE001 - a missing or unreadable settings file
+    except (OSError, ValueError, TypeError):  # a missing or unreadable file
+        log.debug("could not read the warm-up setting", exc_info=True)
         return 0

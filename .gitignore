@@ -14,3 +14,9 @@ data/candles/*
 
 # Rust build output.
 rust/*/target/
+
+# Logs: the debug log and the trading log (and its Parquet archive). They live
+# under ~/.local/share by default; these keep them out if pointed into the repo.
+*.log
+events.jsonl
+events.parquet

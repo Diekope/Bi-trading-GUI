@@ -20,11 +20,14 @@ across a gap rather than inventing the missing minutes.
 
 from __future__ import annotations
 
+from typing import Any
+
 import os
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 import numpy as np
+import contextlib
 
 ASSET = "BTC"
 RESOLUTION = "1m"          # the only resolution ever downloaded
@@ -114,16 +117,14 @@ def legacy_csv(year: int, resolution: str = RESOLUTION) -> Path:
 def ensure_data_dir() -> Path:
     """Create the folder on first use so a download has somewhere to go."""
     target = candles_dir()
-    try:
+    with contextlib.suppress(OSError):
         target.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
     return target
 
 
 def _stamp(year: int, month: int, day: int) -> int:
     return int(
-        datetime(year, month, day, tzinfo=timezone.utc).timestamp() * 1000
+        datetime(year, month, day, tzinfo=UTC).timestamp() * 1000
     )
 
 
@@ -135,7 +136,7 @@ def expected_rows(year: int, now: datetime | None = None) -> int:
     is not called short.
     """
     if now is None:
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
     start = max(_stamp(year, 1, 1), HISTORY_START_MS)
     end = _stamp(year + 1, 1, 1)
     if year == now.year:
@@ -157,10 +158,8 @@ def _migrate(path: Path) -> None:
     _write_table(path, table)
     # Only remove the source once the new file holds every row.
     if row_count(path) >= len(table):
-        try:
+        with contextlib.suppress(OSError):
             csv.unlink()
-        except OSError:
-            pass
 
 
 def _ensure(path: Path) -> None:
@@ -178,7 +177,7 @@ def store_signature(path: Path) -> tuple[int, int] | None:
     return (stat.st_mtime_ns, stat.st_size)
 
 
-def table(path: Path) -> "object | None":
+def table(path: Path) -> Any | None:
     """The year's table, migrating a legacy CSV first. None when absent."""
     pa, pq = _arrow()
     _ensure(path)
@@ -266,7 +265,7 @@ def append_rows(
         return 0
     ensure_data_dir()
     pa, _ = _arrow()
-    stamps, opens, highs, lows, closes, volumes = zip(*rows)
+    stamps, opens, highs, lows, closes, volumes = zip(*rows, strict=False)
     fresh = pa.table(
         {
             "timestamp": pa.array(stamps, pa.int64()),
@@ -337,7 +336,7 @@ def coverage(
 ) -> tuple[list[int], list[int]]:
     """(years with no file at all, years whose file is short of full)."""
     if now is None:
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
     missing: list[int] = []
     partial: list[int] = []
     for year in range(start_year, end_year + 1):

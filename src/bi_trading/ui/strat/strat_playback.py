@@ -26,11 +26,12 @@ touches both pays the target.
 from __future__ import annotations
 
 import random
+import logging
 import threading
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
@@ -52,6 +53,8 @@ from bi_trading.engine.formula_eval import evaluate_scalar
 from bi_trading.ui.cards import mono_font
 from bi_trading.ui.panels import Card
 from bi_trading.ui.theme import ACCENT, DOWN, TEXT_FAINT, TEXT_MUTED, UP
+
+log = logging.getLogger(__name__)
 
 # The colour a picked trade is drawn in on the chart.
 TRADE_HILITE = "#c08bff"
@@ -280,7 +283,7 @@ class ColumnSpan:
         )
 
     @classmethod
-    def from_arrays(cls, data: tuple) -> "ColumnSpan":
+    def from_arrays(cls, data: tuple) -> ColumnSpan:
         """A span from (stamps, open, high, low, close, volume) arrays."""
         span = cls.__new__(cls)
         (span.stamps, span.opens, span.highs, span.lows, span.closes,
@@ -302,7 +305,7 @@ def window_around(
     """
     if not years or not stamp:
         return []
-    year = datetime.fromtimestamp(stamp / 1000, tz=timezone.utc).year
+    year = datetime.fromtimestamp(stamp / 1000, tz=UTC).year
     if year not in years:
         year = min(years, key=lambda value: abs(value - year))
     path = candle_file(year)
@@ -419,7 +422,7 @@ class Playback:
         entries=None,
         dynamic_tp: bool = False,
         reverse: float = 0.0,
-        span: "ColumnSpan | None" = None,
+        span: ColumnSpan | None = None,
         side: str = "long",
         exit_formula=None,
         short_entries=None,
@@ -1108,7 +1111,7 @@ def random_entries(
 _SPAN_ARRAY_CACHE: dict[tuple, tuple] = {}
 
 
-def load_span(years: list[int], resolution: str) -> "ColumnSpan | None":
+def load_span(years: list[int], resolution: str) -> ColumnSpan | None:
     """The span as a `ColumnSpan`, read a year at a time.
 
     A year's bars become arrays and are let go before the next year is read, so
@@ -1205,7 +1208,7 @@ class BacktestSession:
     high: float = 0.0
     # When the span is held in memory, the core can jump the walk to a bar.
     bars: list | None = None
-    span: "ColumnSpan | None" = None
+    span: ColumnSpan | None = None
     closes: tuple | None = None
     highs: tuple | None = None
     lows: tuple | None = None
@@ -1835,7 +1838,7 @@ class CandlePlayer(QWidget):
             if not base <= position <= last:
                 continue
             bar = bars[position - base]
-            stamp = datetime.fromtimestamp(bar.stamp / 1000, tz=timezone.utc)
+            stamp = datetime.fromtimestamp(bar.stamp / 1000, tz=UTC)
             painter.drawText(
                 QRectF(x, bottom + 1, 68, 13),
                 align | Qt.AlignmentFlag.AlignVCenter,
@@ -2100,6 +2103,7 @@ class PlaybackTile(Card):
             try:
                 result = session._core_compute(target)
             except Exception as exc:  # handed to the main thread, not lost
+                log.warning("the walk failed", exc_info=True)
                 result = exc
             self._walk_ready.emit(token, session, target, result)
 
@@ -2357,7 +2361,7 @@ class PlaybackTile(Card):
                 for title, _, _ in self.playback.metrics()
             ]
         for (caption, value), (title, text, role) in zip(
-            self._metric_labels, rows
+            self._metric_labels, rows, strict=False
         ):
             if caption.text() != title:
                 caption.setText(title)

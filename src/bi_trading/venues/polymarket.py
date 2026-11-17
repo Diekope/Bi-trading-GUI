@@ -18,6 +18,9 @@ wallet is reached through the deposit/proxy flow).
 
 from __future__ import annotations
 
+import contextlib
+import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from bi_trading.venues.base import (
@@ -25,9 +28,12 @@ from bi_trading.venues.base import (
     Instrument,
     OrderAck,
     OrderRequest,
+    Quote,
     VenueError,
     friendly_message,
 )
+
+log = logging.getLogger(__name__)
 
 REST_URL = "https://clob.polymarket.com"
 
@@ -79,7 +85,10 @@ def key_wallets(private_key: str) -> dict[str, str] | None:
             "proxy": w.derive_proxy_wallet_address(signer, config),
             "safe": w.derive_safe_wallet_address(signer, config),
         }
-    except Exception:  # noqa: BLE001 - a missing or changed SDK internal
+    except (ImportError, AttributeError, KeyError, TypeError, ValueError):
+        # A missing or moved SDK internal: skip the check, but leave a trace so
+        # an SDK upgrade that broke it does not go unnoticed.
+        log.debug("could not derive the key's wallets", exc_info=True)
         return None
 
 
@@ -148,15 +157,14 @@ class PolymarketVenue:
                 api_key=api_key,
             )
         except Exception as exc:  # auth, region, transport: all the same here
+            log.debug("polymarket connect failed", exc_info=True)
             raise VenueError(friendly_message(exc)) from exc
 
     async def close(self) -> None:
         client, self._client = self._client, None
         if client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await client.close()
-            except Exception:
-                pass
 
     # -- reads -------------------------------------------------------------
 
@@ -210,6 +218,11 @@ class PolymarketVenue:
         except Exception as exc:  # the SDK raises a wide variety of types
             raise VenueError(friendly_message(exc)) from exc
         return _ack(result, order)
+
+    async def quotes(self, instrument: Instrument) -> AsyncIterator[Quote]:
+        """Not here: Polymarket's prices come from its own market feed."""
+        raise VenueError("Polymarket quotes come from the market feed")
+        yield  # pragma: no cover - makes this an async generator, like the protocol
 
     async def cancel(self, instrument: Instrument, venue_order_id: str) -> None:
         await self.connect()

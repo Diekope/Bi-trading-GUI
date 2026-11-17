@@ -26,6 +26,7 @@ import asyncio
 import json
 
 from bi_trading.data.jsonio import loads
+import logging
 import threading
 import time
 from typing import Any
@@ -47,6 +48,20 @@ from bi_trading.data.market_data import (
     parse_universe,
 )
 from bi_trading.venues.runner import AsyncRunner
+
+log = logging.getLogger(__name__)
+
+# What a network call can fail with, so a flaky link is told apart from a bug.
+_NET_ERRORS = (
+    httpx.HTTPError,
+    websockets.WebSocketException,
+    OSError,
+    TimeoutError,
+    ValueError,
+    KeyError,
+    TypeError,
+)
+
 
 INFO_URL = "https://api.hyperliquid.xyz/info"
 WS_URL = "wss://api.hyperliquid.xyz/ws"
@@ -216,7 +231,7 @@ class MarketFeed(QObject):
             self._http = http
             try:
                 await self._load_universe()
-            except Exception as exc:  # network hiccup: stream first, retry later
+            except _NET_ERRORS as exc:  # network hiccup: stream first, retry later
                 self.error.emit(f"universe: {type(exc).__name__}: {exc}")
 
             candle_task = asyncio.create_task(self._candle_loop())
@@ -235,7 +250,8 @@ class MarketFeed(QObject):
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except Exception as exc:  # a reconnect loop must outlive any one failure
+                log.warning("market stream dropped", exc_info=True)
                 self.error.emit(f"stream: {type(exc).__name__}: {exc}")
             finally:
                 self.connected.emit(False)
@@ -254,7 +270,7 @@ class MarketFeed(QObject):
         )
 
         markets: list[Market] = []
-        for dex, payload in zip(DEXES, payloads):
+        for dex, payload in zip(DEXES, payloads, strict=False):
             if payload:
                 markets.extend(parse_universe(payload, dex))
 
@@ -315,7 +331,7 @@ class MarketFeed(QObject):
                         await self._send(ws, method, subscription)
                     try:
                         raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
                     self.dispatch(raw)
             finally:
@@ -328,7 +344,7 @@ class MarketFeed(QObject):
             try:
                 pong = await ws.ping()
                 seconds = await asyncio.wait_for(pong, timeout=5.0)
-            except Exception:  # socket gone, reconnecting will retry
+            except _NET_ERRORS:  # socket gone, reconnecting will retry
                 return
             self.latency.emit(float(seconds) * 1000.0)
             await asyncio.sleep(PING_EVERY)
@@ -360,7 +376,7 @@ class MarketFeed(QObject):
                 *(self._fetch_candles(coin, interval) for coin, interval in watches),
                 return_exceptions=True,
             )
-            for key, result in zip(watches, results):
+            for key, result in zip(watches, results, strict=False):
                 if isinstance(result, CandleSeries):
                     with self._lock:
                         if key not in self._watches:
@@ -414,7 +430,7 @@ class MarketFeed(QObject):
             self.window_candles.emit(
                 CandleSeries(coin, "1m", parse_candles(payload))
             )
-        except Exception as exc:
+        except _NET_ERRORS as exc:
             self.error.emit(f"window: {type(exc).__name__}: {exc}")
 
     async def _fetch_older(
@@ -442,7 +458,7 @@ class MarketFeed(QObject):
                 if candle.t < before_ms
             )
             self.older_candles.emit(CandleSeries(coin, interval, older))
-        except Exception as exc:
+        except _NET_ERRORS as exc:
             self.error.emit(f"history: {type(exc).__name__}: {exc}")
             self.history_failed.emit(coin, interval)
         finally:

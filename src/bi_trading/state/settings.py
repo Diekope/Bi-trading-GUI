@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 DEFAULT_PATH = "~/.config/bi-trading/settings.json"
@@ -75,7 +76,7 @@ TEMPLATE = {
         "sizing": "balance",
         "timeframe": "1m",
         "start_year": FIRST_YEAR,
-        "end_year": datetime.now(tz=timezone.utc).year,
+        "end_year": datetime.now(tz=UTC).year,
     },
     "accounts": {
         "_comment": "Public addresses only; private keys live in the system keychain (see Settings).",
@@ -142,15 +143,15 @@ class BacktestDefaults:
     timeframe: str = "1m"              # resolution the 1m bars compact to
     start_year: int = FIRST_YEAR       # first year of history
     end_year: int = field(
-        default_factory=lambda: datetime.now(tz=timezone.utc).year
+        default_factory=lambda: datetime.now(tz=UTC).year
     )
 
     @classmethod
     def load(
         cls,
         raw: object,
-        environment: dict[str, str] | None = None,
-    ) -> "BacktestDefaults":
+        environment: Mapping[str, str] | None = None,
+    ) -> BacktestDefaults:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
@@ -160,7 +161,7 @@ class BacktestDefaults:
                 values[spec.name] = override
 
         defaults = cls()
-        latest = datetime.now(tz=timezone.utc).year
+        latest = datetime.now(tz=UTC).year
         start = int(
             _clamp(
                 _number(values.get("start_year"), defaults.start_year),
@@ -236,8 +237,8 @@ class TradingDefaults:
     def load(
         cls,
         raw: object,
-        environment: dict[str, str] | None = None,
-    ) -> "TradingDefaults":
+        environment: Mapping[str, str] | None = None,
+    ) -> TradingDefaults:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
@@ -285,8 +286,8 @@ class GeneralSettings:
     def load(
         cls,
         raw: object,
-        environment: dict[str, str] | None = None,
-    ) -> "GeneralSettings":
+        environment: Mapping[str, str] | None = None,
+    ) -> GeneralSettings:
         environment = os.environ if environment is None else environment
         values = dict(raw) if isinstance(raw, dict) else {}
 
@@ -335,8 +336,8 @@ class Settings:
     def load(
         cls,
         path: Path | str | None = None,
-        environ: dict[str, str] | None = None,
-    ) -> "Settings":
+        environ: Mapping[str, str] | None = None,
+    ) -> Settings:
         target = settings_path() if path is None else Path(path)
         environment = os.environ if environ is None else environ
 

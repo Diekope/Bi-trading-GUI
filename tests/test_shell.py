@@ -21,6 +21,7 @@ from bi_trading.data.market_data import (  # noqa: E402
     Market,
 )
 from bi_trading.ui.theme import CANVAS, CARD_GAP, PANEL, apply_dark_theme  # noqa: E402
+import contextlib
 
 
 @pytest.fixture(scope="session")
@@ -615,10 +616,8 @@ def test_price_zoom_changes_what_is_painted(app: QApplication, window: MainWindo
 
 def _detach_feed(window: MainWindow) -> None:
     """Stop the (unstarted) feed from answering, so `awaiting` can be observed."""
-    try:
+    with contextlib.suppress(RuntimeError):
         window.main_card.history_requested.disconnect()
-    except RuntimeError:
-        pass
 
 
 def _stamped_series(start: int, count: int, step: int = 60_000) -> tuple[Candle, ...]:

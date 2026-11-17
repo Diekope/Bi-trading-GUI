@@ -16,6 +16,7 @@ and `websockets` are chatty at INFO and their output is rarely what is wanted.
 from __future__ import annotations
 
 import logging
+import contextlib
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -117,10 +118,10 @@ def install_qt_handler() -> None:
 
     def handler(mode, context, message) -> None:  # noqa: ANN001 - Qt's shape
         # Qt calls this from C++; an exception here would be lost or fatal.
-        try:
+        # A broken log handler (a full disk, a closed stream) must not take Qt
+        # down with it.
+        with contextlib.suppress(OSError, ValueError):
             logger.log(levels.get(mode, logging.INFO), "%s", message)
-        except Exception:  # pragma: no cover - defensive
-            pass
 
     qInstallMessageHandler(handler)
 

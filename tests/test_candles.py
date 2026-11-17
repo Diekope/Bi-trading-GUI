@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 
@@ -54,19 +54,19 @@ def test_the_settings_folder_is_used_when_the_environment_is_silent(
 
 
 def test_a_year_is_expected_from_the_calendar() -> None:
-    assert expected_rows(2019, datetime(2020, 1, 1, tzinfo=timezone.utc)) == 365 * 1440
+    assert expected_rows(2019, datetime(2020, 1, 1, tzinfo=UTC)) == 365 * 1440
     # 2020 is a leap year.
-    assert expected_rows(2020, datetime(2021, 1, 1, tzinfo=timezone.utc)) == 366 * 1440
+    assert expected_rows(2020, datetime(2021, 1, 1, tzinfo=UTC)) == 366 * 1440
     # The current year only counts up to today: at 2024-03-01T00:00Z the last
     # closed bar is 2024-02-29T23:59Z.
-    now = datetime(2024, 3, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 3, 1, tzinfo=UTC)
     assert expected_rows(2024, now) == (31 + 29) * 1440
 
 
 def test_2017_is_only_expected_from_the_pair_listing() -> None:
     # BTCUSDT opened on 2017-08-17T04:00Z, so that year can never hold twelve
     # months of minutes, and its Download must still be able to finish.
-    expected = expected_rows(2017, datetime(2018, 1, 1, tzinfo=timezone.utc))
+    expected = expected_rows(2017, datetime(2018, 1, 1, tzinfo=UTC))
 
     assert expected == 197_040
     # Binance's real 2017 coverage (with its few outages) clears the bar.

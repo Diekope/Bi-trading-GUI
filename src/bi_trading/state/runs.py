@@ -27,6 +27,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+import contextlib
 
 __all__ = ["SavedRun", "get", "load", "path", "remove", "save"]
 
@@ -109,7 +110,7 @@ def _from_index(item: dict) -> SavedRun | None:
     if not name:
         return None
     years = item.get("years", [])
-    side = item.get("side") if item.get("side") in ("short", "both") else "long"
+    side = str(item["side"]) if item.get("side") in ("short", "both") else "long"
     inline = list(item.get("trades", []) or [])
     return SavedRun(
         name=name,
@@ -276,10 +277,8 @@ def _migrate(items: list[dict]) -> list[dict]:
     # Keep the old file once, in case the layout needs to be walked back.
     backup = path().with_suffix(".json.bak")
     if not backup.exists():
-        try:
+        with contextlib.suppress(OSError):
             backup.write_bytes(path().read_bytes())
-        except OSError:
-            pass
     out = []
     for item in items:
         inline = item.get("trades") or []

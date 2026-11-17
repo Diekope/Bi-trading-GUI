@@ -47,6 +47,7 @@ dev = [
     "pytest-qt>=4.4",
     "pytest-xdist>=3.5",
     "ruff>=0.6",
+    "mypy>=1.10",
 ]
 
 [tool.ruff]
@@ -57,8 +58,22 @@ exclude = ["rust", "src/bi_trading/ui/assets"]
 [tool.ruff.lint]
 # A conservative set: real errors (undefined names, unused imports, bad syntax)
 # without demanding a restyle of a hand-written codebase.
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "UP", "B905", "SIM105"]
 ignore = ["E501", "E741"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+ignore_missing_imports = true
+
+# The engine, data, state and venue code is checked. The Qt widget modules are
+# not yet: most of what the PySide6 stubs report there is Optional layouts and
+# items (`layout()` may be None), plus a few widgets that shadow a QWidget
+# method (`self.size = QLineEdit`). Clear them module by module and drop the
+# module from this list.
+[[tool.mypy.overrides]]
+module = "bi_trading.ui.*"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

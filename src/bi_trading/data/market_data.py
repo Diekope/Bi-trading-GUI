@@ -5,6 +5,8 @@ No Qt and no I/O here, so it is all unit-testable without a window or network.
 
 from __future__ import annotations
 
+from typing import Any
+
 from dataclasses import dataclass
 from math import floor, log10
 
@@ -261,7 +263,7 @@ def parse_bbo(payload: dict) -> tuple[str, float] | None:
     if not isinstance(payload, dict):
         return None
     coin = str(payload.get("coin") or "")
-    levels = payload.get("bbo") or ()
+    levels: Any = payload.get("bbo") or ()
     if not coin or len(levels) < 2:
         return None
     try:

@@ -24,6 +24,7 @@ import asyncio
 import json
 
 from bi_trading.data.jsonio import loads
+import logging
 import time
 from typing import Any
 
@@ -43,6 +44,20 @@ from bi_trading.data.polymarket_data import (
     parse_price_changes,
 )
 from bi_trading.venues.runner import AsyncRunner
+
+log = logging.getLogger(__name__)
+
+# What a network call can fail with, so a flaky link is told apart from a bug.
+_NET_ERRORS = (
+    httpx.HTTPError,
+    websockets.WebSocketException,
+    OSError,
+    TimeoutError,
+    ValueError,
+    KeyError,
+    TypeError,
+)
+
 
 GAMMA_URL = "https://gamma-api.polymarket.com"
 CLOB_URL = "https://clob.polymarket.com"
@@ -102,7 +117,7 @@ class PolymarketFeed(QObject):
                     market: PolymarketMarket | None = None
                     try:
                         market = await self._resolve(http, slug)
-                    except Exception as exc:
+                    except _NET_ERRORS as exc:
                         self.error.emit(f"gamma: {type(exc).__name__}: {exc}")
 
                     if market is None:
@@ -144,10 +159,11 @@ class PolymarketFeed(QObject):
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except Exception as exc:  # a reconnect loop must outlive any one failure
                 # The venue closes the socket at resolution; that is expected,
                 # not an error worth printing every five minutes.
                 if time.time() < market.end_ms / 1000 - 1.0:
+                    log.warning("market socket dropped", exc_info=True)
                     self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
             # Do not reconnect in the last seconds of a window: the market is
             # about to close and the next slug is a fresh session anyway.
@@ -171,7 +187,7 @@ class PolymarketFeed(QObject):
                     continue  # no book yet; the WS frame will arrive shortly
                 response.raise_for_status()
                 book = parse_book(response.json())
-            except Exception as exc:
+            except _NET_ERRORS as exc:
                 self.error.emit(f"book: {type(exc).__name__}: {exc}")
                 continue
             if book is not None:
@@ -236,7 +252,7 @@ class PolymarketFeed(QObject):
                         await asyncio.sleep(LATENCY_EVERY)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except _NET_ERRORS:
                 pass  # a probe failure is not an app error
             if self._stopping:
                 break

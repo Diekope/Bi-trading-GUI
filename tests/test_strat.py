@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -128,7 +128,7 @@ def test_the_tiles_fill_the_column_without_scrolling(
 
 def test_the_span_picker_covers_2017_to_now(app: QApplication, window) -> None:
     tile = window.download
-    this_year = datetime.now(tz=timezone.utc).year
+    this_year = datetime.now(tz=UTC).year
 
     years = [tile.start_year.itemText(i) for i in range(tile.start_year.count())]
     assert years[0] == str(FIRST_YEAR)

@@ -12,7 +12,7 @@ unwired.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from PySide6.QtCore import QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
@@ -94,7 +94,7 @@ class DownloadTile(Card):
         self._busy = False
         self._error: str | None = None
         self._defaults = Settings.load().backtest
-        this_year = datetime.now(tz=timezone.utc).year
+        this_year = datetime.now(tz=UTC).year
         years = list(range(FIRST_YEAR, this_year + 1))
         start = (
             self._defaults.start_year

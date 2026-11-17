@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
@@ -426,7 +426,7 @@ class PriceChart(QWidget):
                     QRectF(x - 18, bottom + 1, 36, 13),
                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                     datetime.fromtimestamp(
-                        boundary / 1000, tz=timezone.utc
+                        boundary / 1000, tz=UTC
                     ).strftime("%H:%M"),
                 )
                 last_label = x
@@ -436,7 +436,7 @@ class PriceChart(QWidget):
         painter.drawText(
             QRectF(right - 44, bottom + 1, 44, 13),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            datetime.fromtimestamp(end / 1000, tz=timezone.utc).strftime("%H:%M"),
+            datetime.fromtimestamp(end / 1000, tz=UTC).strftime("%H:%M"),
         )
 
         # The line: the samples inside the view, plus the eased live tip.
@@ -621,7 +621,7 @@ class TradeTape(QWidget):
             y = 16 + index * row_h
             moment = datetime.fromtimestamp(
                 trade.timestamp_ms / 1000 if trade.timestamp_ms else time.time(),
-                tz=timezone.utc,
+                tz=UTC,
             ).strftime("%H:%M:%S")
             painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
@@ -886,7 +886,7 @@ class PolymarketPanel(Card):
         self.liquidity_value.setText(format_compact(market.liquidity))
         self.status_text.setToolTip(market.slug)
 
-        for tile, outcome in zip((self.up_tile, self.down_tile), market.outcomes):
+        for tile, outcome in zip((self.up_tile, self.down_tile), market.outcomes, strict=False):
             tile.set_name(outcome.name)
             bid = outcome.best_bid
             ask = outcome.best_ask
@@ -1105,8 +1105,8 @@ class PolymarketPanel(Card):
     def _window_text(market: PolymarketMarket) -> str:
         if market.start_ms <= 0 or market.end_ms <= 0:
             return "—"
-        start = datetime.fromtimestamp(market.start_ms / 1000, tz=timezone.utc)
-        end = datetime.fromtimestamp(market.end_ms / 1000, tz=timezone.utc)
+        start = datetime.fromtimestamp(market.start_ms / 1000, tz=UTC)
+        end = datetime.fromtimestamp(market.end_ms / 1000, tz=UTC)
         return f"{start:%H:%M}–{end:%H:%M} UTC"
 
     def _tick(self) -> None:

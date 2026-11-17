@@ -36,7 +36,7 @@ try:  # the extension, if it was built
     from bi_trading_core import walk_chunk as _native_walk_chunk  # type: ignore
 
     _NATIVE = True
-except Exception:  # pragma: no cover - depends on the build
+except ImportError:  # pragma: no cover - depends on the build
     _native_walk_chunk = None
     _native_random_entries = None
     _NATIVE = False

@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bi_trading.state.settings import load_raw, save_raw, settings_path
+import contextlib
 
 SERVICE = "lalala"  # keychain entry name, kept so already-saved keys still resolve
 
@@ -242,15 +243,13 @@ def _keychain_write(name: str, value: str) -> bool:
 
 
 def _keychain_delete(name: str) -> None:
-    try:
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run(
             ["security", "delete-generic-password", "-s", SERVICE, "-a", name],
             capture_output=True,
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
-        pass
 
 
 # -- validation -------------------------------------------------------------

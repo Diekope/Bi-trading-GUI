@@ -23,6 +23,11 @@ os.environ["BI_TRADING_SECRETS"] = os.path.join(
     os.environ["BI_TRADING_SETTINGS"].rsplit("/", 1)[0], "secrets.json"
 )
 
+# The trading log, too.
+os.environ["BI_TRADING_EVENTS"] = os.path.join(
+    os.environ["BI_TRADING_SETTINGS"].rsplit("/", 1)[0], "events.jsonl"
+)
+
 import pytest  # noqa: E402
 
 

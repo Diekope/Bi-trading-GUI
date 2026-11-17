@@ -24,8 +24,9 @@ from __future__ import annotations
 from bi_trading.data.jsonio import loads
 import time
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from datetime import datetime, UTC
+from typing import Any
+from collections.abc import Iterable
 
 SLUG_PREFIX = "btc-updown-5m"
 WINDOW_SECONDS = 300
@@ -126,7 +127,7 @@ def _iso_ms(value: Any) -> int | None:
     except ValueError:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     return int(moment.timestamp() * 1000)
 
 

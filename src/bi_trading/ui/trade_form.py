@@ -185,11 +185,32 @@ class TradeForm(QWidget):
             "entry": self.price,
         }
         store().set(self._position)
+        from bi_trading.state.events import event_log
+
+        event_log().record(
+            "info", "hyperliquid", "OPENED",
+            f"{side} {HL_BTC.symbol} ${self._position['size']:,.0f} · "
+            f"{self._position['leverage']}× · paper"
+            + (f" @ {self.price:,.1f}" if self.price else ""),
+            "manual",
+        )
         self._refresh()
 
     def close_position(self) -> None:
-        self._position = None
+        position, self._position = self._position, None
         store().set(None)
+        if position is not None:
+            from bi_trading.state.events import event_log
+            from bi_trading.state.positions import change
+
+            pnl = change(position, self.price)
+            sign = "" if pnl is None else f" · {'+' if pnl >= 0 else '−'}${abs(pnl):,.2f}"
+            event_log().record(
+                "info", "hyperliquid", "CLOSED",
+                f"Close {position['side']} {HL_BTC.symbol} · paper"
+                + (f" @ {self.price:,.1f}" if self.price else "") + sign,
+                "manual", pnl=None if pnl is None else round(pnl, 2),
+            )
         self._refresh()
 
     def position(self) -> dict | None:

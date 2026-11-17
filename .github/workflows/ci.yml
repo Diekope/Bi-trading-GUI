@@ -38,6 +38,9 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
+      - name: Type check
+        run: uv run mypy
+
       # Under Xvfb, so Qt uses its xcb platform. Exit with os._exit: PySide6
       # finalisation after the session QApplication is gone segfaults on the
       # runner, and skipping finalisation avoids it. -n auto fans the tests

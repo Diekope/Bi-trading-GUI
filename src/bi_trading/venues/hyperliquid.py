@@ -13,8 +13,10 @@ is a coroutine meant to run on the asyncio worker thread.
 
 from __future__ import annotations
 
+import logging
 import asyncio
-from typing import Any, AsyncIterator
+from typing import Any
+from collections.abc import AsyncIterator
 
 from bi_trading.venues.base import (
     Balance,
@@ -25,6 +27,8 @@ from bi_trading.venues.base import (
     VenueError,
     friendly_message,
 )
+
+log = logging.getLogger(__name__)
 
 REST_URL = "https://api.hyperliquid.xyz"
 WS_URL = "wss://api.hyperliquid.xyz/ws"
@@ -120,7 +124,7 @@ class HyperliquidVenue:
             return await asyncio.to_thread(
                 lambda: Account.from_key(self.private_key).address
             )
-        except Exception:
+        except (ValueError, TypeError):  # not a private key
             return None
 
     async def authorized_agents(self) -> list[str]:
@@ -132,7 +136,8 @@ class HyperliquidVenue:
             rows = await asyncio.to_thread(
                 self._info.extra_agents, self.account_address
             )
-        except Exception:
+        except Exception:  # the SDK's own errors, and the network's
+            log.warning("could not list the authorized agents", exc_info=True)
             return []
         agents: list[str] = []
         for row in rows or []:

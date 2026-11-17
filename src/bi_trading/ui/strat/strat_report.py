@@ -624,7 +624,7 @@ class ReportTile(Card):
             ),
             (_money(report.fees), "muted"),
         ]
-        for (_, value), (text, role) in zip(self._metrics, rows):
+        for (_, value), (text, role) in zip(self._metrics, rows, strict=False):
             if value.text() != text:
                 value.setText(text)
             if value.property("role") != role:

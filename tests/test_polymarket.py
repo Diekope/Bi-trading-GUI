@@ -11,7 +11,7 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -74,7 +74,7 @@ def gamma_payload(
     start_ms = end_ms - 300_000
     if slug is None:
         slug = f"btc-updown-5m-{start_ms // 1000}"
-    end = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc)
+    end = datetime.fromtimestamp(end_ms / 1000, tz=UTC)
     return [
         {
             "slug": slug,

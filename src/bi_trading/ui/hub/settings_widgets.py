@@ -7,7 +7,7 @@ imports them back, so every name still lives there too.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
@@ -25,6 +25,10 @@ from bi_trading.ui.palette import DOWN_SOFT
 from bi_trading.venues import get_venue
 from bi_trading.venues.base import friendly_message
 from bi_trading.venues.runner import AsyncRunner
+import logging
+import contextlib
+
+log = logging.getLogger(__name__)
 
 
 class _ConnectionTester(QObject):
@@ -65,6 +69,7 @@ class _ConnectionTester(QObject):
                 await client.close()
             self.builder_ready.emit(key.key, key.secret, key.passphrase)
         except Exception as exc:  # the SDK raises a wide variety of types
+            log.warning("builder key creation failed", exc_info=True)
             self.builder_failed.emit(friendly_message(exc)[:180])
 
     async def _probe(self, venue: str, config: dict[str, object]) -> None:
@@ -78,13 +83,12 @@ class _ConnectionTester(QObject):
             else:
                 ok, text = self._probe_polymarket(adapter, config)
         except Exception as exc:  # the SDKs raise a wide variety of types
+            log.warning("%s connection test failed", venue, exc_info=True)
             text = f"{type(exc).__name__}: {exc}"[:180]
         finally:
             if adapter is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await adapter.close()
-                except Exception:
-                    pass
         self.finished.emit(venue, ok, text)
 
     @staticmethod
@@ -143,7 +147,7 @@ def _signer_address(private_key: str) -> str | None:
         return None
     try:
         return Account.from_key(private_key).address
-    except Exception:
+    except (ValueError, TypeError):  # not a private key
         return None
 
 
@@ -152,7 +156,7 @@ def _short(address: str) -> str:
 
 
 def _this_year() -> int:
-    return datetime.now(tz=timezone.utc).year
+    return datetime.now(tz=UTC).year
 
 
 def _number_text(value: float) -> str:
@@ -179,8 +183,17 @@ def _read_number(
     return value
 
 
-def _label_field(text: str, widget: QWidget) -> QWidget:
-    holder = QWidget()
+class _Holder(QWidget):
+    """A labelled control. Which of these it carries depends on what was built:
+    `edit` for a text field, `combo` for a choice, `box` for a check."""
+
+    edit: QLineEdit
+    combo: QComboBox
+    box: QCheckBox
+
+
+def _label_field(text: str, widget: QWidget) -> _Holder:
+    holder = _Holder()
     holder.setObjectName("setHolder")
     box = QVBoxLayout(holder)
     box.setContentsMargins(0, 0, 0, 0)
@@ -197,14 +210,14 @@ def _field(
     secret: bool = False,
     combo: list[str] | None = None,
     current: str = "",
-) -> QWidget:
+) -> _Holder:
     if combo is not None:
         box = QComboBox()
         box.setObjectName("setCombo")
         box.addItems(combo)
         box.setCurrentText(current or (combo[0] if combo else ""))
         holder = _label_field(text, box)
-        holder.combo = box  # type: ignore[attr-defined]
+        holder.combo = box
         return holder
     if secret:
         edit = QLineEdit(value)
@@ -230,13 +243,13 @@ def _field(
         holder.setObjectName("setHolder")
         holder.setLayout(row)
         holder = _label_field(text, holder)
-        holder.edit = edit  # type: ignore[attr-defined]
+        holder.edit = edit
         return holder
 
     edit = QLineEdit(value)
     edit.setObjectName("setField")
     holder = _label_field(text, edit)
-    holder.edit = edit  # type: ignore[attr-defined]
+    holder.edit = edit
     return holder
 
 
@@ -250,18 +263,18 @@ def _grid(columns: int) -> QGridLayout:
     return grid
 
 
-def _check(text: str, checked: bool) -> QWidget:
+def _check(text: str, checked: bool) -> _Holder:
     box = QCheckBox(text)
     box.setObjectName("setCheck")
     box.setChecked(checked)
     box.setCursor(Qt.CursorShape.PointingHandCursor)
-    holder = QWidget()
+    holder = _Holder()
     holder.setObjectName("setHolder")
     layout = QVBoxLayout(holder)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.addStretch(1)
     layout.addWidget(box)
-    holder.box = box  # type: ignore[attr-defined]
+    holder.box = box
     return holder
 
 
