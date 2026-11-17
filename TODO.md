@@ -7,9 +7,13 @@ the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
 ## Backtest engine
-- [low] **The streamed walk** (spans over `CORE_MAX`, 12M bars) still steps in
-  Python. Out of reach with today's data (BTC 1m since 2017 is about 5M bars), so
-  it only matters once multi-asset or tick spans arrive.
+- [low] **Use the chunked walk for streamed spans.** `core.walk_chunk` can now
+  walk a long span in pieces, carrying the book from one piece to the next
+  (tested equal to one whole walk, native and Python). What is left is the
+  session side: spans over `CORE_MAX` (12M bars) still step in Python because
+  `adopt` wants the whole span's stamps and candles, and a formula strategy
+  cannot be chunked (an indicator needs its look-back). Out of reach with
+  today's data (BTC 1m since 2017 is about 5M bars).
 
 ## Results & visualisation
 - [med] **Overlay a saved run's curve** on the current one.

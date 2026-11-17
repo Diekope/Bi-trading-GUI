@@ -47,7 +47,7 @@
   <section>
     <h2>Backtest engine</h2>
     <ul>
-    <li data-p="low" data-id="-the-streamed-walk-spans-over-core-max-12"><input type="checkbox"><span><b>The streamed walk</b> (spans over <code>CORE_MAX</code>, 12M bars) still steps in Python. Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars), so it only matters once multi-asset or tick spans arrive.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-use-the-chunked-walk-for-streamed-spans-co"><input type="checkbox"><span><b>Use the chunked walk for streamed spans.</b> <code>core.walk_chunk</code> can now walk a long span in pieces, carrying the book from one piece to the next (tested equal to one whole walk, native and Python). What is left is the session side: spans over <code>CORE_MAX</code> (12M bars) still step in Python because <code>adopt</code> wants the whole span&#x27;s stamps and candles, and a formula strategy cannot be chunked (an indicator needs its look-back). Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars).</span><span class="tag low">Low</span></li>
     </ul>
   </section>
   <section>

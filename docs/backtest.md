@@ -123,17 +123,21 @@ it produced. The small facts go in `~/.config/bi-trading/runs.json`
 files in `runs_data/` beside it, so the index stays a few kilobytes. An older
 `runs.json` with its trades inline is migrated on first read (the original is
 kept as `runs.json.bak`). **LOAD RUN** opens one again: the controls are set
-back, including the saved strategy's exit and side, and the run is **walked
-straight to the end**, so every result and trade is there at once.
+back, including the saved strategy's exit and side, and the run's own stored
+trades and curves go straight back on screen, so every result and trade is
+there at once with no walk. Only when they do not fit the span (another
+length, or no trades stored) is it walked again, on a worker thread.
 
 The bar loop has a **native core** in Rust (`rust/bi_trading_core`, a PyO3
 extension wrapped by `bi_trading.engine.core`). A span small enough to hold in memory
-(≤ `CORE_MAX`, 1.5M bars) is loaded and its entries worked out up front, so the
+(≤ `CORE_MAX`, 12M bars) is loaded and its entries worked out up front, so the
 walk and every seek are a slice plus one native pass — **Finish** and a jump
 are instant. The native pass does everything the Python one does: long and
 short, both ways at once, risk sizing, the trailing take profit, and the exit
 rule, which is compiled to a small program the core runs bar by bar
-(`compile_exit`). A longer span is streamed off disk and stepped in Python. When the
+(`compile_exit`). A longer span is streamed off disk and stepped in Python. (`walk_chunk` can walk a
+span in pieces, carrying the open position across them; it is tested equal to one
+whole walk but not yet wired into the streamed session.) When the
 extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so
 nothing depends on it. Build and install it with `uv sync --extra native`
 (uv rebuilds it when `rust/bi_trading_core/src` changes).

@@ -22,8 +22,10 @@ __all__ = [
     "available",
     "compile_exit",
     "exit_context",
+    "fresh_state",
     "random_entries",
     "walk",
+    "walk_chunk",
 ]
 
 # How many bars a trade may run unless told otherwise.
@@ -31,11 +33,11 @@ DEFAULT_HOLD = 7
 
 try:  # the extension, if it was built
     from bi_trading_core import random_entries as _native_random_entries  # type: ignore
-    from bi_trading_core import walk as _native_walk  # type: ignore
+    from bi_trading_core import walk_chunk as _native_walk_chunk  # type: ignore
 
     _NATIVE = True
 except Exception:  # pragma: no cover - depends on the build
-    _native_walk = None
+    _native_walk_chunk = None
     _native_random_entries = None
     _NATIVE = False
 
@@ -185,7 +187,18 @@ def compile_exit(formula):
     return program, len(slots)
 
 
-def walk(
+def fresh_state(capital: float) -> tuple:
+    """The book before the first bar: all cash, nothing open."""
+    return (capital, 0.0, False, 0.0, 0, 0.0, 0.0, 0.0, 0.0)
+
+
+def walk(*args, **kwargs):
+    """`walk_chunk` over a whole span: `(trades, equity)`."""
+    trades, equity, _ = walk_chunk(*args, **kwargs)
+    return trades, equity
+
+
+def walk_chunk(
     closes,
     highs,
     lows,
@@ -204,8 +217,16 @@ def walk(
     exit_formula=None,
     short_entries=None,
     slippage=0.0,
+    offset=0,
+    state=None,
 ):
     """Walk the bars, opening where an entry is true. One position at a time.
+
+    Returns `(trades, equity, state)`. A long span can be walked in chunks:
+    pass each chunk's `offset` (its first bar's index in the whole span) and
+    the `state` the chunk before it returned (None for the first). A trade can
+    open in one chunk and close in a later one, and trades carry whole-span
+    indices. `walk` is the same without the state, for one piece.
 
     `entries` open longs, or shorts when `side` is `short`. `short_entries`, if
     given, open shorts as well, so one strategy can trade both ways on
@@ -247,7 +268,7 @@ def walk(
             return np.ascontiguousarray(values, dtype=bool)
 
         program, slots = compiled if compiled else (None, 0)
-        return _native_walk(
+        trades, curve, end = _native_walk_chunk(
             closes,
             np.ascontiguousarray(highs, dtype=float),
             np.ascontiguousarray(lows, dtype=float),
@@ -255,7 +276,9 @@ def walk(
             flags(shorts),
             capital, tp, sl, position, sizing, max_cash, fee, int(max_hold),
             bool(dynamic_tp), float(reverse), program, slots, float(slippage),
+            int(offset), None if state is None else tuple(state),
         )
+        return trades, curve, end
     # The Python walk indexes the columns one by one, and list indexing is
     # faster than NumPy scalar indexing, so lift to lists once.
     closes = [float(value) for value in closes]
@@ -271,7 +294,7 @@ def walk(
     return _python_walk(
         closes, highs, lows, listed(longs), listed(shorts), capital, tp, sl,
         position, sizing, max_cash, fee, int(max_hold), dynamic_tp, reverse,
-        exit_formula, slippage,
+        exit_formula, slippage, offset, state,
     )
 
 
@@ -291,25 +314,26 @@ def exit_context(price, entry, tp, sl, bars, short=False) -> dict:
 def _python_walk(
     closes, highs, lows, longs, shorts, capital, tp, sl, position, sizing,
     max_cash, fee, max_hold, dynamic_tp=False, reverse=0.0, exit_formula=None,
-    slippage=0.0,
+    slippage=0.0, offset=0, state=None,
 ):
+    """The bar loop. `offset` is the first bar's index in the whole span and
+    `state` what the previous chunk ended in (None to begin); returns the
+    trades, the equity per bar, and the state to carry on from."""
     fixed = sizing == "fixed"
     risk = sizing == "risk"
-    cash = capital
-    qty = 0.0
-    short = False
-    entry_price = 0.0
-    entry_index = 0
-    entry_cost = 0.0
-    entry_fee = 0.0
-    entry_notional = 0.0
-    best = 0.0  # the best price since entry: the high of a long, the low of a short
+    if state is None:
+        state = fresh_state(capital)
+    (
+        cash, qty, short, entry_price, entry_index, entry_cost, entry_fee,
+        entry_notional, best,
+    ) = state  # best: the high of a long since entry, the low of a short
     trades: list[tuple] = []
     equity: list[float] = []
 
-    for index, close in enumerate(closes):
-        high = highs[index]
-        low = lows[index]
+    for local, close in enumerate(closes):
+        index = offset + local
+        high = highs[local]
+        low = lows[local]
         if qty > 0.0:
             if short:
                 target = entry_price * (1.0 - tp / 100.0)
@@ -383,7 +407,7 @@ def _python_walk(
                 qty = 0.0
                 entry_cost = 0.0
                 best = 0.0
-        elif index != 0 and longs[index] != shorts[index]:
+        elif index != 0 and longs[local] != shorts[local]:
             deployable = min(cash, max_cash)
             if fixed:
                 notional = max(0.0, min(position, deployable))
@@ -398,7 +422,7 @@ def _python_walk(
                 notional = deployable * max(0.0, position) / 100.0
             if notional > 0.0 and close > 0.0:
                 cost = notional * fee
-                short = bool(shorts[index])
+                short = bool(shorts[local])
                 fill = close * ((1.0 - slippage) if short else (1.0 + slippage))
                 qty = notional / fill
                 cash -= notional + cost
@@ -418,4 +442,8 @@ def _python_walk(
             held_value = 0.0
         equity.append(cash + held_value)
 
-    return trades, equity
+    end = (
+        cash, qty, short, entry_price, entry_index, entry_cost, entry_fee,
+        entry_notional, best,
+    )
+    return trades, equity, end

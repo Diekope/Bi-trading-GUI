@@ -473,7 +473,7 @@ def test_both_ways_agree_between_the_walks() -> None:
         "balance", 5_000.0, 0.0006, 10,
     )
     assert {trade[8] for trade in native[0]} == {"long", "short"}
-    assert native == python
+    assert native == python[:2]
 
 
 def test_the_python_fallback_runs_a_rule_the_core_cannot() -> None:
@@ -589,3 +589,92 @@ def test_an_open_short_is_marked_at_the_close() -> None:
         closes, highs, lows, [False, True, False, False], tp=0.0, sl=0.0, max_hold=0
     )
     assert equity == pytest.approx([1_000.0, 1_000.0, 1_020.0, 990.0])
+
+
+# -- a long span walked in chunks --------------------------------------------
+
+
+def _wander(count: int, seed: int = 3):
+    import random
+
+    rng = random.Random(seed)
+    price, closes, highs, lows = 100.0, [], [], []
+    for _ in range(count):
+        price = max(1.0, price * (1.0 + rng.uniform(-0.012, 0.012)))
+        closes.append(price)
+        highs.append(price * 1.004)
+        lows.append(price * 0.996)
+    longs = [rng.random() < 0.08 for _ in range(count)]
+    shorts = [rng.random() < 0.05 and not on for on in longs]
+    return closes, highs, lows, longs, shorts
+
+
+def _chunked(chunk, closes, highs, lows, longs, shorts, **kwargs):
+    trades, equity, state = [], [], None
+    for start in range(0, len(closes), chunk):
+        stop = start + chunk
+        t, e, state = core.walk_chunk(
+            closes[start:stop], highs[start:stop], lows[start:stop],
+            longs[start:stop], offset=start, state=state,
+            short_entries=shorts[start:stop], **kwargs,
+        )
+        trades += t
+        equity += list(e)
+    return trades, equity
+
+
+@pytest.mark.parametrize("native", [True, False])
+@pytest.mark.parametrize("chunk", [1, 7, 50, 333, 5_000])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(),
+        dict(max_hold=0, sl=0.0),
+        dict(dynamic_tp=True, reverse=0.4, tp=0.0),
+        dict(sizing="risk", position=1.0, slippage=0.0005, fee=0.001),
+    ],
+)
+def test_walking_in_chunks_is_walking_the_whole_span(
+    monkeypatch, native, chunk, kwargs
+) -> None:
+    if native and not core.available():
+        pytest.skip("the native core is not built")
+    monkeypatch.setattr(core, "_NATIVE", native)
+    closes, highs, lows, longs, shorts = _wander(1_200)
+    base = dict(
+        capital=10_000.0, tp=1.0, sl=1.0, position=20.0, sizing="balance",
+        max_cash=5_000.0, fee=0.0006, max_hold=9,
+    )
+    base.update(kwargs)
+
+    whole_trades, whole_equity = core.walk(
+        closes, highs, lows, longs, short_entries=shorts, **base
+    )
+    trades, equity = _chunked(chunk, closes, highs, lows, longs, shorts, **base)
+
+    assert len(whole_trades) > 5
+    assert trades == whole_trades
+    assert equity == pytest.approx(list(whole_equity))
+
+
+def test_a_trade_can_open_in_one_chunk_and_close_in_a_later_one() -> None:
+    closes = [100.0] * 4 + [100.0, 100.5, 101.0, 102.0, 103.0, 104.0]
+    highs = [c + 0.1 for c in closes]
+    lows = [c - 0.1 for c in closes]
+    longs = [False, True] + [False] * 8
+    shorts = [False] * 10
+    base = dict(
+        capital=1_000.0, tp=3.0, sl=0.0, position=100.0, sizing="balance",
+        max_cash=1_000.0, fee=0.0, max_hold=0,
+    )
+    first = core.walk_chunk(
+        closes[:4], highs[:4], lows[:4], longs[:4], short_entries=shorts[:4], **base
+    )
+    assert first[0] == []                     # still open at the chunk's end
+    assert first[2][1] > 0.0                  # the state holds the position
+    second = core.walk_chunk(
+        closes[4:], highs[4:], lows[4:], longs[4:], short_entries=shorts[4:],
+        offset=4, state=first[2], **base,
+    )
+    (trade,) = second[0]
+    assert (trade[0], trade[2], trade[7]) == (1, 8, "tp")  # whole-span indices
