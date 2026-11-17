@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bi-trading · to-do</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f27; --mute:#6b7280; --line:#e4e7ec; --accent:#2563eb }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system, "Inter", system-ui, sans-serif }
+  main { max-width:860px; margin:0 auto; padding:32px 16px 64px }
+  h1 { font-size:24px; margin:0 0 4px }
+  .sub { color:var(--mute); margin:0 0 8px }
+  .count { color:var(--mute); margin:0 0 24px; font-size:13px }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:16px 20px; margin-bottom:16px }
+  h2 { font-size:13px; margin:0 0 8px; text-transform:uppercase; letter-spacing:.05em; color:var(--mute) }
+  ul { list-style:none; margin:0; padding:0 }
+  li { display:flex; gap:10px; padding:8px 0; border-top:1px solid var(--line) }
+  li:first-child { border-top:0 }
+  li.done span { text-decoration:line-through; color:var(--mute) }
+  input { margin-top:5px; accent-color:var(--accent) }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px }
+  .bar button { border:1px solid var(--line); background:var(--card); color:var(--ink);
+                padding:6px 12px; border-radius:999px; cursor:pointer; font:inherit }
+  .bar button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff }
+  .tag { font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px; border:1px solid currentColor;
+         white-space:nowrap; margin-left:auto; align-self:center }
+  .tag.high { color:#d92d20 } .tag.med { color:#b54708 } .tag.low { color:#475467 }
+  .hide { display:none }
+  code { background:#eef0f4; padding:1px 5px; border-radius:4px; font-size:13px }
+</style>
+</head>
+<body>
+<main>
+  <h1>bi-trading · to-do</h1>
+  <p class="sub">What is still open, roughly by value. Nothing here is promised; it is a menu. Each item carries a priority: <code>[high]</code>, <code>[med]</code> or <code>[low]</code>. Done work is not listed: the Rust walk core, long-span <code>ColumnSpan</code> support, the Parquet candle store, the fee as a run input, the equity curve, the trade log and the run log all exist.</p>
+  <p class="count" id="count"></p>
+  <div class="bar" id="bar">
+    <button data-f="all" aria-pressed="true">All</button>
+    <button data-f="high" aria-pressed="false">High</button>
+    <button data-f="med" aria-pressed="false">Medium</button>
+    <button data-f="low" aria-pressed="false">Low</button>
+    <button data-f="open" aria-pressed="false">Open only</button>
+  </div>
+  <section>
+    <h2>Backtest engine</h2>
+    <ul>
+    <li data-p="med" data-id="-per-venue-fees-and-a-fee-slippage-line-in-t"><input type="checkbox"><span><b>Per-venue fees</b>, and a fee/slippage line in the results so a result is interpretable and shareable.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-the-streamed-walk-spans-over-core-max-bar"><input type="checkbox"><span><b>The streamed walk</b> (spans over <code>CORE_MAX</code> bars) still steps in Python.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-a-worker-thread-for-seek-finish-alrea"><input type="checkbox"><span><b>A worker thread for <code>seek</code>.</b> <code>finish()</code> already walks off the main thread; the replay scrubber&#x27;s <code>seek</code> still blocks the UI; move the walk off the main thread.</span><span class="tag med">Medium</span></li>
+    <li data-p="high" data-id="-sanity-clamps-max-cash-capital-position"><input type="checkbox"><span><b>Sanity clamps:</b> max cash &lt;= capital, position value &lt;= capital, and the reverse % only meaningful with dynamic TP on.</span><span class="tag high">High</span></li>
+    <li data-p="med" data-id="-warm-up-if-the-dynamic-tp-ever-uses-atr-or-"><input type="checkbox"><span><b>Warm-up:</b> if the dynamic TP ever uses ATR or a running peak, a signal needs N bars of history before it counts.</span><span class="tag med">Medium</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Results &amp; visualisation</h2>
+    <ul>
+    <li data-p="med" data-id="-overlay-a-saved-run-s-curve-on-the-current-o"><input type="checkbox"><span><b>Overlay a saved run&#x27;s curve</b> on the current one.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-export-trades-to-csv-"><input type="checkbox"><span><b>Export trades to CSV</b>.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-a-compare-part-in-the-backtest-window-it-l"><input type="checkbox"><span><b>A Compare part in the backtest window</b> — it lives only in the builder.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-real-candles-in-the-trade-detail-a-tiny-can"><input type="checkbox"><span><b>Real candles in the trade detail</b> (a tiny candle strip) instead of the price line, and a candle sparkline per row.</span><span class="tag low">Low</span></li>
+    <li data-p="med" data-id="-more-stats-sortino-exposure-average-hold-"><input type="checkbox"><span><b>More stats:</b> Sortino, exposure, average hold, expectancy. Decide which figure is the headline for a quick glance.</span><span class="tag med">Medium</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Strategy &amp; builder</h2>
+    <ul>
+    <li data-p="low" data-id="-sweeps-walk-forward-in-the-backtest-window-"><input type="checkbox"><span><b>Sweeps / walk-forward in the backtest window</b>, builder-only today.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-rename-and-edit-a-run-s-strategy-inline-wit"><input type="checkbox"><span><b>Rename and edit a run&#x27;s strategy inline</b>, without going to the builder.</span><span class="tag low">Low</span></li>
+    <li data-p="med" data-id="-open-question-is-the-entry-rule-a-field-of-"><input type="checkbox"><span><b>Open question:</b> is the entry rule a field of a run, or a separately saved, named strategy picked before starting? The answer decides the data model.</span><span class="tag med">Medium</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Workflow &amp; feel</h2>
+    <ul>
+    <li data-p="low" data-id="-remember-window-sizes-the-splitters-betwee"><input type="checkbox"><span><b>Remember window sizes</b> (the splitters) between sessions.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-keyboard-shortcuts-for-run-pause-restart"><input type="checkbox"><span><b>Keyboard shortcuts</b> for Run / Pause / Restart and the timeframe pills.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-a-light-theme-"><input type="checkbox"><span><b>A light theme.</b></span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Quality</h2>
+    <ul>
+    <li data-p="low" data-id="-visual-regression-screenshot-tests-for-the"><input type="checkbox"><span><b>Visual regression / screenshot tests</b> for the two windows.</span><span class="tag low">Low</span></li>
+    <li data-p="med" data-id="-stricter-lint-rules-up-b905-sim105-"><input type="checkbox"><span><b>Stricter lint rules</b> (<code>UP</code>, <code>B905</code>, <code>SIM105</code>) and a type checker in CI.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-narrow-the-broad-except-exception-handlers-"><input type="checkbox"><span><b>Narrow the broad <code>except Exception</code> handlers</b> in the venues, feeds and order store, and log what they swallow.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-split-the-largest-modules-strat-playback-p"><input type="checkbox"><span><b>Split the largest modules</b> (<code>strat_playback.py</code>, <code>formula_builder.py</code>, <code>theme_qss.py</code>, <code>cards.py</code>).</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+</main>
+<script>
+const KEY = "bt-todo-md";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+const items = [...document.querySelectorAll("li")];
+function count() {
+  const done = items.filter(li => li.classList.contains("done")).length;
+  document.getElementById("count").textContent = done + " of " + items.length + " ticked";
+}
+items.forEach(li => {
+  const cb = li.querySelector("input"), id = li.dataset.id;
+  cb.checked = !!state[id]; li.classList.toggle("done", cb.checked);
+  cb.onchange = () => {
+    state[id] = cb.checked; li.classList.toggle("done", cb.checked);
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    count();
+  };
+});
+count();
+let filter = "all";
+function apply() {
+  items.forEach(li => {
+    const ok = filter === "all" || (filter === "open" ? !li.classList.contains("done") : li.dataset.p === filter);
+    li.classList.toggle("hide", !ok);
+  });
+  document.querySelectorAll("section").forEach(s =>
+    s.classList.toggle("hide", !s.querySelector("li:not(.hide)")));
+}
+items.forEach(li => li.querySelector("input").addEventListener("change", apply));
+document.getElementById("bar").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  filter = b.dataset.f;
+  document.querySelectorAll("#bar button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  apply();
+};
+</script>
+</body>
+</html>

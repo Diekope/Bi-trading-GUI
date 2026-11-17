@@ -173,7 +173,7 @@ fn run_rule(program: &[(i64, f64)], vars: &mut [f64], stack: &mut Vec<f64>) -> b
 
 /// Walk `closes` (with `highs`/`lows` for the exits), opening a long where
 /// `longs` is true and a short where `shorts` is. A bar that is both is left
-/// alone. Returns the trades and the realised equity per bar.
+/// alone. Returns the trades and the marked-to-market equity per bar.
 ///
 /// The columns arrive as NumPy arrays, so a long span is not copied into a
 /// Python list first.
@@ -183,6 +183,7 @@ fn run_rule(program: &[(i64, f64)], vars: &mut [f64], stack: &mut Vec<f64>) -> b
                     rule=None, slots=0, slippage=0.0))]
 #[allow(clippy::too_many_arguments)]
 fn walk(
+    py: Python<'_>,
     closes: PyReadonlyArray1<f64>,
     highs: PyReadonlyArray1<f64>,
     lows: PyReadonlyArray1<f64>,
@@ -207,166 +208,180 @@ fn walk(
     let lows = lows.as_slice()?;
     let longs = longs.as_slice()?;
     let shorts = shorts.as_slice()?;
-    let n = closes.len();
-    let s = Settings {
-        tp,
-        sl,
-        position,
-        fixed: sizing == "fixed",
-        risk: sizing == "risk",
-        max_cash,
-        fee,
-        max_hold,
-        dynamic_tp,
-        reverse,
-        slippage,
-    };
+    // The bar loop touches no Python object, so let go of the GIL: a worker
+    // thread can walk a long span while the window keeps painting.
+    let (trades, equity_curve) = py.allow_threads(|| {
+        let n = closes.len();
+        let s = Settings {
+            tp,
+            sl,
+            position,
+            fixed: sizing == "fixed",
+            risk: sizing == "risk",
+            max_cash,
+            fee,
+            max_hold,
+            dynamic_tp,
+            reverse,
+            slippage,
+        };
 
-    let mut trades: Vec<Trade> = Vec::new();
-    let mut equity_curve: Vec<f64> = Vec::with_capacity(n);
+        let mut trades: Vec<Trade> = Vec::new();
+        let mut equity_curve: Vec<f64> = Vec::with_capacity(n);
 
-    let mut vars = vec![0.0_f64; slots.max(6)];
-    let mut stack: Vec<f64> = Vec::with_capacity(16);
+        let mut vars = vec![0.0_f64; slots.max(6)];
+        let mut stack: Vec<f64> = Vec::with_capacity(16);
 
-    let mut cash = capital;
-    let mut qty = 0.0_f64;
-    let mut short = false;
-    let mut entry_price = 0.0_f64;
-    let mut entry_index = 0_usize;
-    let mut entry_cost = 0.0_f64;
-    let mut entry_fee = 0.0_f64;
-    let mut entry_notional = 0.0_f64;
-    // The best price since entry: the high of a long, the low of a short.
-    let mut best = 0.0_f64;
+        let mut cash = capital;
+        let mut qty = 0.0_f64;
+        let mut short = false;
+        let mut entry_price = 0.0_f64;
+        let mut entry_index = 0_usize;
+        let mut entry_cost = 0.0_f64;
+        let mut entry_fee = 0.0_f64;
+        let mut entry_notional = 0.0_f64;
+        // The best price since entry: the high of a long, the low of a short.
+        let mut best = 0.0_f64;
 
-    for index in 0..n {
-        let close = closes[index];
-        let high = highs[index];
-        let low = lows[index];
+        for index in 0..n {
+            let close = closes[index];
+            let high = highs[index];
+            let low = lows[index];
 
-        if qty > 0.0 {
-            let (target, stop, hit_tp, hit_sl, hit_trail);
-            if short {
-                target = entry_price * (1.0 - s.tp / 100.0);
-                stop = entry_price * (1.0 + s.sl / 100.0);
-                if s.dynamic_tp && s.reverse > 0.0 {
-                    best = best.min(low);
+            if qty > 0.0 {
+                let (target, stop, hit_tp, hit_sl, hit_trail);
+                if short {
+                    target = entry_price * (1.0 - s.tp / 100.0);
+                    stop = entry_price * (1.0 + s.sl / 100.0);
+                    if s.dynamic_tp && s.reverse > 0.0 {
+                        best = best.min(low);
+                    }
+                    hit_tp = s.tp > 0.0 && low <= target;
+                    hit_sl = s.sl > 0.0 && high >= stop;
+                    hit_trail = s.dynamic_tp
+                        && s.reverse > 0.0
+                        && best > 0.0
+                        && best < entry_price
+                        && high >= best * (1.0 + s.reverse / 100.0);
+                } else {
+                    target = entry_price * (1.0 + s.tp / 100.0);
+                    stop = entry_price * (1.0 - s.sl / 100.0);
+                    if s.dynamic_tp && s.reverse > 0.0 {
+                        best = best.max(high);
+                    }
+                    hit_tp = s.tp > 0.0 && high >= target;
+                    hit_sl = s.sl > 0.0 && low <= stop;
+                    hit_trail = s.dynamic_tp
+                        && s.reverse > 0.0
+                        && best > entry_price
+                        && low <= best * (1.0 - s.reverse / 100.0);
                 }
-                hit_tp = s.tp > 0.0 && low <= target;
-                hit_sl = s.sl > 0.0 && high >= stop;
-                hit_trail = s.dynamic_tp
-                    && s.reverse > 0.0
-                    && best > 0.0
-                    && best < entry_price
-                    && high >= best * (1.0 + s.reverse / 100.0);
-            } else {
-                target = entry_price * (1.0 + s.tp / 100.0);
-                stop = entry_price * (1.0 - s.sl / 100.0);
-                if s.dynamic_tp && s.reverse > 0.0 {
-                    best = best.max(high);
+                let trail = if short {
+                    best * (1.0 + s.reverse / 100.0)
+                } else {
+                    best * (1.0 - s.reverse / 100.0)
+                };
+                let held = (index - entry_index) as i64;
+                let mut price: Option<f64> = None;
+                let mut reason = "time";
+                // A candle that holds both the target and the stop cannot say which
+                // came first, so the stop is taken: the cautious reading.
+                if hit_sl {
+                    price = Some(stop);
+                    reason = "sl";
+                } else if hit_tp {
+                    price = Some(target);
+                    reason = "tp";
+                } else if hit_trail {
+                    price = Some(trail);
+                    reason = "tp";
+                } else if let Some(program) = rule.as_deref() {
+                    let ratio = if entry_price != 0.0 { close / entry_price - 1.0 } else { 0.0 };
+                    vars[0] = close;
+                    vars[1] = entry_price;
+                    vars[2] = s.tp;
+                    vars[3] = s.sl;
+                    vars[4] = (if short { -ratio } else { ratio }) * 100.0;
+                    vars[5] = held as f64;
+                    if run_rule(program, &mut vars, &mut stack) {
+                        price = Some(close);
+                        reason = "rule";
+                    }
                 }
-                hit_tp = s.tp > 0.0 && high >= target;
-                hit_sl = s.sl > 0.0 && low <= stop;
-                hit_trail = s.dynamic_tp
-                    && s.reverse > 0.0
-                    && best > entry_price
-                    && low <= best * (1.0 - s.reverse / 100.0);
-            }
-            let trail = if short {
-                best * (1.0 + s.reverse / 100.0)
-            } else {
-                best * (1.0 - s.reverse / 100.0)
-            };
-            let held = (index - entry_index) as i64;
-            let mut price: Option<f64> = None;
-            let mut reason = "time";
-            // A candle that holds both the target and the stop cannot say which
-            // came first, so the stop is taken: the cautious reading.
-            if hit_sl {
-                price = Some(stop);
-                reason = "sl";
-            } else if hit_tp {
-                price = Some(target);
-                reason = "tp";
-            } else if hit_trail {
-                price = Some(trail);
-                reason = "tp";
-            } else if let Some(program) = rule.as_deref() {
-                let ratio = if entry_price != 0.0 { close / entry_price - 1.0 } else { 0.0 };
-                vars[0] = close;
-                vars[1] = entry_price;
-                vars[2] = s.tp;
-                vars[3] = s.sl;
-                vars[4] = (if short { -ratio } else { ratio }) * 100.0;
-                vars[5] = held as f64;
-                if run_rule(program, &mut vars, &mut stack) {
+                if price.is_none() && s.max_hold > 0 && held >= s.max_hold {
                     price = Some(close);
-                    reason = "rule";
+                    reason = "time";
+                }
+                if let Some(mut price) = price {
+                    // A take profit is a resting limit order and fills at its
+                    // price; every other exit is a market order and slips against
+                    // the trade.
+                    if reason != "tp" {
+                        price *= if short { 1.0 + s.slippage } else { 1.0 - s.slippage };
+                    }
+                    // A long is worth qty * price; a short is its margin back plus
+                    // what the price fell, never less than nothing.
+                    let value = if short {
+                        (qty * (2.0 * entry_price - price)).max(0.0)
+                    } else {
+                        qty * price
+                    };
+                    let cost = qty * price * s.fee;
+                    cash += value - cost;
+                    let result = if entry_cost > 0.0 {
+                        (value - cost) / entry_cost - 1.0
+                    } else {
+                        0.0
+                    };
+                    trades.push((
+                        entry_index,
+                        entry_price,
+                        index,
+                        price,
+                        result,
+                        entry_fee + cost,
+                        entry_notional,
+                        reason,
+                        if short { "short" } else { "long" },
+                    ));
+                    qty = 0.0;
+                    entry_cost = 0.0;
+                    best = 0.0;
+                }
+            } else if index != 0 && (longs[index] != shorts[index]) {
+                let notional = budget(cash, &s);
+                if notional > 0.0 && close > 0.0 {
+                    let cost = notional * s.fee;
+                    short = shorts[index];
+                    // The entry is a market order too: it fills a little worse
+                    // than the close it was decided on.
+                    let fill = close * if short { 1.0 - s.slippage } else { 1.0 + s.slippage };
+                    qty = notional / fill;
+                    cash -= notional + cost;
+                    entry_price = fill;
+                    entry_index = index;
+                    entry_fee = cost;
+                    entry_notional = notional;
+                    entry_cost = notional + cost;
+                    best = if short { low } else { high };
                 }
             }
-            if price.is_none() && s.max_hold > 0 && held >= s.max_hold {
-                price = Some(close);
-                reason = "time";
-            }
-            if let Some(mut price) = price {
-                // A take profit is a resting limit order and fills at its
-                // price; every other exit is a market order and slips against
-                // the trade.
-                if reason != "tp" {
-                    price *= if short { 1.0 + s.slippage } else { 1.0 - s.slippage };
+
+            // Marked to market: an open long is worth qty at the close, an open
+            // short its margin plus what the price has fallen (never below 0).
+            let held = if qty > 0.0 {
+                if short {
+                    (qty * (2.0 * entry_price - close)).max(0.0)
+                } else {
+                    qty * close
                 }
-                // A long is worth qty * price; a short is its margin back plus
-                // what the price fell, never less than nothing.
-                let value = if short {
-                    (qty * (2.0 * entry_price - price)).max(0.0)
-                } else {
-                    qty * price
-                };
-                let cost = qty * price * s.fee;
-                cash += value - cost;
-                let result = if entry_cost > 0.0 {
-                    (value - cost) / entry_cost - 1.0
-                } else {
-                    0.0
-                };
-                trades.push((
-                    entry_index,
-                    entry_price,
-                    index,
-                    price,
-                    result,
-                    entry_fee + cost,
-                    entry_notional,
-                    reason,
-                    if short { "short" } else { "long" },
-                ));
-                qty = 0.0;
-                entry_cost = 0.0;
-                best = 0.0;
-            }
-        } else if index != 0 && (longs[index] != shorts[index]) {
-            let notional = budget(cash, &s);
-            if notional > 0.0 && close > 0.0 {
-                let cost = notional * s.fee;
-                short = shorts[index];
-                // The entry is a market order too: it fills a little worse
-                // than the close it was decided on.
-                let fill = close * if short { 1.0 - s.slippage } else { 1.0 + s.slippage };
-                qty = notional / fill;
-                cash -= notional + cost;
-                entry_price = fill;
-                entry_index = index;
-                entry_fee = cost;
-                entry_notional = notional;
-                entry_cost = notional + cost;
-                best = if short { low } else { high };
-            }
+            } else {
+                0.0
+            };
+            equity_curve.push(cash + held);
         }
-
-        // Realised book: an open position is carried at what it cost.
-        equity_curve.push(cash + qty * entry_price);
-    }
-
+        (trades, equity_curve)
+    });
     Ok((trades, equity_curve))
 }
 

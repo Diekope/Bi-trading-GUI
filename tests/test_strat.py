@@ -748,7 +748,7 @@ def test_a_run_keeps_its_exit_rule_and_side(
         "Fade", "close > sma(close, 5)", None, "pnl >= 0.5 or pnl <= -0.5", "short"
     )
     window.left.restart()
-    window.left.finish()
+    window.left.finish(wait=True)
 
     window.save_run.save_requested.emit("fade run")
     app.processEvents()
@@ -767,3 +767,32 @@ def test_a_run_keeps_its_exit_rule_and_side(
     assert window.left.saved_exit() == "pnl >= 0.5 or pnl <= -0.5"
     assert window.left.side() == "short"
     assert window.left.saved_name() == "Fade"
+
+
+def test_loading_a_run_shows_its_stored_trades_without_walking(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    from bi_trading.engine import core
+    from bi_trading.state import runs
+
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
+    window.left.set_source([], "1m")
+    window.left.restart()
+    window.left.finish(wait=True)
+    kept = window.left.playback.trades
+    assert kept > 0
+    window.save_run.save_requested.emit("stored")
+    app.processEvents()
+
+    def no_walk(*args, **kwargs):
+        raise AssertionError("a saved run must not be walked again")
+
+    monkeypatch.setattr(core, "walk", no_walk)
+    window.load_run.load_requested.emit("stored")
+    app.processEvents()
+
+    assert window.left.playback.done is True
+    assert window.left.playback.trades == kept
+    assert window.left.session.strategy_curve == pytest.approx(
+        runs.get("stored").strategy_curve
+    )

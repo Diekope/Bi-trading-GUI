@@ -26,6 +26,7 @@ touches both pays the target.
 from __future__ import annotations
 
 import random
+import threading
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
@@ -524,13 +525,20 @@ class Playback:
 
     @property
     def equity(self) -> float:
-        """The realised book: capital plus what closed trades made.
+        """The book: cash plus the open position marked at the latest close.
 
-        An open position is carried at what it cost, so entering a trade does
-        not move the figures — only the fee, and then the result when it
-        closes. Unrealised profit is deliberately not shown.
+        A long is worth its quantity at the close; a short its margin plus what
+        the price has fallen (never below nothing). This is the same figure the
+        walk's equity curve holds, so drawdown counts an open loss.
         """
-        return self.cash + self.qty * self.entry_price
+        if self.qty <= 0.0:
+            return self.cash
+        close = self.close_price()
+        if self.direction == "short":
+            held = max(0.0, self.qty * (2.0 * self.entry_price - close))
+        else:
+            held = self.qty * close
+        return self.cash + held
 
     def drawdown(self) -> float:
         if self.peak <= 0:
@@ -1293,6 +1301,14 @@ class BacktestSession:
         )
 
     def _core_seek(self, target: int) -> None:
+        self._core_apply(target, self._core_compute(target))
+
+    def _core_compute(self, target: int):
+        """The two walks to `target`. Reads the session, changes nothing.
+
+        That makes it safe off the main thread: the finish button runs it on a
+        worker, and `_core_apply` then lands the result on the main thread.
+        """
         from bi_trading.engine import core
 
         s = self.settings
@@ -1319,6 +1335,41 @@ class BacktestSession:
             else self.short_entries_arr[:target],
         )
         random_trades, random_equity = run(self.random_entries_arr, None)
+        return strategy_trades, strategy_equity, random_trades, random_equity
+
+    def _core_apply(self, target: int, walked) -> None:
+        strategy_trades, strategy_equity, random_trades, random_equity = walked
+        self._settle(target, strategy_trades, strategy_equity,
+                     random_trades, random_equity)
+
+    def adopt_saved(self, records, strategy_curve, random_curve) -> bool:
+        """Show a saved run whole from its stored trades and curves.
+
+        No walk: the trades and the equity curves were kept when the run was
+        saved, so they are put back as they were. False when they do not fit
+        this span (another length, or nothing stored), and the caller walks.
+        """
+        total = self.strategy.total
+        if (
+            self.span is None
+            or not records
+            or len(strategy_curve) != total
+            or len(random_curve) != total
+        ):
+            return False
+        # A stored record is the playback's log row; the walk's is shorter.
+        trades = [
+            (r[1], r[2], r[4], r[5], r[6], r[10], r[7], r[9], r[12])
+            for r in records
+        ]
+        self._settle(total, trades, list(strategy_curve), [], list(random_curve))
+        return True
+
+    def _settle(
+        self, target, strategy_trades, strategy_equity, random_trades, random_equity
+    ) -> None:
+        s = self.settings
+        closes = self.span.closes[:target]
         self.strategy.adopt(strategy_trades, strategy_equity, self.span, target)
         self.random.adopt(random_trades, random_equity, self.span, target)
         self.strategy_curve = strategy_equity
@@ -1747,9 +1798,15 @@ class PlaybackTile(Card):
 
     advanced = Signal()
     restarted = Signal(object)
+    # The walk to the end has landed (or was not needed).
+    finished = Signal()
+    # From the worker thread: (token, session, target, result or the error).
+    _walk_ready = Signal(int, object, int, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._finish_token = 0
+        self._walk_ready.connect(self._on_walk_ready)
 
         # Nothing runs until Run is pressed: opening the window is not a run.
         self.playback = Playback([], total=0)
@@ -1963,16 +2020,64 @@ class PlaybackTile(Card):
         else:
             self.play()
 
-    def finish(self) -> None:
-        """Walk straight to the end, so every result is there to look at."""
+    def finish(self, wait: bool = False) -> None:
+        """Walk straight to the end, so every result is there to look at.
+
+        With the core ready the walk runs on a worker thread and the window
+        stays alive meanwhile; `finished` fires when the result has landed.
+        `wait=True` does it inline, for callers that need the answer now.
+        """
         if self.session is None:
             return
         self.pause()
-        if self.session._core_ready():
-            self.session.seek(self.session.total)  # one native walk
-        else:
+        session = self.session
+        if not session._core_ready():
             while not self.playback.done:
-                self.session.advance()
+                session.advance()
+            self._landed()
+            return
+        target = session.total
+        if wait:
+            session._core_apply(target, session._core_compute(target))
+            self._landed()
+            return
+        self._finish_token += 1
+        token = self._finish_token
+        self.run_button.setEnabled(False)
+        self.note.setText("walking the whole span…")
+
+        def work() -> None:
+            try:
+                result = session._core_compute(target)
+            except Exception as exc:  # handed to the main thread, not lost
+                result = exc
+            self._walk_ready.emit(token, session, target, result)
+
+        threading.Thread(target=work, name="bi-trading-walk", daemon=True).start()
+
+    def show_saved(self, item) -> bool:
+        """Put a saved run's own trades and curves on screen. False: walk it."""
+        if self.session is None or not self.session._core_ready():
+            return False
+        self.pause()
+        if not self.session.adopt_saved(
+            item.trades, item.strategy_curve, item.random_curve
+        ):
+            return False
+        self._landed()
+        return True
+
+    def _on_walk_ready(self, token: int, session, target: int, result) -> None:
+        if token != self._finish_token or session is not self.session:
+            return  # a restart or a newer finish got there first
+        self.run_button.setEnabled(True)
+        if isinstance(result, Exception):
+            self.note.setText(f"the walk failed: {result}")
+            return
+        session._core_apply(target, result)
+        self._landed()
+
+    def _landed(self) -> None:
         self._elapsed = 0
         self.player.set_offset(0.0)
         self.player.reset_range()
@@ -1985,6 +2090,7 @@ class PlaybackTile(Card):
             f"{self.playback.win_rate * 100:,.0f}% won, press Run to replay"
         )
         self.advanced.emit()
+        self.finished.emit()
 
     def restart(self, to: int = 0, autoplay: bool = True) -> None:
         """Adopt the controls and start the walk over. The only way it resets.
@@ -1992,6 +2098,8 @@ class PlaybackTile(Card):
         `to` fast-forwards to a bar first, for the replay scrubber; `autoplay`
         keeps a seek paused so the chosen stretch can be studied.
         """
+        self._finish_token += 1  # a walk still running is no longer wanted
+        self.run_button.setEnabled(True)
         params = self._wanted_params or {
             "initial_capital": 10_000.0,
             "tp": 2.0,

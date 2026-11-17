@@ -134,9 +134,10 @@ bar** and its readout count the candles — `100% · 196,496 / 196,496 candles`.
 The trail always follows the newest candle; a trade picked in the results
 rewinds the walk to it so it is on screen.
 
-- **Equity is realised only.** An open position is carried at what it cost, so
-  entering a trade moves nothing but its fee; the result lands when it closes.
-  Unrealised profit is deliberately not shown.
+- **Equity is marked to market.** An open long is worth its quantity at the
+  latest close; an open short its margin plus what the price has fallen. So an
+  open loss counts towards drawdown, and the stepped figures and the walk's
+  curve agree.
 - **Sharpe is not annualised** — the walk is minutes long, so multiplying by
   the square root of a year would produce a meaningless number. It is the mean
   over deviation of the per-bar book returns.

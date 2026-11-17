@@ -564,3 +564,28 @@ def test_slippage_is_the_same_in_both_walks(side) -> None:
     )
     assert native[0] and native[0] == python[0]
     assert native[1] == python[1]
+
+
+# -- the equity curve is marked to market -----------------------------------
+
+
+def test_an_open_long_is_marked_at_the_close() -> None:
+    closes = [100.0, 100.0, 99.5, 99.0]
+    highs = [100.0, 100.0, 100.0, 99.5]
+    lows = [100.0, 100.0, 99.0, 98.5]
+    _trades, equity = core.walk(
+        closes, highs, lows, [False, True, False, False],
+        capital=1_000.0, tp=0.0, sl=0.0, position=100.0, sizing="balance",
+        max_cash=1_000.0, fee=0.0, max_hold=0, side="long",
+    )
+    assert equity == pytest.approx([1_000.0, 1_000.0, 995.0, 990.0])
+
+
+def test_an_open_short_is_marked_at_the_close() -> None:
+    closes = [100.0, 100.0, 98.0, 101.0]
+    highs = [100.0, 100.0, 100.0, 101.0]
+    lows = [100.0, 100.0, 98.0, 98.0]
+    _trades, equity = _short_walk(
+        closes, highs, lows, [False, True, False, False], tp=0.0, sl=0.0, max_hold=0
+    )
+    assert equity == pytest.approx([1_000.0, 1_000.0, 1_020.0, 990.0])

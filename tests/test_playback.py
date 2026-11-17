@@ -600,3 +600,45 @@ def test_slippage_reaches_the_walk_and_the_stepped_walk_agrees() -> None:
     frictionless = make(0.0)
     frictionless.seek(300)
     assert frictionless.strategy.equity > session.strategy.equity
+
+
+def test_finish_walks_off_the_main_thread_and_lands_the_result(
+    app: QApplication,
+) -> None:
+    import time
+
+    _write(2021, 400, price=200.0)
+    tile = PlaybackTile()
+    tile.set_source([2021], "1m")
+    tile.restart(autoplay=False)
+
+    tile.finish()
+    if tile.session._core_ready():
+        assert tile.run_button.isEnabled() is False  # busy while it walks
+        assert "walking" in tile.note.text()
+        deadline = time.time() + 10
+        while not tile.run_button.isEnabled() and time.time() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+    assert tile.run_button.isEnabled() is True
+    assert tile.playback.done is True
+    assert "finished" in tile.note.text()
+    tile.close()
+
+
+def test_a_restart_drops_a_walk_still_running(app: QApplication) -> None:
+    _write(2021, 400, price=200.0)
+    tile = PlaybackTile()
+    tile.set_source([2021], "1m")
+    tile.restart(autoplay=False)
+    session = tile.session
+
+    tile.finish()
+    tile.restart(autoplay=False)  # the old result must not land on the new run
+    for _ in range(20):
+        app.processEvents()
+
+    assert tile.session is not session
+    assert tile.playback.index == 0
+    assert tile.run_button.isEnabled() is True
+    tile.close()

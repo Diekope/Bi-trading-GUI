@@ -7,7 +7,7 @@ back to the same walk in pure Python, so the app runs either way.
 `walk(closes, highs, lows, entries, ...)` returns `(trades, equity)` where a
 trade is `(entry index, entry price, exit index, exit price, result, fees,
 notional, reason, side)` and
-`equity` is the realised book per bar. One position at a time, long or short:
+`equity` is the book per bar, an open position marked at the close. One position at a time, long or short:
 a short sells at the entry and buys back at the exit, its take profit below
 the entry and its stop above. A trade ends at its stop, its take profit (the
 stop first when one candle holds both), its exit rule, or its hold limit.
@@ -408,6 +408,14 @@ def _python_walk(
                 entry_notional = notional
                 entry_cost = notional + cost
                 best = low if short else high
-        equity.append(cash + qty * entry_price)
+        # Marked to market: an open long is worth its quantity at the close, an
+        # open short its margin plus what the price has fallen (never below 0).
+        if qty > 0.0:
+            held_value = (
+                max(0.0, qty * (2.0 * entry_price - close)) if short else qty * close
+            )
+        else:
+            held_value = 0.0
+        equity.append(cash + held_value)
 
     return trades, equity

@@ -202,10 +202,20 @@ class StratWindow(QMainWindow):
             self.left.set_strategy(item.rule)
         self._sync_playback()
         self._sync_params()
-        self.left.restart()
-        # A loaded run is shown whole: walk it to the end so every result and
-        # trade is there at once.
+        self.left.restart(autoplay=False)
+        # A loaded run is shown whole. Its own trades and curves were stored
+        # with it, so they go straight back on screen; only when they do not
+        # fit this span is it walked again, off the main thread, and the
+        # results are filled when that lands.
+        if self.left.show_saved(item):
+            self._run_loaded()
+            return
+        self.left.finished.connect(
+            self._run_loaded, Qt.ConnectionType.SingleShotConnection
+        )
         self.left.finish()
+
+    def _run_loaded(self) -> None:
         self.results.set_part(0)
         self.results.refresh()
 
