@@ -623,10 +623,12 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
         "sl": defaults.sl,
         "cash": defaults.cash,
         "hold": defaults.hold,
+        "warmup": defaults.warmup,
         "slippage": defaults.slippage,
         "fee": defaults.fee,
         "dynamic_tp": defaults.dynamic_tp,
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
+        "venue": "Custom",
     }
 
 
@@ -641,7 +643,7 @@ def test_the_gallery_wraps_by_width(app: QApplication) -> None:
     # window it lives in a narrow column and never reaches its wide layout.
     tile = ParamsTile()
     tile.show()
-    assert len(tile._elements) == 11
+    assert len(tile._elements) == 13
 
     tile.resize(WIDE_AT + 40, tile.height())
     app.processEvents()
@@ -800,3 +802,22 @@ def test_loading_a_run_shows_its_stored_trades_without_walking(
     assert window.left.session.strategy_curve == pytest.approx(
         runs.get("stored").strategy_curve
     )
+
+
+def test_picking_a_venue_fills_its_costs_and_typing_leaves_custom(
+    app: QApplication, window
+) -> None:
+    tile = window.params
+    tile.venue.setCurrentText("Hyperliquid")
+    assert tile.fee_field.text() == "0.045"
+    assert tile.slippage_field.text() == "0.01"
+    assert tile.params()["fee"] == 0.045
+    assert tile.params()["venue"] == "Hyperliquid"
+
+    tile.fee_field.setText("0.1")
+    assert tile.venue.currentText() == "Custom"
+
+    # A saved run's costs come back as typed, and name the venue they match.
+    tile.set_params({"fee": 0.0, "slippage": 0.0})
+    assert tile.venue.currentText() == "Polymarket"
+    assert tile.fee_field.text() == "0"

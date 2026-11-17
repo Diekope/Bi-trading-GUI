@@ -424,7 +424,9 @@ class Playback:
         exit_formula=None,
         short_entries=None,
         slippage: float = 0.0,
+        warmup: int = 0,
     ) -> None:
+        self.warmup = max(0, int(warmup))
         self._span = span
         self._feed_factory = None if span is not None else _feed_factory(candles)
         if total is None:
@@ -803,7 +805,7 @@ class Playback:
         run opens where its rules fire; a bar both its long and short rule
         fire on is left alone.
         """
-        if self.index == 0:
+        if self.index == 0 or self.index < self.warmup:
             return ""
         if self._entries is not None or self._short_entries is not None:
             long = self._entries is not None and self.index in self._entries
@@ -1387,6 +1389,16 @@ class BacktestSession:
                 self.high = max(self.high, max(curve))
 
 
+def _after_warmup(entries, warmup: int):
+    """`entries` with the first `warmup` bars switched off."""
+    if warmup <= 0:
+        return entries
+    entries = list(entries)
+    for index in range(min(warmup, len(entries))):
+        entries[index] = False
+    return entries
+
+
 def walk_clamps(params: dict) -> list[str]:
     """What the walk will not take at face value, in words.
 
@@ -1419,6 +1431,8 @@ def _walk_settings(params: dict) -> dict:
             position = min(position, capital)
     dynamic_tp = bool(params.get("dynamic_tp"))
     return {
+        # Bars of history before a signal counts; 0 is off.
+        "warmup": max(0, int(params.get("warmup") or 0)),
         "capital": capital,
         "tp": float(params["tp"] or 0.0),
         "sl": float(params["sl"] or 0.0),
@@ -1466,6 +1480,7 @@ def build_session(
     span is streamed off disk and stepped in Python.
     """
     settings = _walk_settings(params)
+    warmup = settings["warmup"]
     # `side` is long, short, or both. The settings' side is what the strategy
     # trades alone, and what the random baseline copies: a strategy that goes
     # both ways is measured against a baseline that goes long.
@@ -1497,24 +1512,29 @@ def build_session(
 
             columns = span_columns(span)
             indices = set(
-                entry_signals(entry_formula, columns, fields or ENTRY_FIELDS)
+                entry_signals(
+                    entry_formula, columns, fields or ENTRY_FIELDS, warmup
+                )
             )
             strategy_entries = [i in indices for i in range(total)]
             if short_entry_formula is not None and side == "both":
                 shorting = set(
                     entry_signals(
-                        short_entry_formula, columns, fields or ENTRY_FIELDS
+                        short_entry_formula, columns, fields or ENTRY_FIELDS,
+                        warmup,
                     )
                 )
                 short_entries = [i in shorting for i in range(total)]
         elif rule == "bollinger":
-            strategy_entries = bollinger_entries_columns(span.closes)
+            strategy_entries = _after_warmup(
+                bollinger_entries_columns(span.closes), warmup
+            )
         else:
             strategy_entries = [False] * total
         session.strategy_entries = strategy_entries
         session.short_entries = short_entries
-        session.random_entries = random_entries(
-            span.highs, span.lows, span.closes, settings
+        session.random_entries = _after_warmup(
+            random_entries(span.highs, span.lows, span.closes, settings), warmup
         )
         import numpy as np
 

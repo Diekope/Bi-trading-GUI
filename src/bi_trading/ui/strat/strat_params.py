@@ -58,6 +58,9 @@ NARROW_COLUMNS = 3
 WIDE_AT = 520
 
 
+CUSTOM_VENUE = "Custom"
+
+
 class _Element(QWidget):
     """One gallery cell: a caption over its control."""
 
@@ -120,6 +123,11 @@ class ParamsTile(Card):
         # close. Zero means no limit.
         self.hold_field = self._field(defaults.hold, 0.0, 1_000_000.0)
         self.hold_field.setToolTip("Most candles a trade may stay open; 0 is no limit")
+        self.warmup_field = self._field(defaults.warmup, 0.0, 1_000_000.0)
+        self.warmup_field.setToolTip(
+            "Bars of history before a signal counts, so indicators have settled; "
+            "0 is off"
+        )
 
         self.dynamic_tp = _WideToggle("Enabled")
         self.dynamic_tp.setObjectName("paramToggle")
@@ -133,6 +141,19 @@ class ParamsTile(Card):
         )
         self.reverse_field = self._field(defaults.dyn_tp_reverse, 0.0, 100.0)
 
+        # A venue's fee and slippage, in one pick; typing either by hand
+        # leaves it on Custom.
+        self._venues = dict(defaults.venues)
+        self.venue = QComboBox()
+        self.venue.setObjectName("venueSelect")
+        self.venue.addItems([CUSTOM_VENUE, *self._venues])
+        self.venue.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.venue.setToolTip(
+            "Fill the fee and slippage with a venue's costs. Edit the presets "
+            "under backtest.venues in settings.json."
+        )
         self._elements = [
             _Element("Initial capital $", self.initial_capital),
             _Element("Sizing", self.sizing),
@@ -143,11 +164,13 @@ class ParamsTile(Card):
             _Element("Fee %", self.fee_field),
             _Element("Slippage %", self.slippage_field),
             _Element("Hold (candles)", self.hold_field),
+            _Element("Warm-up (bars)", self.warmup_field),
             _Element("Dynamic TP", self.dynamic_tp),
             _Element("Reverse % to close", self.reverse_field),
+            _Element("Venue costs", self.venue),
         ]
         self.position_element = self._elements[2]
-        self.reverse_element = self._elements[10]
+        self.reverse_element = self._elements[11]
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 0, 0, 0)
@@ -172,6 +195,10 @@ class ParamsTile(Card):
         self._apply_sizing(defaults.sizing)
         self._apply_dynamic(defaults.dynamic_tp)
 
+        self._match_venue()
+        self.venue.currentTextChanged.connect(self._on_venue_picked)
+        self.fee_field.textChanged.connect(self._match_venue)
+        self.slippage_field.textChanged.connect(self._match_venue)
         self.sizing.currentTextChanged.connect(self._on_sizing_changed)
         self.dynamic_tp.toggled.connect(self._apply_dynamic)
         self.dynamic_tp.toggled.connect(self.changed)
@@ -184,6 +211,7 @@ class ParamsTile(Card):
             self.fee_field,
             self.slippage_field,
             self.hold_field,
+            self.warmup_field,
             self.reverse_field,
         ):
             field.textChanged.connect(self.changed)
@@ -210,8 +238,10 @@ class ParamsTile(Card):
             "fee": _number(self.fee_field.text()),
             "slippage": _number(self.slippage_field.text()),
             "hold": _number(self.hold_field.text()),
+            "warmup": _number(self.warmup_field.text()),
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
+            "venue": self.venue.currentText(),
         }
 
     def set_params(self, values: dict) -> None:
@@ -225,6 +255,7 @@ class ParamsTile(Card):
             "fee": self.fee_field,
             "slippage": self.slippage_field,
             "hold": self.hold_field,
+            "warmup": self.warmup_field,
             "dyn_tp_reverse": self.reverse_field,
         }
         for key, widget in fields.items():
@@ -238,9 +269,34 @@ class ParamsTile(Card):
             self.dynamic_tp.setChecked(bool(values["dynamic_tp"]))
         self._apply_sizing(self.sizing_mode())
         self._apply_dynamic(self.dynamic_tp.isChecked())
+        self._match_venue()
         self.changed.emit()
 
     # -- behavior ----------------------------------------------------------
+
+    def _on_venue_picked(self, name: str) -> None:
+        costs = self._venues.get(name)
+        if costs is None:
+            return
+        for field, key in ((self.fee_field, "fee"), (self.slippage_field, "slippage")):
+            field.blockSignals(True)
+            field.setText(_format(costs[key]))
+            field.blockSignals(False)
+        self.changed.emit()
+
+    def _match_venue(self, *_: object) -> None:
+        """Show the venue whose costs the two fields hold, or Custom."""
+        fee = _number(self.fee_field.text())
+        slippage = _number(self.slippage_field.text())
+        shown = CUSTOM_VENUE
+        for name, costs in self._venues.items():
+            if fee == costs["fee"] and slippage == costs["slippage"]:
+                shown = name
+                break
+        if self.venue.currentText() != shown:
+            self.venue.blockSignals(True)
+            self.venue.setCurrentText(shown)
+            self.venue.blockSignals(False)
 
     def _apply_sizing(self, mode: str) -> None:
         """Swap what the position field means: a share, or dollars."""
@@ -284,7 +340,7 @@ class ParamsTile(Card):
     def _field(self, value: float, low: float, high: float) -> QLineEdit:
         field = QLineEdit(_format(value))
         field.setObjectName("paramField")
-        validator = QDoubleValidator(low, high, 2, field)
+        validator = QDoubleValidator(low, high, 3, field)
         # Always a dot for the decimal mark, whatever the system locale says,
         # so what is typed here parses the same way everywhere.
         validator.setLocale(QLocale.c())
@@ -301,7 +357,7 @@ class ParamsTile(Card):
 
 def _format(value: float) -> str:
     """Trim a float to what a person would type."""
-    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
     return text or "0"
 
 

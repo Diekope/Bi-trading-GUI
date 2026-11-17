@@ -159,6 +159,9 @@ class MainWindow(QMainWindow):
 
         # The bar under it: the armed strategy, its reading, and the two bets.
         self.strategy_bar = StrategyBar(canvas)
+        # Bars of history before the signal counts, the same setting the
+        # backtest uses (0 is off). Read once: this runs on every tick.
+        self._warmup = _read_warmup()
         self.strategy_bar.bet.connect(self._place_bet)
         self._bet_wired = False
         layout.addWidget(self.strategy_bar)
@@ -296,7 +299,7 @@ class MainWindow(QMainWindow):
             bands = bollinger_bands(candles[-20:])
             last = bands[-1] if bands else None
             band = last[2] if last else None
-        bar.set_reading(close, band)
+        bar.set_reading(close, band, warming=len(candles) < self._warmup)
         bar.set_bets(
             self.polymarket.up_tile.price, self.polymarket.down_tile.price
         )
@@ -507,3 +510,12 @@ class MainWindow(QMainWindow):
         if self._owns_polymarket:
             self.polymarket_feed.stop()
         super().closeEvent(event)
+
+
+def _read_warmup() -> int:
+    from bi_trading.state.settings import Settings
+
+    try:
+        return max(0, int(Settings.load().backtest.warmup))
+    except Exception:  # noqa: BLE001 - a missing or unreadable settings file
+        return 0

@@ -47,10 +47,7 @@
   <section>
     <h2>Backtest engine</h2>
     <ul>
-    <li data-p="med" data-id="-per-venue-fees-and-a-fee-slippage-line-in-t"><input type="checkbox"><span><b>Per-venue fees</b>, and a fee/slippage line in the results so a result is interpretable and shareable.</span><span class="tag med">Medium</span></li>
-    <li data-p="med" data-id="-the-streamed-walk-spans-over-core-max-bar"><input type="checkbox"><span><b>The streamed walk</b> (spans over <code>CORE_MAX</code> bars) still steps in Python.</span><span class="tag med">Medium</span></li>
-    <li data-p="med" data-id="-a-worker-thread-for-seek-finish-alrea"><input type="checkbox"><span><b>A worker thread for <code>seek</code>.</b> <code>finish()</code> already walks off the main thread; the replay scrubber&#x27;s <code>seek</code> still blocks the UI; move the walk off the main thread.</span><span class="tag med">Medium</span></li>
-    <li data-p="med" data-id="-warm-up-if-the-dynamic-tp-ever-uses-atr-or-"><input type="checkbox"><span><b>Warm-up:</b> if the dynamic TP ever uses ATR or a running peak, a signal needs N bars of history before it counts.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-the-streamed-walk-spans-over-core-max-12"><input type="checkbox"><span><b>The streamed walk</b> (spans over <code>CORE_MAX</code>, 12M bars) still steps in Python. Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars), so it only matters once multi-asset or tick spans arrive.</span><span class="tag low">Low</span></li>
     </ul>
   </section>
   <section>

@@ -113,11 +113,18 @@ class StrategyBar(Card):
         layout.addLayout(box)
         return shown
 
-    def set_reading(self, close: float | None, band: float | None) -> None:
+    def set_reading(
+        self, close: float | None, band: float | None, warming: bool = False
+    ) -> None:
+        """`warming` holds the signal off while the history is still too short."""
         self.close_label.setText("—" if close is None else f"{close:,.1f}")
         self.band_label.setText("—" if band is None else f"{band:,.1f}")
-        holds = close is not None and band is not None and close < band
-        self.signal_label.setText("TRUE" if holds else "FALSE")
+        holds = (
+            not warming and close is not None and band is not None and close < band
+        )
+        self.signal_label.setText(
+            "WARM-UP" if warming else "TRUE" if holds else "FALSE"
+        )
         state = "on" if holds else "off"
         if self.signal_label.property("state") != state:
             self.signal_label.setProperty("state", state)

@@ -7,14 +7,9 @@ the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
 ## Backtest engine
-- [med] **Per-venue fees**, and a fee/slippage line in the results so a result is
-  interpretable and shareable.
-- [med] **The streamed walk** (spans over `CORE_MAX` bars) still steps in Python.
-- [med] **A worker thread for `seek`.** `finish()` already walks off the main thread;
-  the replay scrubber's `seek` still blocks the UI; move the
-  walk off the main thread.
-- [med] **Warm-up:** if the dynamic TP ever uses ATR or a running peak, a signal
-  needs N bars of history before it counts.
+- [low] **The streamed walk** (spans over `CORE_MAX`, 12M bars) still steps in
+  Python. Out of reach with today's data (BTC 1m since 2017 is about 5M bars), so
+  it only matters once multi-asset or tick spans arrive.
 
 ## Results & visualisation
 - [med] **Overlay a saved run's curve** on the current one.

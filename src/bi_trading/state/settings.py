@@ -33,6 +33,15 @@ TIMEFRAMES: tuple[str, ...] = ("1m", "3m", "5m", "15m", "30m", "1h")
 # History starts here: the venues' pre-2017 coverage is thin.
 FIRST_YEAR = 2017
 
+# What trading on a venue costs a backtest, per side, in percent: the fee, and
+# what a market fill gives away. Starting points to edit under
+# `backtest.venues` in settings.json, not quotes: Hyperliquid's base taker rate
+# is 0.045%; Polymarket's cost depends on the market, so it starts at zero.
+VENUE_COSTS: dict[str, dict[str, float]] = {
+    "Hyperliquid": {"fee": 0.045, "slippage": 0.01},
+    "Polymarket": {"fee": 0.0, "slippage": 0.0},
+}
+
 # A file in this shape is written when none exists. The underscore keys are
 # ignored by the loader; they are there for the human who opens the file.
 TEMPLATE = {
@@ -61,6 +70,8 @@ TEMPLATE = {
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "hold": 7,
+        "warmup": 0,
+        "venues": {name: dict(costs) for name, costs in VENUE_COSTS.items()},
         "sizing": "balance",
         "timeframe": "1m",
         "start_year": FIRST_YEAR,
@@ -96,6 +107,19 @@ def settings_path() -> Path:
     return Path(os.environ.get("BI_TRADING_SETTINGS", DEFAULT_PATH)).expanduser()
 
 
+def _venue_costs(raw: object) -> dict[str, dict[str, float]]:
+    """The presets: the built-in ones, with whatever the file overrides or adds."""
+    costs = {name: dict(values) for name, values in VENUE_COSTS.items()}
+    if isinstance(raw, dict):
+        for name, values in raw.items():
+            if isinstance(name, str) and not name.startswith("_") and isinstance(values, dict):
+                costs[name] = {
+                    "fee": _clamp(_number(values.get("fee"), 0.0), 0.0, 100.0),
+                    "slippage": _clamp(_number(values.get("slippage"), 0.0), 0.0, 100.0),
+                }
+    return costs
+
+
 @dataclass(frozen=True)
 class BacktestDefaults:
     """The values a fresh backtest form starts from."""
@@ -110,6 +134,10 @@ class BacktestDefaults:
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     hold: int = 7                      # candles a trade may run; 0 = no limit
+    warmup: int = 0                    # bars of history before a signal counts; 0 = off
+    venues: dict = field(              # per-venue fee and slippage presets, percent
+        default_factory=lambda: _venue_costs(None)
+    )
     sizing: str = "balance"            # balance % | fixed $ | risk %
     timeframe: str = "1m"              # resolution the 1m bars compact to
     start_year: int = FIRST_YEAR       # first year of history
@@ -179,6 +207,10 @@ class BacktestDefaults:
             hold=int(
                 _clamp(_number(values.get("hold"), defaults.hold), 0, 1_000_000)
             ),
+            warmup=int(
+                _clamp(_number(values.get("warmup"), defaults.warmup), 0, 1_000_000)
+            ),
+            venues=_venue_costs(values.get("venues")),
             sizing=_choice(values.get("sizing"), defaults.sizing),
             timeframe=timeframe,
             start_year=start,
@@ -417,6 +449,8 @@ def save_backtest_defaults(
         "dynamic_tp": defaults.dynamic_tp,
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
         "hold": defaults.hold,
+        "warmup": defaults.warmup,
+        "venues": defaults.venues,
         "sizing": defaults.sizing,
         "timeframe": defaults.timeframe,
         "start_year": defaults.start_year,

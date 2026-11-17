@@ -85,6 +85,24 @@ long, lower for a short — and every exit slips against the trade, except the
 take profit, which is a resting limit order and fills at its price. The fee is
 charged on top. The builder's previews use the same 0.01%.
 
+**Venue costs.** The *Venue costs* pick fills the fee and the slippage with a
+venue's own (Hyperliquid 0.045% + 0.01%, Polymarket 0% + 0% to start); typing
+either by hand leaves it on *Custom*. The presets live under `backtest.venues`
+in the settings file, a `{"fee", "slippage"}` pair per venue in percent, and
+are starting points to edit, not quotes — Polymarket's cost depends on the
+market. The Fees figure in the results shows the rates on hover.
+
+**Warm-up.** *Warm-up (bars)* (`warmup` in the settings file) is how much
+history must exist before a signal counts, so indicators have settled. It is
+**off by default** (0). With it on, the first N bars never open a trade, for the
+strategy and for the random baseline alike. The live strategy bar uses the same
+setting: while the chart holds fewer than N bars its signal reads `WARM-UP`
+instead of firing. The builder's previews do not use it.
+
+**Sanity clamps.** A max cash above the capital, or a fixed dollar position
+above it, is brought back to the capital, and a reverse % with the dynamic take
+profit off is ignored; the playback note says when one applied.
+
 A trade ends at the first of: its **stop**, its **take profit**, the strategy's
 **exit rule**, or the **hold limit** — by default **7 candles** (the *Hold
 (candles)* parameter, `hold` in the settings file; 0 means no limit). When one

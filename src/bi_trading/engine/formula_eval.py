@@ -483,8 +483,13 @@ def evaluate(formula: Formula, context: dict):
     return _eval(formula.condition, scope)
 
 
-def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
-    """The bars where an entry rule is true.
+def entry_signals(
+    formula: Formula, bars, fields=ENTRY_FIELDS, warmup: int = 0
+) -> list[int]:
+    """The bars where an entry rule is true, from bar `warmup` on.
+
+    The first `warmup` bars are history the indicators are still settling on,
+    so a signal there does not count (0, the default, counts them all).
 
     `bars` is a list of bars, or a mapping of field name to a whole series (the
     column form the array-backed span carries). A vectorised NumPy pass over a
@@ -492,6 +497,13 @@ def entry_signals(formula: Formula, bars, fields=ENTRY_FIELDS) -> list[int]:
     fast path does not apply (a gap in a field, an unknown function, or no
     NumPy at all).
     """
+    picked = _entry_signals(formula, bars, fields)
+    if warmup > 0:
+        picked = [index for index in picked if index >= warmup]
+    return picked
+
+
+def _entry_signals(formula: Formula, bars, fields) -> list[int]:
     if formula is None or formula.condition is None:
         return []
     fast = _numpy_signals(formula, bars, fields)
@@ -1132,6 +1144,7 @@ def backtest(
     short: bool = False,
     short_entry: Formula | None = None,
     slippage: float = SLIPPAGE,
+    warmup: int = 0,
 ) -> Report:
     """The rule, a random-buy version of it, and buy and hold, over `bars`.
 
@@ -1146,10 +1159,10 @@ def backtest(
     if first is None:
         return Report(capital, [], [], [], 0, 0)
 
-    signals = set(entry_signals(entry, bars, fields))
+    signals = set(entry_signals(entry, bars, fields, warmup))
     # A second entry rule opens shorts, beside the first one's longs.
     shorting = (
-        set(entry_signals(short_entry, bars, fields))
+        set(entry_signals(short_entry, bars, fields, warmup))
         if short_entry is not None and not short
         else None
     )
@@ -1158,7 +1171,10 @@ def backtest(
     )
 
     rng = random.Random(seed)
-    picks = {index for index in range(len(closes)) if rng.random() < entry_chance}
+    picks = {
+        index for index in range(len(closes))
+        if rng.random() < entry_chance and index >= warmup
+    }
     random_curve, random_results, _, _ = _walk(
         closes, picks, exit_, tp, sl, capital, fee, short, None, slippage
     )

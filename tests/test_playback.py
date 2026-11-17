@@ -683,3 +683,51 @@ def test_reverse_means_nothing_without_the_dynamic_take_profit() -> None:
     on = _params(dyn_tp_reverse=3.0, dynamic_tp=True)
     assert _walk_settings(on)["reverse"] == 3.0
     assert walk_clamps(on) == []
+
+
+# -- warm-up ------------------------------------------------------------------
+
+
+def test_warmup_is_off_by_default() -> None:
+    from bi_trading.state.settings import BacktestDefaults
+    from bi_trading.ui.strat.strat_playback import _walk_settings
+
+    assert BacktestDefaults().warmup == 0
+    assert _walk_settings(_params())["warmup"] == 0
+
+
+def test_signals_before_the_warmup_do_not_count() -> None:
+    from bi_trading.engine.formula import parse
+    from bi_trading.engine.formula_eval import entry_signals
+
+    bars = [{"close": 100.0 + i} for i in range(10)]
+    formula = parse("close > 0")
+    every = entry_signals(formula, bars)
+    assert every == list(range(10))
+    assert entry_signals(formula, bars, warmup=4) == list(range(4, 10))
+    assert entry_signals(formula, bars, warmup=99) == []
+
+
+def test_the_walk_ignores_entries_in_the_warmup(app: QApplication) -> None:
+    from bi_trading.ui.strat.strat_playback import build_session
+
+    _write(2021, 300, price=200.0)
+    plain = build_session([2021], _params(), "bollinger", "1m")
+    warmed = build_session([2021], _params(warmup=120), "bollinger", "1m")
+
+    assert not any(warmed.strategy_entries[:120])
+    assert not any(warmed.random_entries[:120])
+    assert warmed.strategy.warmup == 120
+    # What it keeps is what the plain run had after the warm-up.
+    assert list(warmed.strategy_entries[120:]) == list(plain.strategy_entries[120:])
+
+
+def test_the_live_bar_holds_its_signal_while_warming_up(app: QApplication) -> None:
+    from bi_trading.ui.strategy_bar import StrategyBar
+
+    bar = StrategyBar()
+    bar.set_reading(95.0, 100.0)
+    assert bar.signal_label.text() == "TRUE"
+    bar.set_reading(95.0, 100.0, warming=True)
+    assert bar.signal_label.text() == "WARM-UP"
+    bar.close()

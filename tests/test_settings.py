@@ -351,3 +351,18 @@ def test_slippage_is_a_setting() -> None:
     assert BacktestDefaults().slippage == 0.01
     assert BacktestDefaults.load({"slippage": 0.25}, {}).slippage == 0.25
     assert BacktestDefaults.load({"slippage": -1}, {}).slippage == 0.0
+
+
+def test_venue_costs_have_presets_and_the_file_can_override_them() -> None:
+    from bi_trading.state.settings import BacktestDefaults
+
+    base = BacktestDefaults.load({})
+    assert base.venues["Hyperliquid"] == {"fee": 0.045, "slippage": 0.01}
+    assert set(base.venues) >= {"Hyperliquid", "Polymarket"}
+
+    custom = BacktestDefaults.load(
+        {"venues": {"Polymarket": {"fee": 1.5, "slippage": 0.2}, "Other": {"fee": 0.1}}}
+    )
+    assert custom.venues["Polymarket"] == {"fee": 1.5, "slippage": 0.2}
+    assert custom.venues["Other"] == {"fee": 0.1, "slippage": 0.0}
+    assert custom.venues["Hyperliquid"]["fee"] == 0.045  # untouched

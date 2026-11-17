@@ -410,6 +410,10 @@ class ResultsTile(Card):
         self.metrics["trades"].setText(f"{play.trades:,}")
         self.metrics["win"].setText(f"{play.win_rate * 100:,.0f}%")
         self.metrics["fees"].setText(f"${play.fees:,.0f}")
+        self.metrics["fees"].setToolTip(
+            f"{play.fee * 100:.3g}% fee + {play.slippage * 100:.3g}% slippage "
+            "on each fill"
+        )
         self.pnl_bars.set_values([record[6] for record in play.trades_log])
         self.drawdown.set_curve(session.strategy_curve)
 
