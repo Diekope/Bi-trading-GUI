@@ -9,19 +9,19 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.data.candles import append_rows, candle_file  # noqa: E402
-from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse  # noqa: E402
-from lalala.engine.formula_eval import backtest  # noqa: E402
-from lalala.ui.strat.strat_compare import (  # noqa: E402
+from bi_trading.data.candles import append_rows, candle_file  # noqa: E402
+from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse  # noqa: E402
+from bi_trading.engine.formula_eval import backtest  # noqa: E402
+from bi_trading.ui.strat.strat_compare import (  # noqa: E402
     SWEEP_SLS,
     SWEEP_TPS,
     ComparePage,
     sweep_returns,
     walk_forward,
 )
-from lalala.ui.strat.strat_report import load_bars  # noqa: E402
-from lalala.state.strategies import SavedStrategy  # noqa: E402
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.strat.strat_report import load_bars  # noqa: E402
+from bi_trading.state.strategies import SavedStrategy  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -33,8 +33,8 @@ def app() -> QApplication:
 
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
-    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
-    from lalala.data import candles
+    monkeypatch.setenv("BI_TRADING_DATA", str(tmp_path / "candles"))
+    from bi_trading.data import candles
 
     candles._ROW_CACHE.clear()
     yield
@@ -207,8 +207,8 @@ def test_the_add_menu_lists_saved_strategies(
     entry, exit_ = _rules()
     report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
 
-    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "saved.json"))
-    from lalala.state import strategies
+    monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "saved.json"))
+    from bi_trading.state import strategies
 
     strategies.save(
         SavedStrategy("Keep", "5m", "close > sma(close, 10)", "pnl >= tp")
@@ -249,8 +249,8 @@ def test_the_strategy_on_show_is_not_offered_again(
     entry, exit_ = _rules()
     report = backtest(bars, entry, exit_, tp=2.0, sl=1.0)
 
-    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "saved.json"))
-    from lalala.state import strategies
+    monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "saved.json"))
+    from bi_trading.state import strategies
 
     current = SavedStrategy(
         "On show", "1m", "close > sma(close, 10)", "pnl >= tp"

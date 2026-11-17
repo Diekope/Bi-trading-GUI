@@ -11,10 +11,10 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QShortcut  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from lalala.ui.hub.main_hub import MainHubWindow  # noqa: E402
-from lalala.state.positions import store  # noqa: E402
-from lalala.state.settings import Settings, load_window_geometry, save_window_geometry  # noqa: E402
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.hub.main_hub import MainHubWindow  # noqa: E402
+from bi_trading.state.positions import store  # noqa: E402
+from bi_trading.state.settings import Settings, load_window_geometry, save_window_geometry  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -27,7 +27,7 @@ def app() -> QApplication:
 def test_the_hub_opens_home_without_a_start_page(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
 
     window = MainHubWindow(autostart=False)
     try:
@@ -41,7 +41,7 @@ def test_the_hub_opens_the_configured_start_page(
 ) -> None:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"general": {"start_page": "live"}}))
-    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(path))
 
     window = MainHubWindow(autostart=False)
     try:
@@ -54,13 +54,13 @@ def test_the_hub_opens_the_configured_start_page(
 def test_the_rail_quit_button_closes_the_app(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
     window = MainHubWindow(autostart=False)
     window.show()
     app.processEvents()
 
     button = next(
-        b for b in window.findChildren(QPushButton) if b.toolTip() == "Quit lalala"
+        b for b in window.findChildren(QPushButton) if b.toolTip() == "Quit bi-trading"
     )
     button.click()
     app.processEvents()
@@ -74,7 +74,7 @@ def test_the_rail_quit_button_closes_the_app(
 def test_the_hub_binds_view_shortcuts(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
     window = MainHubWindow(autostart=False)
     try:
         keys = sorted(s.key().toString() for s in window.findChildren(QShortcut))
@@ -87,7 +87,7 @@ def test_the_hub_binds_view_shortcuts(
 
 
 def test_the_hub_geometry_round_trips(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
 
     assert load_window_geometry() == ""
     save_window_geometry("Z2VvbWV0cnk=")
@@ -102,8 +102,8 @@ def test_the_hub_geometry_round_trips(monkeypatch, tmp_path) -> None:
 def test_the_home_shows_a_balance_card_per_provider(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     window = MainHubWindow(autostart=False)
     try:
         assert window._stat_values["Hyperliquid balance"].text() == "—"
@@ -117,7 +117,7 @@ def test_the_home_shows_a_balance_card_per_provider(
 def test_a_connected_balance_card_shows_the_side(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    from lalala.state.accounts import (
+    from bi_trading.state.accounts import (
         Accounts,
         HL_KEY,
         HyperliquidAccount,
@@ -125,8 +125,8 @@ def test_a_connected_balance_card_shows_the_side(
         set_secret,
     )
 
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     set_secret(HL_KEY, "0x" + "ab" * 32)
     save_accounts(
         Accounts(hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20))
@@ -148,8 +148,8 @@ def test_a_connected_balance_card_shows_the_side(
 def test_the_rail_shows_a_compact_balance_per_venue(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     window = MainHubWindow(autostart=False)
     try:
         assert set(window._rail_balances) == {"pm", "hl"}
@@ -163,7 +163,7 @@ def test_the_rail_shows_a_compact_balance_per_venue(
 
 
 def test_money_short_reads_at_a_glance() -> None:
-    from lalala.ui.hub.main_hub import _money_short
+    from bi_trading.ui.hub.main_hub import _money_short
 
     assert _money_short(250.0) == "$250"
     assert _money_short(1_234.5) == "$1.2k"
@@ -174,7 +174,7 @@ def test_money_short_reads_at_a_glance() -> None:
 def test_the_open_position_card_follows_the_shared_store(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
     window = MainHubWindow(autostart=False)
     try:
         value = window._stat_values["Open position"]

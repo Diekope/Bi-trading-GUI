@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from lalala.data import candles
-from lalala.data.candles import (
+from bi_trading.data import candles
+from bi_trading.data.candles import (
     COMPLETE,
     COMPLETE_STATE,
     MISSING,
@@ -25,7 +25,7 @@ from lalala.data.candles import (
 
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
-    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
+    monkeypatch.setenv("BI_TRADING_DATA", str(tmp_path / "candles"))
     candles._ROW_CACHE.clear()
 
 
@@ -43,12 +43,12 @@ def test_the_settings_folder_is_used_when_the_environment_is_silent(
 ) -> None:
     import json
 
-    monkeypatch.delenv("LALALA_DATA", raising=False)
+    monkeypatch.delenv("BI_TRADING_DATA", raising=False)
     settings = tmp_path / "settings.json"
     settings.write_text(
         json.dumps({"general": {"data_folder": str(tmp_path / "elsewhere")}})
     )
-    monkeypatch.setenv("LALALA_SETTINGS", str(settings))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(settings))
 
     assert candles.candles_dir() == tmp_path / "elsewhere"
 

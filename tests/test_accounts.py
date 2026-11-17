@@ -8,7 +8,7 @@ import stat
 
 import pytest
 
-from lalala.state.accounts import (
+from bi_trading.state.accounts import (
     Accounts,
     HL_KEY,
     HyperliquidAccount,
@@ -21,15 +21,15 @@ from lalala.state.accounts import (
     valid_address,
     valid_private_key,
 )
-from lalala.state.settings import Settings
+from bi_trading.state.settings import Settings
 
 
 @pytest.fixture
 def paths(tmp_path, monkeypatch):
     settings = tmp_path / "settings.json"
     secrets = tmp_path / "secrets.json"
-    monkeypatch.setenv("LALALA_SETTINGS", str(settings))
-    monkeypatch.setenv("LALALA_SECRETS", str(secrets))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(settings))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(secrets))
     return settings, secrets
 
 
@@ -130,8 +130,8 @@ def test_private_key_validation(value: str, expected: bool) -> None:
 def test_the_settings_form_saves_and_flags_a_bad_address(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.ui.hub.settings_view import SettingsView
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.ui.hub.settings_view import SettingsView
+    from bi_trading.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -159,8 +159,8 @@ def test_the_settings_form_saves_and_flags_a_bad_address(paths) -> None:
 def test_the_settings_form_saves_backtest_defaults(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.ui.hub.settings_view import SettingsView
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.ui.hub.settings_view import SettingsView
+    from bi_trading.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -206,8 +206,8 @@ def test_the_settings_form_saves_backtest_defaults(paths) -> None:
 def test_the_settings_form_saves_trading_and_general(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.ui.hub.settings_view import SettingsView
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.ui.hub.settings_view import SettingsView
+    from bi_trading.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -247,9 +247,9 @@ def test_the_settings_form_saves_trading_and_general(paths) -> None:
 def test_saving_the_built_in_data_folder_keeps_the_file_portable(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.data.candles import default_candles_dir
-    from lalala.ui.hub.settings_view import SettingsView
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.data.candles import default_candles_dir
+    from bi_trading.ui.hub.settings_view import SettingsView
+    from bi_trading.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)
@@ -267,8 +267,8 @@ def test_saving_the_built_in_data_folder_keeps_the_file_portable(paths) -> None:
 def test_disconnect_signs_the_venue_out(paths) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from lalala.ui.hub.settings_view import SettingsView
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.ui.hub.settings_view import SettingsView
+    from bi_trading.ui.theme import apply_dark_theme
 
     app = QApplication.instance() or QApplication([])
     apply_dark_theme(app)

@@ -12,14 +12,14 @@ import pytest  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy  # noqa: E402
 
-from lalala.data import candles  # noqa: E402
-from lalala.data.candles import append_rows, candle_file  # noqa: E402
-from lalala.ui.panels import Card  # noqa: E402
-from lalala.ui.strat.strat_builder import StrategyBuilderWindow  # noqa: E402
-from lalala.ui.strat.strat_params import ParamsTile  # noqa: E402
-from lalala.ui.strat.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
-from lalala.ui.strat.strat_window import StratWindow  # noqa: E402
-from lalala.ui.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
+from bi_trading.data import candles  # noqa: E402
+from bi_trading.data.candles import append_rows, candle_file  # noqa: E402
+from bi_trading.ui.panels import Card  # noqa: E402
+from bi_trading.ui.strat.strat_builder import StrategyBuilderWindow  # noqa: E402
+from bi_trading.ui.strat.strat_params import ParamsTile  # noqa: E402
+from bi_trading.ui.strat.strat_tiles import FIRST_YEAR, RESOLUTIONS, DownloadTile  # noqa: E402
+from bi_trading.ui.strat.strat_window import StratWindow  # noqa: E402
+from bi_trading.ui.theme import CANVAS, CARD_GAP, apply_dark_theme  # noqa: E402
 
 # A year holds this many bars in the tests, so faking one stays cheap.
 TEST_BARS_PER_YEAR = 10
@@ -35,12 +35,12 @@ def app() -> QApplication:
 @pytest.fixture(autouse=True)
 def small_year(monkeypatch, tmp_path):
     # No real candle directory, and a year that fits in a handful of rows.
-    monkeypatch.setenv("LALALA_DATA", str(tmp_path / "candles"))
+    monkeypatch.setenv("BI_TRADING_DATA", str(tmp_path / "candles"))
     monkeypatch.setattr(
         candles, "expected_rows", lambda year, now=None: TEST_BARS_PER_YEAR
     )
     monkeypatch.setattr(
-        "lalala.ui.strat.strat_tiles.expected_rows",
+        "bi_trading.ui.strat.strat_tiles.expected_rows",
         lambda year, now=None: TEST_BARS_PER_YEAR,
     )
     candles._ROW_CACHE.clear()
@@ -69,7 +69,7 @@ def _pick(tile: DownloadTile, start: int, end: int, resolution: str) -> None:
 
 
 def test_the_results_span_the_bottom(app: QApplication, window) -> None:
-    assert window.windowTitle() == "lalala · backtest + strategy"
+    assert window.windowTitle() == "bi-trading · backtest + strategy"
     # The whole window is a vertical splitter: the run on top, results below.
     assert window.outer.orientation() == Qt.Orientation.Vertical
     assert window.outer.count() == 2
@@ -152,7 +152,7 @@ def test_the_history_tile_starts_from_the_saved_defaults(
             }
         )
     )
-    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(path))
 
     tile = DownloadTile()
     tile.show()
@@ -360,7 +360,7 @@ def test_finishing_swaps_the_button_to_start(
 
 
 def test_the_strategy_picker_lists_the_rules(app: QApplication, window) -> None:
-    from lalala.ui.strat.strat_playback import DEFAULT_STRATEGY, STRATEGIES
+    from bi_trading.ui.strat.strat_playback import DEFAULT_STRATEGY, STRATEGIES
 
     tile = window.strategy
     labels = [tile.picker.itemText(i) for i in range(tile.picker.count())]
@@ -380,7 +380,7 @@ def test_the_strategy_tile_lists_saved_strategies(
     import json
 
 
-    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "strategies.json"))
     (tmp_path / "strategies.json").write_text(
         json.dumps(
             [
@@ -405,9 +405,9 @@ def test_the_strategy_tile_lists_saved_strategies(
 
 
 def test_a_run_saves_and_reloads(app: QApplication, window, monkeypatch, tmp_path) -> None:
-    from lalala.state import runs
+    from bi_trading.state import runs
 
-    monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
     window.left.set_source([], "1m")
     window.left.restart()
     window.left.pause()
@@ -527,7 +527,7 @@ def test_run_becomes_pause_and_resume(app: QApplication, window) -> None:
 def test_the_header_has_restart_speed_and_a_progress_bar(
     app: QApplication, window
 ) -> None:
-    from lalala.ui.strat.strat_playback import SPEEDS
+    from bi_trading.ui.strat.strat_playback import SPEEDS
 
     playback = window.left
     assert playback.restart_button.text() == "Restart"
@@ -605,7 +605,7 @@ def test_the_results_switch_between_overview_and_trades(
 
 
 def test_the_parameters_start_from_the_settings_file(app: QApplication, window) -> None:
-    from lalala.state.settings import Settings
+    from bi_trading.state.settings import Settings
 
     defaults = Settings.load().backtest
     tile = window.params
@@ -627,7 +627,7 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
 
 
 def test_the_gallery_wraps_by_width(app: QApplication) -> None:
-    from lalala.ui.strat.strat_params import (
+    from bi_trading.ui.strat.strat_params import (
         NARROW_COLUMNS,
         WIDE_AT,
         WIDE_COLUMNS,
@@ -657,7 +657,7 @@ def test_the_sizing_mode_changes_what_position_means(
 ) -> None:
     from PySide6.QtGui import QValidator
 
-    from lalala.ui.strat.strat_params import SIZING_LABELS
+    from bi_trading.ui.strat.strat_params import SIZING_LABELS
 
     tile = window.params
     assert tile.sizing_mode() == "balance"
@@ -740,9 +740,9 @@ def test_every_input_marks_the_tile_changed(window) -> None:
 def test_a_run_keeps_its_exit_rule_and_side(
     app: QApplication, window, monkeypatch, tmp_path
 ) -> None:
-    from lalala.state import runs
+    from bi_trading.state import runs
 
-    monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
     window.left.set_source([], "1m")
     assert window.left.set_saved_strategy(
         "Fade", "close > sma(close, 5)", None, "pnl >= 0.5 or pnl <= -0.5", "short"

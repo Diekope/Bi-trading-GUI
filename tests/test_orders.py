@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from lalala.state import orders
-from lalala.state.accounts import (
+from bi_trading.state import orders
+from bi_trading.state.accounts import (
     Accounts,
     HL_KEY,
     PM_KEY,
@@ -17,16 +17,16 @@ from lalala.state.accounts import (
     save_accounts,
     set_secret,
 )
-from lalala.state.settings import Settings, save_trading_defaults, TradingDefaults
-from lalala.venues.base import OrderAck, OrderRequest
+from bi_trading.state.settings import Settings, save_trading_defaults, TradingDefaults
+from bi_trading.venues.base import OrderAck, OrderRequest
 
 
 @pytest.fixture
 def paths(tmp_path, monkeypatch):
     settings = tmp_path / "settings.json"
     secrets = tmp_path / "secrets.json"
-    monkeypatch.setenv("LALALA_SETTINGS", str(settings))
-    monkeypatch.setenv("LALALA_SECRETS", str(secrets))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(settings))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(secrets))
     return settings, secrets
 
 
@@ -184,7 +184,7 @@ def test_a_live_orders_flag_round_trips_through_settings(paths) -> None:
 
 
 def test_a_region_block_reads_plainly() -> None:
-    from lalala.venues.base import friendly_message
+    from bi_trading.venues.base import friendly_message
 
     text = friendly_message(
         Exception(
@@ -198,13 +198,13 @@ def test_a_region_block_reads_plainly() -> None:
 
 
 def test_a_plain_error_passes_through() -> None:
-    from lalala.venues.base import friendly_message
+    from bi_trading.venues.base import friendly_message
 
     assert friendly_message(ValueError("boom")) == "boom"
 
 
 def test_a_stale_clob_client_reads_plainly() -> None:
-    from lalala.venues.base import friendly_message
+    from bi_trading.venues.base import friendly_message
 
     text = friendly_message(
         Exception(
@@ -218,7 +218,7 @@ def test_a_stale_clob_client_reads_plainly() -> None:
 
 
 def test_a_deposit_wallet_mismatch_reads_plainly() -> None:
-    from lalala.venues.base import friendly_message
+    from bi_trading.venues.base import friendly_message
 
     text = friendly_message(
         Exception(
@@ -232,7 +232,7 @@ def test_a_deposit_wallet_mismatch_reads_plainly() -> None:
 
 
 def test_the_polymarket_config_carries_the_builder_key(paths) -> None:
-    from lalala.state.accounts import (
+    from bi_trading.state.accounts import (
         PM_BUILDER_KEY,
         PM_BUILDER_PASSPHRASE,
         PM_BUILDER_SECRET,
@@ -263,7 +263,7 @@ class _BalanceVenue:
         pass
 
     async def balances(self):
-        from lalala.venues.base import Balance
+        from bi_trading.venues.base import Balance
 
         return [Balance(asset="USDC", free=self.free)]
 
@@ -293,3 +293,39 @@ def test_a_balance_request_needs_a_connection(paths) -> None:
         svc.shutdown()
 
     assert failed == [("hyperliquid", "not connected")]
+
+
+def test_a_bet_is_summarised_in_dollars_and_what_it_got(monkeypatch) -> None:
+    ack = OrderAck("oid", accepted=True, detail="matched · 3.85 shares for $2.00")
+    svc, _ = _service(monkeypatch, ack)
+    seen: list[str] = []
+    svc.placed.connect(lambda venue, text: seen.append(text))
+    order = OrderRequest(
+        instrument=orders.HL_BTC, side="buy", price=0.54, size=0.0, notional=2.0
+    )
+
+    try:
+        asyncio.run(svc._place("polymarket", order, {}))
+    finally:
+        svc.shutdown()
+
+    assert seen == ["Buy $2.00 · matched · 3.85 shares for $2.00"]
+
+
+def test_a_failed_order_is_kept_in_the_log(monkeypatch, caplog) -> None:
+    import logging
+
+    def boom(name, **config):
+        raise RuntimeError("the wallet does not exist")
+
+    monkeypatch.setattr(orders, "get_venue", boom)
+    svc = orders.OrderService()
+    order = OrderRequest(instrument=orders.HL_BTC, side="buy", price=1.0, size=1.0)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="bi_trading.state.orders"):
+            asyncio.run(svc._place("polymarket", order, {}))
+    finally:
+        svc.shutdown()
+
+    assert any("the wallet does not exist" in record.getMessage() for record in caplog.records)

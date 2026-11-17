@@ -12,15 +12,15 @@ from PySide6.QtGui import QColor, QWheelEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.ui.cards import format_axis_time  # noqa: E402
-from lalala.ui.main_window import MainWindow  # noqa: E402
-from lalala.data.market_data import (  # noqa: E402
+from bi_trading.ui.cards import format_axis_time  # noqa: E402
+from bi_trading.ui.main_window import MainWindow  # noqa: E402
+from bi_trading.data.market_data import (  # noqa: E402
     TIMEFRAMES,
     Candle,
     CandleSeries,
     Market,
 )
-from lalala.ui.theme import CANVAS, CARD_GAP, PANEL, apply_dark_theme  # noqa: E402
+from bi_trading.ui.theme import CANVAS, CARD_GAP, PANEL, apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -49,7 +49,7 @@ def _series(coin: str = "HYPE", interval: str = "1m", count: int = 3) -> CandleS
 
 
 def test_console_entry_point_resolves() -> None:
-    from lalala.__main__ import main
+    from bi_trading.__main__ import main
 
     assert callable(main)
 
@@ -819,7 +819,7 @@ def test_timeframe_pills_advertise_their_key(window: MainWindow) -> None:
 
 
 def test_the_terminal_top_bar_carries_a_quit_button(window: MainWindow) -> None:
-    assert window.quit_button.toolTip() == "Quit lalala"
+    assert window.quit_button.toolTip() == "Quit bi-trading"
     assert window.quit_button.text() == "Quit"
 
     window.quit_button.click()

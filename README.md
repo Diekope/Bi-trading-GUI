@@ -1,4 +1,4 @@
-# lalala
+# bi-trading
 
 Dark trading terminal. Hyperliquid candles are live on the right; the left
 column tracks the current Polymarket five-minute BTC up/down market.
@@ -9,10 +9,10 @@ column tracks the current Polymarket five-minute BTC up/down market.
 
 ```sh
 uv sync          # PySide6, httpx, websockets
-uv run lalala-hub
+uv run bi-trading-hub
 ```
 
-`lalala-hub` is the entry point: one window with a folded icon rail down the
+`bi-trading-hub` is the entry point: one window with a folded icon rail down the
 left and, on the right, whichever view the rail has selected — Home, Live, the
 strategy builder, the backtest engine or Settings. The rail swaps the view
 **in place** (the old one is destroyed, a new one built), so Live, the builder
@@ -30,9 +30,9 @@ every 30s when that account is connected.
 The other windows can still be launched on their own:
 
 ```sh
-uv run lalala          # the terminal alone (Polymarket column + Hyperliquid candles)
-uv run lalala-strat    # the backtest/strategy window
-uv run lalala-builder  # the strategy builder
+uv run bi-trading          # the terminal alone (Polymarket column + Hyperliquid candles)
+uv run bi-trading-strat    # the backtest/strategy window
+uv run bi-trading-builder  # the strategy builder
 ```
 
 The venue SDKs — needed only to place orders or test a connection — stay out of
@@ -43,12 +43,18 @@ keys present. Add them when you want them:
 uv sync --extra venues   # hyperliquid-python-sdk, polymarket-client, eth-account
 ```
 
-The backtest walk has a **Rust core** (`rust/lalala_core`). It is optional —
+`uv sync` is exact: it removes whatever the extras you name do not include. To
+have both the venue SDKs and the Rust core, name both —
+`uv sync --extra venues --extra native` — or a later `uv sync --extra native`
+quietly uninstalls the SDKs and orders stop working ("polymarket-client is not
+installed").
+
+The backtest walk has a **Rust core** (`rust/bi_trading_core`). It is optional —
 the same walk runs in Python without it — but it is much faster, so build it
 where a Rust toolchain is available:
 
 ```sh
-uv sync --extra native   # builds lalala-core with maturin
+uv sync --extra native   # builds bi-trading-core with maturin
 ```
 
 ### Settings
@@ -57,7 +63,7 @@ The hub's Settings view (the gear in the rail) is live:
 
 - **Accounts** — a Hyperliquid API-wallet address + key, and a Polymarket key +
   funder address. Addresses, network and signature type go to
-  `~/.config/lalala/settings.json`; private keys go to the **macOS Keychain**
+  `~/.config/bi-trading/settings.json`; private keys go to the **macOS Keychain**
   (a `0600` `secrets.json` is the fallback elsewhere, and in tests). **Test
   connection** really connects through the venue adapters and reports the
   balance or the reason it failed. **Disconnect** signs a venue out — it drops
@@ -79,15 +85,25 @@ connected. With it on, an order still waits for the confirm dialog (unless you
 turn that off), stakes are capped at the max stake, and the order is signed and
 submitted through the venue adapter on a worker thread — the same adapters the
 Connection test uses. The result (fill, rejection, or the reason) shows under
-the buttons. Wiring is in `lalala/orders.py`.
+the buttons, and every failure is also written to the log
+(`~/.local/share/bi-trading/bi-trading.log`) with its full reason. Wiring is in
+`bi-trading/state/orders.py`.
+
+A **Polymarket bet** is a dollar amount, not a share count: *Bet UP* with a
+$20 stake buys $20 of the UP token at the best prices on offer, up to the ask
+plus three cents, and cancels whatever the book cannot fill at once
+(fill-and-kill). It takes a position now or tells you why it could not —
+*nothing on offer at that price*, *not enough USDC*, *the window has ended*,
+*the smallest bet is $1* — and never leaves a half-priced order resting. The
+ask comes from the live book, then Gamma's quote, then the other side's bid.
 
 ### Saved state
 
-`~/.config/lalala/` holds `settings.json`, `strategies.json`, `runs.json` and
+`~/.config/bi-trading/` holds `settings.json`, `strategies.json`, `runs.json` and
 the key store, and `runs_data/` beside it with each saved run's trades and
-equity curves as Parquet. Point these elsewhere with `LALALA_SETTINGS`, `LALALA_SECRETS`,
-`LALALA_STRATEGIES` and `LALALA_RUNS`; `LALALA_KEYCHAIN=0` forces the file
-store, and `LALALA_DATA` overrides the candle folder.
+equity curves as Parquet. Point these elsewhere with `BI_TRADING_SETTINGS`, `BI_TRADING_SECRETS`,
+`BI_TRADING_STRATEGIES` and `BI_TRADING_RUNS`; `BI_TRADING_KEYCHAIN=0` forces the file
+store, and `BI_TRADING_DATA` overrides the candle folder.
 
 Tests (headless, no network, no sockets):
 
@@ -321,8 +337,8 @@ dependency.
 ## Layout
 
 ```
-src/lalala/
-  __main__.py      entry point for `lalala` and `python -m lalala`
+src/bi_trading/
+  __main__.py      entry point for `bi-trading` and `python -m bi_trading`
   app.py           QApplication bootstrap for the terminal
   logs.py          the silent log: a rotating file, never the console
 
@@ -342,7 +358,7 @@ src/lalala/
     formula_palettes.py the builder's palettes: the sources you drag from
 
   state/           config and what persists between runs
-    settings.py        chart feel + defaults from ~/.config/lalala/settings.json
+    settings.py        chart feel + defaults from ~/.config/bi-trading/settings.json
     accounts.py        public account settings + the private keys, in the keychain
     orders.py          placing orders: the worker, the arming gate, the adapters
     positions.py       the one open paper position, shared across the hub's views
@@ -414,7 +430,7 @@ a good year has.
 
 The entry rule the run is pointed at, with a **Create a strategy** button on
 the right. The button is still a placeholder and opens nothing; the builder
-window it will open exists separately (`uv run lalala-builder`). Two rules so
+window it will open exists separately (`uv run bi-trading-builder`). Two rules so
 far:
 
 | Rule | What it does |
@@ -431,7 +447,7 @@ A window of its own, not opened by the backtest window and connected to
 nothing in it:
 
 ```sh
-uv run lalala-builder
+uv run bi-trading-builder
 ```
 
 Two columns side by side, splitting the width **21 / 79** — a narrow rail on
@@ -448,7 +464,7 @@ more.
 A **footer** spans the bottom of the window, as in the mock: the draft's name
 on the left, and `Delete strategy`, `Reset` and `Save` on the right. `Reset`
 clears the draft — name, bar and both rules. `Save` writes it to
-`~/.config/lalala/strategies.json` under its name, replacing an earlier one of
+`~/.config/bi-trading/strategies.json` under its name, replacing an earlier one of
 the same name rather than piling up; it needs a name and rules that check out,
 and the footer says which is missing. `Delete strategy` is described below.
 
@@ -465,7 +481,7 @@ tail of candles the results tile reads on the right, in the mock's own shape.
 The draft you are on is lit; if it is not saved yet it shows at the top badged
 `draft`. Clicking a row loads that strategy back into the editor, and
 **Create a strategy** starts a fresh draft. The file is
-`~/.config/lalala/strategies.json` (`LALALA_STRATEGIES` overrides it) — plain
+`~/.config/bi-trading/strategies.json` (`BI_TRADING_STRATEGIES` overrides it) — plain
 JSON, one object per strategy with its name, bar and both rules as text; a
 missing or broken file simply reads as empty.
 
@@ -640,7 +656,7 @@ dashed `drag a block here`, and a live pill reads `✓ valid`, `✗ not valid` o
 `— empty`.
 
 The chips are only an editor. The formula **text** is the truth: it is rebuilt
-from the chips and handed to `lalala.engine.formula.parse`, so the same checker still
+from the chips and handed to `bi_trading.engine.formula.parse`, so the same checker still
 reports `line 2, column 9: unknown name 'clsoe'`, and the text is what a run
 would use.
 
@@ -701,7 +717,7 @@ It recomputes only when it is on show, so the walk does not run behind
 Under the two rules, the report says what the rule did over the candles already on disk. It
 takes the newest year in the store, keeps the tail of it (1,200 bars in view,
 200 more behind them so the indicators have history), compacts them to the bar
-the STRATEGY tile names, and runs `lalala.engine.formula_eval.backtest`.
+the STRATEGY tile names, and runs `bi_trading.engine.formula_eval.backtest`.
 
 Six figures in **one row** — `PnL`, `Sharpe`, `Max DD`, `Trades`, `Win rate`,
 and `Fees` — and under them three curves, drawn as **return since the start**,
@@ -859,7 +875,7 @@ to a line, wrapping with the tile's width:
 | `Reverse % to close` | pull-back from the peak that closes a trailing TP; only live while the switch is on |
 
 Only BTC is in scope. The starting values live in the same
-`~/.config/lalala/settings.json`, under `backtest` (or `LALALA_BACKTEST_*`),
+`~/.config/bi-trading/settings.json`, under `backtest` (or `BI_TRADING_BACKTEST_*`),
 and are clamped on the way in — an unknown `sizing` mode falls back to
 `balance`. Numeric fields take a dot as the decimal mark whatever the system
 locale, and are bounded so a percentage cannot exceed the whole book.
@@ -893,25 +909,25 @@ open, after the params' take profit and stop loss (which still act inside the
 bar) and before the hold limit; a trade it closes reads `Rule`. A saved
 strategy's side is honoured too. **SAVE RUN** keeps the run under a name: the
 span, resolution, parameters, the strategy (name, entry, short entry, exit, side), and what
-it produced. The small facts go in `~/.config/lalala/runs.json`
-(`LALALA_RUNS` overrides it); the trades and both equity curves go in Parquet
+it produced. The small facts go in `~/.config/bi-trading/runs.json`
+(`BI_TRADING_RUNS` overrides it); the trades and both equity curves go in Parquet
 files in `runs_data/` beside it, so the index stays a few kilobytes. An older
 `runs.json` with its trades inline is migrated on first read (the original is
 kept as `runs.json.bak`). **LOAD RUN** opens one again: the controls are set
 back, including the saved strategy's exit and side, and the run is **walked
 straight to the end**, so every result and trade is there at once.
 
-The bar loop has a **native core** in Rust (`rust/lalala_core`, a PyO3
-extension wrapped by `lalala.engine.core`). A span small enough to hold in memory
+The bar loop has a **native core** in Rust (`rust/bi_trading_core`, a PyO3
+extension wrapped by `bi_trading.engine.core`). A span small enough to hold in memory
 (≤ `CORE_MAX`, 1.5M bars) is loaded and its entries worked out up front, so the
 walk and every seek are a slice plus one native pass — **Finish** and a jump
 are instant. The native pass does everything the Python one does: long and
 short, both ways at once, risk sizing, the trailing take profit, and the exit
 rule, which is compiled to a small program the core runs bar by bar
 (`compile_exit`). A longer span is streamed off disk and stepped in Python. When the
-extension is not built, `lalala.engine.core` falls back to the same walk in Python, so
+extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so
 nothing depends on it. Build and install it with `uv sync --extra native`
-(uv rebuilds it when `rust/lalala_core/src` changes).
+(uv rebuilds it when `rust/bi_trading_core/src` changes).
 
 ## Playback tile
 
@@ -993,9 +1009,9 @@ Palette (`theme.py`):
 
 ## Tuning the chart
 
-The feel of the Polymarket chart comes from `~/.config/lalala/settings.json`,
-written on first launch. Point `LALALA_SETTINGS` elsewhere to keep a different
-profile, or override any key with `LALALA_<KEY>`. Restart after an edit; the
+The feel of the Polymarket chart comes from `~/.config/bi-trading/settings.json`,
+written on first launch. Point `BI_TRADING_SETTINGS` elsewhere to keep a different
+profile, or override any key with `BI_TRADING_<KEY>`. Restart after an edit; the
 file is read once at startup.
 
 | Key | Default | Effect |
@@ -1052,9 +1068,9 @@ rotating file and routes Qt's messages into it too, so the process stays quiet.
 
 | Variable | Effect |
 | --- | --- |
-| `LALALA_LOG` | path to the file (`~/.local/share/lalala/lalala.log`) |
-| `LALALA_LOG=off` | no file at all |
-| `LALALA_LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+| `BI_TRADING_LOG` | path to the file (`~/.local/share/bi-trading/bi-trading.log`) |
+| `BI_TRADING_LOG=off` | no file at all |
+| `BI_TRADING_LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
 
 The file rotates at a megabyte, keeping three. `httpx`, `websockets` and
 `asyncio` are held at `WARNING` unless the level is `DEBUG`, because their

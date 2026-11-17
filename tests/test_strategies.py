@@ -6,13 +6,13 @@ import json
 
 import pytest
 
-from lalala.state import strategies
-from lalala.state.strategies import SavedStrategy
+from bi_trading.state import strategies
+from bi_trading.state.strategies import SavedStrategy
 
 
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
-    monkeypatch.setenv("LALALA_STRATEGIES", str(tmp_path / "strategies.json"))
+    monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "strategies.json"))
     yield
 
 

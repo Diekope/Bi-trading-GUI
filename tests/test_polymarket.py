@@ -19,10 +19,10 @@ import pytest  # noqa: E402
 from PySide6.QtGui import QPainterPath  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.data import polymarket_feed  # noqa: E402
-from lalala.ui.main_window import MainWindow  # noqa: E402
-from lalala.data.market_data import Candle, CandleSeries  # noqa: E402
-from lalala.data.polymarket_data import (  # noqa: E402
+from bi_trading.data import polymarket_feed  # noqa: E402
+from bi_trading.ui.main_window import MainWindow  # noqa: E402
+from bi_trading.data.market_data import Candle, CandleSeries  # noqa: E402
+from bi_trading.data.polymarket_data import (  # noqa: E402
     Level,
     PriceChange,
     PricePoint,
@@ -43,8 +43,8 @@ from lalala.data.polymarket_data import (  # noqa: E402
     slug_window,
     window_price_points,
 )
-from lalala.data.polymarket_feed import PolymarketFeed  # noqa: E402
-from lalala.ui.polymarket_panel import (  # noqa: E402
+from bi_trading.data.polymarket_feed import PolymarketFeed  # noqa: E402
+from bi_trading.ui.polymarket_panel import (  # noqa: E402
     EASE_RANGE,
     FOCUS_MS,
     SAMPLE_EVERY_MS,
@@ -53,7 +53,7 @@ from lalala.ui.polymarket_panel import (  # noqa: E402
     smooth_path,
     time_to_x,
 )
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
 
 TOKENS = (
     "30110116130057740446680476683553482539418691871252512101755124689500345437707",
@@ -1142,8 +1142,8 @@ def test_the_panel_paints_before_and_after_data(window: MainWindow) -> None:
 
 
 def test_a_bet_is_refused_until_connected(window: MainWindow, monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     window.polymarket.set_market(market_from_gamma())
     window.strategy_bar.size.setText("$25")
 
@@ -1153,8 +1153,8 @@ def test_a_bet_is_refused_until_connected(window: MainWindow, monkeypatch, tmp_p
 
 
 def test_a_bet_is_capped_at_the_max_stake(window: MainWindow, monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     market = market_from_gamma()
     window.polymarket.set_market(market)
     # Give the outcome a price so the bet gets as far as the cap.
@@ -1166,3 +1166,132 @@ def test_a_bet_is_capped_at_the_max_stake(window: MainWindow, monkeypatch, tmp_p
     # Clamped to the default $100 max stake before the connection check.
     assert window.strategy_bar.size.text() == "$100"
 
+
+
+# -- betting -----------------------------------------------------------------
+
+
+def test_a_bet_is_capped_a_little_above_the_ask_on_the_tick_grid() -> None:
+    from bi_trading.ui.main_window import BET_ROOM, _bet_cap
+
+    assert BET_ROOM == pytest.approx(0.03)
+    assert _bet_cap(0.51, 0.01) == pytest.approx(0.54)
+    assert _bet_cap(0.512, 0.001) == pytest.approx(0.542)
+    assert _bet_cap(0.98, 0.01) == pytest.approx(0.99)  # never a dollar
+    assert _bet_cap(0.5, 0) == pytest.approx(0.53)  # a missing tick reads as a cent
+
+
+@pytest.fixture
+def bettable(window: MainWindow, monkeypatch):
+    """A window with a live market, a connected venue and live orders armed."""
+    from bi_trading.state import orders
+
+    window.polymarket.set_market(market_from_gamma())
+    window.strategy_bar.size.setText("$2")
+    sent: list = []
+
+    class FakeService:
+        def __init__(self) -> None:
+            from PySide6.QtCore import QObject, Signal
+
+            class Signals(QObject):
+                placed = Signal(str, str)
+                failed = Signal(str, str)
+
+            self.signals = Signals()
+            self.placed = self.signals.placed
+            self.failed = self.signals.failed
+
+        def submit(self, venue, order, config) -> None:
+            sent.append((venue, order, config))
+
+    service = FakeService()
+    monkeypatch.setattr(orders, "service", lambda: service)
+    monkeypatch.setattr(orders, "config_for", lambda venue: {"private_key": "k"})
+    monkeypatch.setattr(orders, "armed", lambda: True)
+    monkeypatch.setattr(
+        "bi_trading.ui.main_window.QMessageBox.question",
+        lambda *args, **kwargs: __import__("PySide6.QtWidgets", fromlist=["QMessageBox"]).QMessageBox.StandardButton.Yes,
+    )
+    window.sent = sent
+    window.fake_service = service
+    return window
+
+
+def test_a_bet_sends_dollars_capped_above_the_ask(bettable: MainWindow) -> None:
+    bettable._place_bet("up")
+
+    assert len(bettable.sent) == 1
+    venue, order, _config = bettable.sent[0]
+    assert venue == "polymarket"
+    assert order.instrument.symbol == UP_TOKEN
+    assert order.side == "buy"
+    assert order.notional == 2.0
+    assert order.price == pytest.approx(0.54)  # the 51¢ ask plus three cents
+    assert bettable.strategy_bar.status.text() == "sending…"
+
+
+def test_a_bet_on_down_buys_the_down_token(bettable: MainWindow) -> None:
+    bettable._place_bet("down")
+    assert bettable.sent[0][1].instrument.symbol == DOWN_TOKEN
+
+
+def test_a_bet_says_what_it_got(bettable: MainWindow) -> None:
+    bettable._place_bet("up")
+    bettable.fake_service.placed.emit("polymarket", "Buy $2.00 · matched · 3.9 shares for $2.00")
+    assert "matched" in bettable.strategy_bar.status.text()
+    bettable.fake_service.failed.emit("polymarket", "Nothing is on offer at that price")
+    assert "Nothing is on offer" in bettable.strategy_bar.status.text()
+
+
+def test_a_bet_under_the_minimum_stays_home(bettable: MainWindow) -> None:
+    bettable.strategy_bar.size.setText("$0.50")
+    bettable._place_bet("up")
+    assert bettable.sent == []
+    assert "smallest bet is $1" in bettable.strategy_bar.status.text()
+
+
+def test_a_bet_on_a_finished_window_says_to_wait(bettable: MainWindow) -> None:
+    bettable.polymarket.set_market(
+        market_from_gamma(end_ms=int(time.time() * 1000) - 5_000)
+    )
+    bettable._place_bet("up")
+    assert bettable.sent == []
+    assert "window has ended" in bettable.strategy_bar.status.text()
+
+
+def test_a_bet_on_a_market_that_is_not_taking_orders(bettable: MainWindow) -> None:
+    import dataclasses
+
+    market = market_from_gamma()
+    bettable.polymarket.set_market(dataclasses.replace(market, accepting_orders=False))
+    bettable._place_bet("up")
+    assert bettable.sent == []
+    assert "not taking orders" in bettable.strategy_bar.status.text()
+
+
+def test_the_down_side_is_priced_from_the_ups_bid_when_it_has_no_book(
+    bettable: MainWindow,
+) -> None:
+    market = market_from_gamma()
+    up, down = market.outcomes
+    # Gamma quotes a bid and ask for Up only: Down's ask is what Up's bid leaves.
+    assert down.best_ask is None
+    assert bettable._bet_price(up) == pytest.approx(0.51)
+    assert bettable._bet_price(down) == pytest.approx(0.51)  # 1 - 0.49
+
+
+def test_a_market_with_no_quotes_falls_back_to_the_outcome_price(
+    bettable: MainWindow,
+) -> None:
+    import dataclasses
+
+    market = market_from_gamma()
+    bare = dataclasses.replace(
+        market,
+        outcomes=tuple(
+            dataclasses.replace(o, best_bid=None, best_ask=None) for o in market.outcomes
+        ),
+    )
+    bettable.polymarket.set_market(bare)
+    assert bettable._bet_price(bare.outcomes[1]) == pytest.approx(0.5)

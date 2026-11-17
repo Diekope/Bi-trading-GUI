@@ -10,8 +10,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
-from lalala.ui.trade_form import TradeForm  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.trade_form import TradeForm  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -35,7 +35,7 @@ def test_the_form_starts_from_the_saved_trading_defaults(
 ) -> None:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"trading": {"size": 1_500, "leverage": 7}}))
-    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(path))
 
     form = TradeForm()
 
@@ -73,8 +73,8 @@ def test_the_shortcuts_set_the_size(app: QApplication) -> None:
 def test_the_form_stays_paper_when_not_connected(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     form = TradeForm()
     form.set_price(100.0)
     form.size.setText("$1,000")
@@ -88,7 +88,7 @@ def test_the_form_stays_paper_when_not_connected(
 def test_the_form_is_a_dry_run_when_connected_but_not_armed(
     app: QApplication, monkeypatch, tmp_path
 ) -> None:
-    from lalala.state.accounts import (
+    from bi_trading.state.accounts import (
         Accounts,
         HL_KEY,
         HyperliquidAccount,
@@ -96,8 +96,8 @@ def test_the_form_is_a_dry_run_when_connected_but_not_armed(
         set_secret,
     )
 
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("LALALA_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
     set_secret(HL_KEY, "0x" + "ab" * 32)
     save_accounts(
         Accounts(hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20))

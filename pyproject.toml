@@ -1,5 +1,5 @@
 [project]
-name = "lalala"
+name = "bi-trading"
 version = "0.1.0"
 description = "Trading terminal shell for Hyperliquid and Polymarket"
 requires-python = ">=3.11"
@@ -23,23 +23,23 @@ venues = [
 ]
 # The Rust walk. Optional because it needs a Rust toolchain to build; the app
 # runs the same walk in Python without it. `uv sync --extra native` builds it.
-native = ["lalala-core"]
+native = ["bi-trading-core"]
 
 [tool.uv.sources]
-lalala-core = { path = "rust/lalala_core" }
+bi-trading-core = { path = "rust/bi_trading_core" }
 
 [project.scripts]
-lalala = "lalala.__main__:main"
-lalala-hub = "lalala.ui.hub.main_hub:run"
-lalala-strat = "lalala.ui.strat.strat:run"
-lalala-builder = "lalala.ui.strat.strat_builder:run"
+bi-trading = "bi_trading.__main__:main"
+bi-trading-hub = "bi_trading.ui.hub.main_hub:run"
+bi-trading-strat = "bi_trading.ui.strat.strat:run"
+bi-trading-builder = "bi_trading.ui.strat.strat_builder:run"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lalala"]
+packages = ["src/bi_trading"]
 
 [dependency-groups]
 dev = [
@@ -52,7 +52,7 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-exclude = ["rust", "src/lalala/ui/assets"]
+exclude = ["rust", "src/bi_trading/ui/assets"]
 
 [tool.ruff.lint]
 # A conservative set: real errors (undefined names, unused imports, bad syntax)

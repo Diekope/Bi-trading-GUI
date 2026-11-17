@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala.state import runs
+from bi_trading.state import runs
 
 
 # in stamp, in index, in price, out stamp, out index, out price, result, size,
@@ -16,7 +16,7 @@ TRADE = [1000, 3, 100.0, 5000, 9, 98.0, 0.019, 200.0, 3.8, "tp", 0.24,
 
 @pytest.fixture(autouse=True)
 def _tmp_runs(tmp_path, monkeypatch):
-    monkeypatch.setenv("LALALA_RUNS", str(tmp_path / "runs.json"))
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
 
 
 def test_a_run_round_trips_through_the_file() -> None:

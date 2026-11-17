@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lalala.engine import core
+from bi_trading.engine import core
 
 
 def _series(closes):
@@ -84,7 +84,7 @@ def test_dynamic_tp_trails_the_peak() -> None:
 def test_native_and_python_random_entries_agree() -> None:
     import pytest
 
-    from lalala.engine import core
+    from bi_trading.engine import core
 
     if core._native_random_entries is None:
         pytest.skip("the native core is not built")
@@ -226,7 +226,7 @@ def test_the_random_baseline_goes_short_too() -> None:
 
 
 def _exit(text):
-    from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse
+    from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse
 
     return parse(text, EXIT_FIELDS, EXIT_FUNCTIONS)
 
@@ -374,7 +374,7 @@ def test_a_bar_both_rules_fire_on_is_left_alone() -> None:
 
 
 def _rule(text):
-    from lalala.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse
+    from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS, parse
 
     return parse(text, EXIT_FIELDS, EXIT_FUNCTIONS)
 
@@ -477,7 +477,7 @@ def test_both_ways_agree_between_the_walks() -> None:
 
 
 def test_the_python_fallback_runs_a_rule_the_core_cannot() -> None:
-    from lalala.engine.formula import Call, Formula, Number
+    from bi_trading.engine.formula import Call, Formula, Number
 
     odd = Formula(condition=Call("sma", (Number(1.0), Number(2.0))))
     assert core.compile_exit(odd) is None

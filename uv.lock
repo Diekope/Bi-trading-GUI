@@ -30,6 +30,66 @@ wheels = [
 ]
 
 [[package]]
+name = "bi-trading"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "orjson" },
+    { name = "pyarrow" },
+    { name = "pyside6" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+native = [
+    { name = "bi-trading-core" },
+]
+venues = [
+    { name = "eth-account" },
+    { name = "hyperliquid-python-sdk" },
+    { name = "polymarket-client" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-qt" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bi-trading-core", marker = "extra == 'native'", directory = "rust/bi_trading_core" },
+    { name = "eth-account", marker = "extra == 'venues'", specifier = ">=0.11" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "hyperliquid-python-sdk", marker = "extra == 'venues'", specifier = ">=0.9" },
+    { name = "numpy", specifier = ">=2.4.6" },
+    { name = "orjson", specifier = ">=3.13.0" },
+    { name = "polymarket-client", marker = "extra == 'venues'", specifier = ">=0.13" },
+    { name = "pyarrow", specifier = ">=26.0.1" },
+    { name = "pyside6", specifier = ">=6.7" },
+    { name = "websockets", specifier = ">=12" },
+]
+provides-extras = ["venues", "native"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-qt", specifier = ">=4.4" },
+    { name = "pytest-xdist", specifier = ">=3.5" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
+name = "bi-trading-core"
+version = "0.1.0"
+source = { directory = "rust/bi_trading_core" }
+
+[[package]]
 name = "bitarray"
 version = "3.12.3"
 source = { registry = "https://pypi.org/simple" }
@@ -769,66 +829,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/01/e1/2069291243c926a2f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/43/4ca9e49d27a1fcf6bece6f6aec0ea46bb9112489b93d4b688fb415457bdb/iniconfig-2.3.1-py3-none-any.whl", hash = "sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7", size = 7552, upload-time = "2026-10-06T22:48:36.959Z" },
 ]
-
-[[package]]
-name = "lalala"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "orjson" },
-    { name = "pyarrow" },
-    { name = "pyside6" },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-native = [
-    { name = "lalala-core" },
-]
-venues = [
-    { name = "eth-account" },
-    { name = "hyperliquid-python-sdk" },
-    { name = "polymarket-client" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-qt" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "eth-account", marker = "extra == 'venues'", specifier = ">=0.11" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "hyperliquid-python-sdk", marker = "extra == 'venues'", specifier = ">=0.9" },
-    { name = "lalala-core", marker = "extra == 'native'", directory = "rust/lalala_core" },
-    { name = "numpy", specifier = ">=2.4.6" },
-    { name = "orjson", specifier = ">=3.13.0" },
-    { name = "polymarket-client", marker = "extra == 'venues'", specifier = ">=0.13" },
-    { name = "pyarrow", specifier = ">=26.0.1" },
-    { name = "pyside6", specifier = ">=6.7" },
-    { name = "websockets", specifier = ">=12" },
-]
-provides-extras = ["venues", "native"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-qt", specifier = ">=4.4" },
-    { name = "pytest-xdist", specifier = ">=3.5" },
-    { name = "ruff", specifier = ">=0.6" },
-]
-
-[[package]]
-name = "lalala-core"
-version = "0.1.0"
-source = { directory = "rust/lalala_core" }
 
 [[package]]
 name = "msgpack"

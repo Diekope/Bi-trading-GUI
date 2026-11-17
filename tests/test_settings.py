@@ -7,7 +7,7 @@ from dataclasses import fields
 
 import pytest
 
-from lalala.state.settings import (
+from bi_trading.state.settings import (
     BacktestDefaults,
     GeneralSettings,
     Settings,
@@ -54,7 +54,7 @@ def test_the_environment_overrides_the_file(tmp_path) -> None:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"focus_ms": 60_000}))
 
-    settings = Settings.load(path=path, environ={"LALALA_FOCUS_MS": "45000"})
+    settings = Settings.load(path=path, environ={"BI_TRADING_FOCUS_MS": "45000"})
 
     assert settings.focus_ms == 45_000
 
@@ -147,7 +147,7 @@ def test_the_backtest_defaults_take_environment_overrides(tmp_path) -> None:
     path.write_text(json.dumps({"backtest": {"tp": 1.0}}))
 
     backtest = Settings.load(
-        path=path, environ={"LALALA_BACKTEST_TP": "9", "LALALA_BACKTEST_DYNAMIC_TP": "yes"}
+        path=path, environ={"BI_TRADING_BACKTEST_TP": "9", "BI_TRADING_BACKTEST_DYNAMIC_TP": "yes"}
     ).backtest
 
     assert backtest.tp == pytest.approx(9.0)
@@ -324,19 +324,19 @@ def test_saving_trading_and_general_preserves_the_rest(tmp_path) -> None:
 def test_the_configured_data_folder_is_read(monkeypatch, tmp_path) -> None:
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"general": {"data_folder": "~/bars"}}))
-    monkeypatch.setenv("LALALA_SETTINGS", str(path))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(path))
 
     assert configured_data_folder() == "~/bars"
 
 
 def test_the_path_can_be_redirected(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("LALALA_SETTINGS", str(tmp_path / "elsewhere.json"))
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "elsewhere.json"))
 
     assert settings_path() == tmp_path / "elsewhere.json"
 
 
 def test_the_default_hold_is_seven_candles(tmp_path) -> None:
-    from lalala.state.settings import BacktestDefaults
+    from bi_trading.state.settings import BacktestDefaults
 
     assert BacktestDefaults().hold == 7
     assert BacktestDefaults.load({}, {}).hold == 7
@@ -346,7 +346,7 @@ def test_the_default_hold_is_seven_candles(tmp_path) -> None:
 
 
 def test_slippage_is_a_setting() -> None:
-    from lalala.state.settings import BacktestDefaults
+    from bi_trading.state.settings import BacktestDefaults
 
     assert BacktestDefaults().slippage == 0.01
     assert BacktestDefaults.load({"slippage": 0.25}, {}).slippage == 0.25

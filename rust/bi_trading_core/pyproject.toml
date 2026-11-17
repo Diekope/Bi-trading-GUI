@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "bi-trading-core"
+version = "0.1.0"
+requires-python = ">=3.9"
+
+[tool.maturin]
+module-name = "bi_trading_core"
+
+# Rebuild when the Rust changes. Without this uv keys its cache on this file
+# alone and hands back a stale build after an edit to `src/lib.rs`.
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+]

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from lalala.data.feed import MarketFeed
-from lalala.data.market_data import Book
+from bi_trading.data.feed import MarketFeed
+from bi_trading.data.market_data import Book
 
 
 def _feed() -> MarketFeed:

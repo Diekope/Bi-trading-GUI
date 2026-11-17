@@ -20,16 +20,16 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # A throwaway config: opening the windows must not write drafts or settings
 # into a developer's own files.
-_CONFIG = tempfile.mkdtemp(prefix="lalala-shots-")
-os.environ["LALALA_SETTINGS"] = os.path.join(_CONFIG, "settings.json")
-os.environ["LALALA_STRATEGIES"] = os.path.join(_CONFIG, "strategies.json")
-os.environ["LALALA_RUNS"] = os.path.join(_CONFIG, "runs.json")
+_CONFIG = tempfile.mkdtemp(prefix="bi-trading-shots-")
+os.environ["BI_TRADING_SETTINGS"] = os.path.join(_CONFIG, "settings.json")
+os.environ["BI_TRADING_STRATEGIES"] = os.path.join(_CONFIG, "strategies.json")
+os.environ["BI_TRADING_RUNS"] = os.path.join(_CONFIG, "runs.json")
 
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
-from lalala.ui.strat.strat_builder import StrategyBuilderWindow  # noqa: E402
-from lalala.ui.strat.strat_window import StratWindow  # noqa: E402
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.strat.strat_builder import StrategyBuilderWindow  # noqa: E402
+from bi_trading.ui.strat.strat_window import StratWindow  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "images"
 
@@ -48,7 +48,7 @@ def _save(widget: QWidget, name: str) -> None:
 
 def terminal(app: QApplication) -> None:
     """The live terminal. Needs network for the venues to fill it."""
-    from lalala.ui.main_window import MainWindow
+    from bi_trading.ui.main_window import MainWindow
 
     window = MainWindow()
     window.resize(1280, 860)
@@ -90,8 +90,8 @@ def backtest(app: QApplication) -> None:
 
 def builder(app: QApplication) -> None:
     """The three builder tabs, and the pieces the Formula/Code tabs are made of."""
-    from lalala import strategies
-    from lalala.state.strategies import SavedStrategy
+    from bi_trading import strategies
+    from bi_trading.state.strategies import SavedStrategy
 
     # A few kept drafts, so the saved-strategies rail looks like the mock.
     for item in (
@@ -161,7 +161,7 @@ def builder(app: QApplication) -> None:
     _save(rail, "part-code-rail.png")
 
     # Delete: a saved strategy on show arms the footer button, and the prompt.
-    from lalala.ui.strat.strat_builder import ConfirmDialog
+    from bi_trading.ui.strat.strat_builder import ConfirmDialog
 
     window.name_edit.setText("Bollinger reversion")
     window.entry.set_text("band = bollinger_lower(close, 20, 2)\nclose < band")

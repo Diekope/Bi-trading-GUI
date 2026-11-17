@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QScrollArea,
 )
 
-from lalala.ui.strat.formula_builder import (  # noqa: E402
+from bi_trading.ui.strat.formula_builder import (  # noqa: E402
     MIME,
     PALETTES,
     CallChip,
@@ -27,7 +27,7 @@ from lalala.ui.strat.formula_builder import (  # noqa: E402
     NameChip,
     PaletteBlock,
 )
-from lalala.ui.theme import apply_dark_theme  # noqa: E402
+from bi_trading.ui.theme import apply_dark_theme  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -121,7 +121,7 @@ def test_the_palette_is_rows_of_blocks_and_a_number_box(
 
 
 def test_the_blocks_sit_in_a_horizontal_row(app: QApplication) -> None:
-    from lalala.ui.theme import apply_dark_theme
+    from bi_trading.ui.theme import apply_dark_theme
 
     apply_dark_theme(QApplication.instance() or app)
     builder = FormulaBuilder()
@@ -693,7 +693,7 @@ def test_the_chip_carries_its_token() -> None:
 
 
 def test_the_mime_type_is_private_to_the_builder() -> None:
-    assert MIME == "application/x-lalala-chip"
+    assert MIME == "application/x-bi-trading-chip"
 
 
 # -- the drag picture and the colours --------------------------------------
@@ -702,7 +702,7 @@ def test_the_mime_type_is_private_to_the_builder() -> None:
 def test_a_drag_carries_a_picture_of_what_is_moving(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
-    from lalala.ui.strat.formula_builder import drag_pixmap
+    from bi_trading.ui.strat.formula_builder import drag_pixmap
 
     block = builder.blocks["Data"][0]
     picture = drag_pixmap(block)
@@ -717,7 +717,7 @@ def test_a_drag_carries_a_picture_of_what_is_moving(
 def test_blocks_and_chips_are_coloured_by_what_they_are(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
-    from lalala.ui.strat.formula_builder import group_for_token
+    from bi_trading.ui.strat.formula_builder import group_for_token
 
     assert group_for_token("close") == "data"
     assert group_for_token("volume") == "data"
