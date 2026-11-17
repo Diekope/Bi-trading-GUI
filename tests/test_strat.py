@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import json
 import os
 from datetime import datetime, timezone
@@ -423,7 +424,10 @@ def test_a_run_saves_and_reloads(app: QApplication, window, monkeypatch, tmp_pat
     assert window.load_run.picker.findText("my run") >= 0
 
     window.load_run.load_requested.emit("my run")
-    app.processEvents()
+    deadline = time.time() + 10  # the walk may land from its worker thread
+    while not window.left.playback.done and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
     assert window.left.session is not None
     # A loaded run is shown whole: walked to the end, results and all.
     assert window.left.playback.done is True

@@ -13,8 +13,6 @@ log and the run log all exist.
 - [med] **A worker thread for `seek`.** `finish()` already walks off the main thread;
   the replay scrubber's `seek` still blocks the UI; move the
   walk off the main thread.
-- [high] **Sanity clamps:** max cash <= capital, position value <= capital, and the
-  reverse % only meaningful with dynamic TP on.
 - [med] **Warm-up:** if the dynamic TP ever uses ATR or a running peak, a signal
   needs N bars of history before it counts.
 

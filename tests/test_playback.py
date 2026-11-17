@@ -642,3 +642,44 @@ def test_a_restart_drops_a_walk_still_running(app: QApplication) -> None:
     assert tile.playback.index == 0
     assert tile.run_button.isEnabled() is True
     tile.close()
+
+
+# -- sanity clamps ------------------------------------------------------------
+
+
+def _params(**over) -> dict:
+    base = {
+        "initial_capital": 10_000.0, "tp": 2.0, "sl": 1.0, "position": 10.0,
+        "sizing": "balance", "cash": 2_000.0, "fee": 0.06,
+    }
+    base.update(over)
+    return base
+
+
+def test_max_cash_is_capped_at_the_capital() -> None:
+    from bi_trading.ui.strat.strat_playback import _walk_settings, walk_clamps
+
+    params = _params(cash=50_000.0)
+    assert _walk_settings(params)["max_cash"] == 10_000.0
+    assert walk_clamps(params) == ["max cash capped at the capital"]
+
+
+def test_a_fixed_position_is_capped_at_the_capital() -> None:
+    from bi_trading.ui.strat.strat_playback import _walk_settings, walk_clamps
+
+    params = _params(sizing="fixed", position=50_000.0)
+    assert _walk_settings(params)["position"] == 10_000.0
+    assert "position capped at the capital" in walk_clamps(params)
+    # A percent position is not a dollar amount: left alone.
+    assert _walk_settings(_params(position=50.0))["position"] == 50.0
+
+
+def test_reverse_means_nothing_without_the_dynamic_take_profit() -> None:
+    from bi_trading.ui.strat.strat_playback import _walk_settings, walk_clamps
+
+    off = _params(dyn_tp_reverse=3.0, dynamic_tp=False)
+    assert _walk_settings(off)["reverse"] == 0.0
+    assert walk_clamps(off) == ["reverse % ignored: dynamic TP is off"]
+    on = _params(dyn_tp_reverse=3.0, dynamic_tp=True)
+    assert _walk_settings(on)["reverse"] == 3.0
+    assert walk_clamps(on) == []

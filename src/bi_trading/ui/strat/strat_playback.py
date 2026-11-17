@@ -1387,19 +1387,49 @@ class BacktestSession:
                 self.high = max(self.high, max(curve))
 
 
+def walk_clamps(params: dict) -> list[str]:
+    """What the walk will not take at face value, in words.
+
+    A max cash above the capital, a fixed dollar position above it, and a
+    reverse percent with the dynamic take profit off all describe something the
+    walk cannot do, so `_walk_settings` brings them back and this says so.
+    """
+    capital = float(params.get("initial_capital") or 0.0)
+    notes = []
+    if capital > 0 and float(params.get("cash") or 0.0) > capital:
+        notes.append("max cash capped at the capital")
+    if (
+        capital > 0
+        and str(params.get("sizing")) == "fixed"
+        and float(params.get("position") or 0.0) > capital
+    ):
+        notes.append("position capped at the capital")
+    if float(params.get("dyn_tp_reverse") or 0.0) > 0 and not params.get("dynamic_tp"):
+        notes.append("reverse % ignored: dynamic TP is off")
+    return notes
+
+
 def _walk_settings(params: dict) -> dict:
+    capital = float(params["initial_capital"] or 0.0)
+    position = float(params["position"] or 0.0)
+    max_cash = float(params["cash"] or 0.0)
+    if capital > 0:
+        max_cash = min(max_cash, capital)
+        if str(params["sizing"]) == "fixed":
+            position = min(position, capital)
+    dynamic_tp = bool(params.get("dynamic_tp"))
     return {
-        "capital": float(params["initial_capital"] or 0.0),
+        "capital": capital,
         "tp": float(params["tp"] or 0.0),
         "sl": float(params["sl"] or 0.0),
-        "position": float(params["position"] or 0.0),
+        "position": position,
         "sizing": str(params["sizing"]),
-        "max_cash": float(params["cash"] or 0.0),
+        "max_cash": max_cash,
         # The tile takes a percent; the walk a fraction per side.
         "fee": float(params.get("fee") or 0.0) / 100.0,
         "slippage": float(params.get("slippage") or 0.0) / 100.0,
-        "dynamic_tp": bool(params.get("dynamic_tp")),
-        "reverse": float(params.get("dyn_tp_reverse") or 0.0),
+        "dynamic_tp": dynamic_tp,
+        "reverse": float(params.get("dyn_tp_reverse") or 0.0) if dynamic_tp else 0.0,
         "side": "short" if params.get("side") == "short" else "long",
         # Candles a trade may run; 0 is no limit.
         "max_hold": (
@@ -2251,6 +2281,8 @@ class PlaybackTile(Card):
             name = self._saved_name
         stride = self.playback.stride
         pace = "" if stride <= 1 else f" · fast-forward ×{stride:,}"
+        clamps = walk_clamps(self._wanted_params or {})
+        pace += "".join(f" · {note}" for note in clamps)
         if self._wanted_years:
             span = f"{self._wanted_years[0]}–{self._wanted_years[-1]}"
             self.note.setText(
