@@ -183,7 +183,7 @@ def test_custom_network_trains_saves_and_reloads(market) -> None:
 
 
 def trade(p, close, high, low, **kwargs):
-    base = {"tp": 2.0, "sl": 1.0, "hold": 3, "fee": 0.0, "slippage": 0.0}
+    base = {"tp": 2.0, "sl": 1.0, "hold": 3, "fee": 0.0, "slippage": 0.0, "position": 100.0}
     return rule_stats(
         np.array(p, float), np.array(close, float), np.array(high, float),
         np.array(low, float), 0.6, 0.4, **{**base, **kwargs},
@@ -221,16 +221,15 @@ def test_fees_and_slippage_come_off_each_side() -> None:
         [0.7, 0.5, 0.5], [100, 100, 100], [100, 100, 100], [100, 100, 100],
         hold=1, fee=0.1, slippage=0.1,
     )
-    # in at 100.1, out at 99.9: -0.2 percent from slippage, 0.2 from the two fees
-    assert stats.strategy_return == pytest.approx(
-        ((99.9 / 100.1 - 1) - 0.002) * 100, rel=1e-6
-    )
+    # in at 100.1, out at 99.9; the fee is 0.1 percent of each leg's notional
+    expected = (99.9 / 100.1 - 1) - 0.001 * (1 + 99.9 / 100.1)
+    assert stats.strategy_return == pytest.approx(expected * 100, rel=1e-6)
 
 
 def test_only_one_trade_runs_at_a_time_and_size_scales_the_book() -> None:
     stats = trade(
         [0.7, 0.7, 0.7, 0.5, 0.5], [100, 100, 100, 100, 100],
-        [100, 103, 103, 103, 100], [100, 100, 100, 100, 100], size=0.5,
+        [100, 103, 103, 103, 100], [100, 100, 100, 100, 100], position=50.0,
     )
     assert stats.signals == 2  # bars 0 and 2; bar 1 is inside the first trade
     assert stats.strategy_return == pytest.approx((1.01 * 1.01 - 1) * 100)
@@ -288,6 +287,25 @@ def test_the_cash_cap_limits_what_a_trade_stakes() -> None:
     # 10 percent of a 2,000 cap on a 10,000 book is 200 dollars: a 2 percent win is +4
     stats = trade(
         [0.7, 0.5, 0.5], [100, 101, 99], [100, 103, 99], [100, 100, 98],
-        size=0.10, capital=10_000.0, cash=2_000.0,
+        position=10.0, capital=10_000.0, cash=2_000.0,
     )
     assert stats.strategy_return == pytest.approx(0.04)
+
+
+def test_fixed_and_risk_sizing_follow_the_backtests_budget() -> None:
+    win = ([0.7, 0.5, 0.5], [100, 101, 99], [100, 103, 99], [100, 100, 98])
+    fixed = trade(*win, sizing="fixed", position=500.0, capital=10_000.0, cash=2_000.0)
+    assert fixed.strategy_return == pytest.approx(500 * 0.02 / 10_000 * 100)
+    # risk: a stop-out costs 0.5 percent of the cash, the stop is 1 percent away
+    risk = trade(*win, sizing="risk", position=0.5, capital=10_000.0, cash=2_000.0)
+    assert risk.strategy_return == pytest.approx(1_000 * 0.02 / 10_000 * 100)
+
+
+def test_a_trade_still_open_when_the_data_ends_is_marked_not_counted() -> None:
+    stats = trade(
+        [0.5, 0.5, 0.7, 0.5], [100, 100, 100, 100.5], [100, 100, 100, 100.5],
+        [100, 100, 100, 100], hold=5, fee=0.1,
+    )
+    assert stats.signals == 0 and stats.hit_rate is None
+    # in at 100, marked at 100.5, and the entry fee is paid: +0.5% - 0.1%
+    assert stats.strategy_return == pytest.approx(0.4)

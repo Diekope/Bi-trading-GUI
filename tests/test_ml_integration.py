@@ -226,3 +226,64 @@ def test_the_tile_passes_the_model_on_and_a_new_pick_forgets_it(qtbot=None) -> N
     assert tile.saved_model() == "m"
     tile.set_strategy("bollinger")
     assert tile.saved_model() == ""
+
+
+@pytest.mark.parametrize("kind", ["gbm", "logistic"])
+@pytest.mark.parametrize("side_thresholds", [(0.52, 0.48), (0.6, 0.4)])
+@pytest.mark.parametrize("sizing,position", [("balance", 50.0), ("fixed", 1500.0), ("risk", 0.4)])
+def test_the_ml_screens_trades_are_the_backtests_trades(kind, side_thresholds, sizing, position) -> None:
+    """The figures on the ML screen and a backtest of the saved strategy agree."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    from bi_trading.ml import store
+    from bi_trading.ml.features import default_features
+    from bi_trading.ml.spec import ModelSpec
+    from bi_trading.ml.train import TrainConfig, train
+    from bi_trading.ui.ml.workers import load_columns
+    from bi_trading.ui.strat import strat_playback as sp
+
+    up, down = side_thresholds
+    _write_candles(2021, 9000)
+    columns, stamps = load_columns([2021], "1m")
+    params = {**_PARAMS, "hold": 5, "tp": 0.3, "sl": 0.2, "sizing": sizing, "position": position}
+    model = train(
+        columns, stamps,
+        TrainConfig(
+            spec=ModelSpec("t", kind, {"trees": 30, "depth": 3}),
+            features=default_features(), horizon=1, min_move=0.0, max_samples=8000,
+            up=up, down=down, tp=0.3, sl=0.2, hold=5, fee=0.06, slippage=0.01,
+            sizing=sizing, position=position, capital=10_000.0, cash=8_000.0,
+        ),
+        "agree",
+    )
+    store.save_model(model, "agree")
+    session = sp.build_session(
+        [2021], params, "saved", "1m",
+        entry_formula=parse(f"model_p >= {up}", ENTRY_FIELDS, FUNCTIONS),
+        short_entry_formula=parse(f"model_p <= {down}", ENTRY_FIELDS, FUNCTIONS),
+        side="both", model="agree",
+    )
+    session.seek(session.total)
+    played = session.strategy
+    assert model.stats.signals > 20
+    assert len(played.trades_log) == model.stats.signals
+    backtest_return = (played.equity / params["initial_capital"] - 1) * 100
+    assert backtest_return == pytest.approx(model.stats.strategy_return, abs=0.01)
+
+
+def test_importance_survives_holes_in_the_validation_part() -> None:
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    from bi_trading.ml.features import default_features
+    from bi_trading.ml.spec import ModelSpec
+    from bi_trading.ml.train import TrainConfig, train
+
+    columns, stamps = make_market(6000)
+    stamps = stamps.copy()
+    stamps[4000:] += 5_000 * 60_000       # a hole inside the validation part
+    for kind in ("logistic", "mlp"):
+        model = train(
+            columns, stamps,
+            TrainConfig(spec=ModelSpec("t", kind), features=default_features(), horizon=1, min_move=0.0),
+        )
+        assert len(model.importance) == len(default_features())

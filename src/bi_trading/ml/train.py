@@ -89,7 +89,8 @@ class TrainConfig:
     hold: int = 7             # bars a trade may run; 0 = no limit
     fee: float = 0.06         # per side, percent
     slippage: float = 0.01    # per side, percent
-    size: float = 1.0         # share of the cash a trade stakes
+    sizing: str = "balance"   # balance (percent of the cash) | fixed (dollars) | risk
+    position: float = 100.0   # read as `sizing` says
     capital: float = 10_000.0  # the book the test starts with, dollars
     cash: float = float("inf")  # most cash the book may trade with, dollars
     max_samples: int = 300_000  # most bars fitted on; the rest are strided out
@@ -119,7 +120,8 @@ class TrainConfig:
             "hold": self.hold,
             "fee": self.fee,
             "slippage": self.slippage,
-            "size": self.size,
+            "sizing": self.sizing,
+            "position": self.position,
             "capital": self.capital,
             "cash": None if self.cash == float("inf") else self.cash,
             "max_samples": self.max_samples,
@@ -148,7 +150,8 @@ class TrainConfig:
             hold=int(raw.get("hold", 7)),
             fee=float(raw.get("fee", 0.06)),
             slippage=float(raw.get("slippage", 0.01)),
-            size=float(raw.get("size", 1.0)),
+            sizing=str(raw.get("sizing", "balance")),
+            position=float(raw.get("position", 100.0)),
             capital=float(raw.get("capital", 10_000.0)),
             cash=float("inf") if raw.get("cash") is None else float(raw["cash"]),
             max_samples=int(raw.get("max_samples", 300_000)),
@@ -275,10 +278,18 @@ def _importance(
     base = _log_loss(truth, predictor.predict_proba(view, local), classes)
     rng = np.random.default_rng(0)
     raised = []
+    # A network reads a window of earlier bars, so a feature is shuffled down the
+    # whole slice (it tolerates the unknown rows). A scikit-learn model reads only
+    # the row itself and cannot take an unknown, so the shuffle stays among the
+    # rows it is asked about.
+    whole = bars > 1
     for column in range(len(keys)):
         saved = view[:, column].copy()
         try:
-            view[:, column] = rng.permutation(saved)
+            if whole:
+                view[:, column] = rng.permutation(saved)
+            else:
+                view[local, column] = rng.permutation(saved[local])
             worse = _log_loss(truth, predictor.predict_proba(view, local), classes)
         finally:
             view[:, column] = saved
@@ -290,6 +301,18 @@ def _importance(
 
 
 # -- the rule's figures ------------------------------------------------------------
+
+
+def _stake(book: float, cash: float, sizing: str, position: float, sl: float) -> float:
+    """Dollars a trade puts in, the way the backtest's core sizes it."""
+    deployable = min(cash, book)
+    if sizing == "fixed":
+        return min(max(position, 0.0), deployable)
+    if sizing == "risk":
+        if sl > 0:
+            return min(max(deployable * max(position, 0.0) / sl, 0.0), deployable)
+        return deployable
+    return deployable * max(position, 0.0) / 100.0
 
 
 def rule_stats(
@@ -305,7 +328,8 @@ def rule_stats(
     hold: int,
     fee: float,
     slippage: float,
-    size: float = 1.0,
+    sizing: str = "balance",
+    position: float = 100.0,
     capital: float = 1.0,
     cash: float = float("inf"),
     points: int = 260,
@@ -317,10 +341,11 @@ def rule_stats(
     its take profit, or after `hold` bars (0 = no limit) at the close. When one
     bar reaches both the stop and the take profit the stop is booked; the take
     profit is a resting order and fills at its price, every other exit slips
-    against the trade. `fee` is charged each side. `size` is the share of the book
-    of the cash in each trade, where the cash is the book capped at `cash` dollars
-    (the backtest's Max cash); the curve is the book's return from the start, in
-    percent.
+    against the trade. `fee` is charged each side. Each trade stakes a part
+    of the cash, where the cash is the book capped at `cash` dollars
+    (the backtest's Max cash), read as `sizing` says: a percent of it (`balance`),
+    dollars (`fixed`), or a stake sized so a stop-out costs `position` percent of it
+    (`risk`). The curve is the book's return from the start, in percent.
     """
     count = len(p)
     stats = RuleStats()
@@ -331,8 +356,8 @@ def rule_stats(
     equity = np.zeros(count)
     level, last, free, wins, trades = 1.0, 0, 0, 0, 0
     slip, cost = slippage / 100.0, fee / 100.0
-    for position in wanted:
-        index = int(position)
+    for candidate in wanted:
+        index = int(candidate)
         if index < free or index >= count - 1:
             continue
         long = bool(p[index] >= up)
@@ -350,12 +375,26 @@ def rule_stats(
             if hit_target:
                 exit_index, exit_price = bar, target
                 break
+        if exit_price is None and (hold <= 0 or index + hold > count - 1):
+            # The data ends first: like a backtest, leave the trade open. It is not
+            # a trade yet; the book is marked to the last close, the entry fee paid.
+            book = level * capital
+            stake = _stake(book, cash, sizing, position, sl)
+            move = close[-1] / entry - 1.0 if long else 1.0 - close[-1] / entry
+            equity[last:] = level
+            level *= 1.0 + (stake * move - stake * cost) / book
+            equity[count - 1] = level
+            last = count
+            break
         if exit_price is None:
             exit_price = close[exit_index] * (1.0 - slip if long else 1.0 + slip)
         move = exit_price / entry - 1.0 if long else 1.0 - exit_price / entry
         book = level * capital
-        stake = size * min(cash, book)
-        outcome = stake * (move - 2.0 * cost) / book
+        stake = _stake(book, cash, sizing, position, sl)
+        # The fee is charged on each leg's notional: the stake going in, and the
+        # position's value at the exit price coming out, as the backtest does.
+        fees = stake * cost * (1.0 + exit_price / entry)
+        outcome = (stake * move - fees) / book
         equity[last : exit_index] = level
         level *= 1.0 + outcome
         last = exit_index
@@ -381,7 +420,8 @@ def trade_test(trained: TrainedModel, config: TrainConfig) -> RuleStats:
     return rule_stats(
         trained.test_p, trained.test_close, trained.test_high, trained.test_low,
         config.up, config.down, tp=config.tp, sl=config.sl, hold=config.hold,
-        fee=config.fee, slippage=config.slippage, size=config.size,
+        fee=config.fee, slippage=config.slippage,
+        sizing=config.sizing, position=config.position,
         capital=config.capital, cash=config.cash,
     )
 
@@ -525,31 +565,36 @@ def train(
     trained.metrics["valid"] = _score(model, matrix, labels, _stride(valid_all, 100_000), classes)
     check()
 
-    # The test bars the rule can trade: every bar with a known move, not only the
-    # ones the label kept (a small move is no label but still a trade's outcome).
-    span = np.arange(int(test_all[0]), int(test_all[-1]) + 1)
-    span = span[np.isfinite(matrix[span]).all(axis=1)] if len(span) else span
+    # The bars the rule trades: every bar from the test part's start to the end of
+    # the data. The last few have no label (their target is beyond the data) but a
+    # trade can still open on them, as in a backtest. A bar the model cannot score
+    # (a hole, a warm-up) stays in the stretch with no call, so a trade is never
+    # drawn across a missing bar.
+    full = np.arange(int(test_all[0]), total)
+    scorable = np.isfinite(matrix[full]).all(axis=1)
     if spec.is_custom:
-        span = span[span >= first + window - 1]
+        scorable &= full >= first + window - 1
+    rows = full[scorable]
+    p_span = np.full(len(full), np.nan)
     if config.walk_forward and not spec.is_custom:
         say(0.86, "walk-forward")
         p_full = _walk_forward(
-            config, matrix, labels, usable, span,
+            config, matrix, labels, usable, rows,
             lambda f, t: say(0.86 + 0.12 * f, t), cancelled, spec,
         )
-        p_span = p_full[span]
+        p_span = p_full[full]
         keep = np.isfinite(p_span)
-        trained.wf_stamps = np.asarray(stamps)[span[keep]]
+        trained.wf_stamps = stamps[full[keep]]
         trained.wf_p = p_span[keep]
-        scored = span[keep][labels[span[keep]] >= 0]
+        scored = full[keep][labels[full[keep]] >= 0]
         if classes == 2 and len(scored):
             trained.metrics["test"] = _wf_score(p_full[scored], labels[scored])
         else:
             trained.metrics["test"] = _score(model, matrix, labels, _stride(test_all, 100_000), classes)
     else:
-        p_span = model.predict_up(matrix, span)
-        p_full = None
+        p_span[scorable] = model.predict_up(matrix, rows)
         trained.metrics["test"] = _score(model, matrix, labels, _stride(test_all, 200_000), classes)
+    span = full
     say(0.98, "ranking features")
     trained.importance = _importance(
         model, matrix, labels, valid_all, config.features, classes,

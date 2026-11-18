@@ -651,7 +651,8 @@ class MLBuilderView(QWidget):
             hold=backtest.hold,
             fee=backtest.fee,
             slippage=backtest.slippage,
-            size=backtest.position / 100.0 if backtest.sizing == "balance" else 1.0,
+            sizing=backtest.sizing,
+            position=backtest.position,
             capital=backtest.initial_capital,
             cash=min(backtest.cash, backtest.initial_capital),
         )
