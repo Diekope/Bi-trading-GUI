@@ -731,7 +731,7 @@ class MainHubWindow(QMainWindow):
 
     def _refresh_balances(self) -> None:
         """Ask each connected venue for its balance; show the side meanwhile."""
-        from bi_trading.state.orders import config_for, service
+        from bi_trading.state.orders import config_for, is_testnet, service
 
         connected = [
             venue
@@ -751,7 +751,8 @@ class MainHubWindow(QMainWindow):
                 continue
             rail = self._rail_balances.get(self._rail_key(venue))
             if venue in connected:
-                sub.setText(f"USDC · {self._side_for(venue)}")
+                network = " · TESTNET" if is_testnet(venue) else ""
+                sub.setText(f"USDC · {self._side_for(venue)}{network}")
             else:
                 value.setText("—")
                 sub.setText("not connected")
@@ -1033,6 +1034,18 @@ class MainHubWindow(QMainWindow):
 
 def run(argv: list[str] | None = None) -> int:
     """Start the hub shell. Returns the Qt exit code."""
+    from bi_trading.logs import install_qt_handler, setup
+    from bi_trading.state.settings import ensure_file
+
+    # A file, never the console: this is a GUI, not a command. Without this a
+    # dropped socket or a failed balance check printed its whole traceback over
+    # the terminal the hub was launched from.
+    setup()
+    install_qt_handler()
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+    ensure_file()
     app = QApplication(list(sys.argv if argv is None else argv))
     app.setApplicationName("bi-trading")
     app.setOrganizationName("bi-trading")

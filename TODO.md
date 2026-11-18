@@ -21,18 +21,6 @@ log and the run log all exist.
 - [low] **Strategy stats beyond today.** The strategy filter and its figures are for
   today; add a range (week, all) and a per-strategy summary.
 
-## Trading speed
-- [med] **Fast buy and sell on Hyperliquid.** Possible: the warm, reused client already
-  covers it (it is shared by every venue), but the order itself is not as quick as
-  Polymarket's yet. It is a resting limit order (`Gtc`), sent through the SDK's
-  blocking call on a thread, and its answer carries no fill. To do: a marketable
-  order (`Ioc` at a price a little through the book, as Sell does on Polymarket), a
-  one-click **Close** that reads the open position from the venue and sells exactly
-  that (reduce-only), the fill (size and price) read from the answer so it logs
-  `FILLED`, and the same Sell/Close buttons in the terminal. Try it on the testnet
-  first (Settings → Accounts → Network).
-- [low] **A TESTNET badge** wherever orders can go out, so the network is never in doubt.
-
 ## Quality
 - [low] **Goldens for the screenshot tests on Linux.** `tests/golden/` was drawn on
   macOS. The comparison is coarse (8px blocks) so another system's fonts should pass,

@@ -65,6 +65,11 @@ def config_for(venue: str) -> dict | None:
     return None
 
 
+def is_testnet(venue: str = "hyperliquid") -> bool:
+    """Whether orders to `venue` go to its test network (only Hyperliquid has one)."""
+    return venue == "hyperliquid" and load_accounts().hyperliquid.testnet
+
+
 def armed() -> bool:
     """Whether the user has turned live orders on (off by default)."""
     from bi_trading.state.settings import Settings
@@ -166,9 +171,11 @@ class OrderService(QObject):
         `strategy` names the one behind an automatic order."""
         from bi_trading.state.events import event_log
 
+        testnet = bool(config.get("testnet"))
         event_log().record(
-            "info", venue, "ORDER", _request_text(order), origin, strategy,
-            request=_request_lines(order),
+            "info", venue, "ORDER", _request_text(order) + (" · testnet" if testnet else ""),
+            origin, strategy,
+            request=[*_request_lines(order), *(["network: testnet"] if testnet else [])],
         )
         self.busy.emit(venue, True)
         self._runner.submit(self._place(venue, order, config, origin, strategy))
@@ -196,12 +203,58 @@ class OrderService(QObject):
         self, venue: str, order: OrderRequest, config: dict, origin: str = "manual",
         strategy: str = "",
     ) -> None:
+        async def send(adapter):
+            return await adapter.submit(order), order
+
+        await self._execute(venue, config, send, _request_text(order), origin, strategy, order)
+
+    def close_position(
+        self, venue: str, instrument: Instrument, config: dict,
+        price: float | None = None, origin: str = "manual",
+    ) -> None:
+        """Close the whole position in `instrument` at once (Hyperliquid).
+
+        The size is read from the venue, then the opposite side goes out
+        reduce-only and fill-or-cancel: it closes what is open however it was
+        opened, and can never open the other way. The outcome arrives by signal.
+        """
+        from bi_trading.state.events import event_log
+
+        label = f"Close {instrument.symbol} (whole position)"
+        testnet = bool(config.get("testnet"))
+        event_log().record(
+            "info", venue, "ORDER", label + (" · testnet" if testnet else ""), origin,
+            request=[label, "reduce only", *(["network: testnet"] if testnet else [])],
+        )
+        self.busy.emit(venue, True)
+
+        async def send(adapter):
+            closer = getattr(adapter, "close_position", None)
+            if closer is None:
+                raise VenueError(f"{venue} cannot close a position from here")
+            return await closer(instrument, price)
+
+        self._runner.submit(self._execute(venue, config, send, label, origin, "", None))
+
+    async def _execute(
+        self, venue: str, config: dict, send, label: str, origin: str, strategy: str,
+        planned: OrderRequest | None,
+    ) -> None:
+        """Send one order through the warm client and report what became of it.
+
+        `send(adapter)` returns the ack and the order that went out; `planned` is
+        that order when it is known beforehand (a close only knows it after reading
+        the position), and `label` describes it until then.
+        """
         from bi_trading.state.events import event_log
 
         started = time.perf_counter()
+        # Real money or play money: the log says so on every line it writes.
+        tag = " · testnet" if config.get("testnet") else ""
+        net = ["network: testnet"] if tag else []
         try:
             adapter = await self._adapter(venue, config)
-            ack = await adapter.submit(order)
+            ack, order = await send(adapter)
             took = (time.perf_counter() - started) * 1000.0
             if ack.accepted:
                 self._note_fill(venue, order, ack)
@@ -209,17 +262,17 @@ class OrderService(QObject):
                 matched = ack.detail.startswith(("matched", "filled"))
                 event_log().record(
                     "info", venue, "FILLED" if matched else "ACCEPTED",
-                    _summary(order, ack), origin, strategy, latency_ms=round(took),
-                    request=[*_request_lines(order), f"answer: {ack.detail or 'accepted'}"],
+                    _summary(order, ack) + tag, origin, strategy, latency_ms=round(took),
+                    request=[*_request_lines(order), *net, f"answer: {ack.detail or 'accepted'}"],
                 )
                 self.placed.emit(venue, _summary(order, ack))
             else:
                 reason = ack.reason or "the venue rejected it"
                 log.warning("%s order rejected: %s", venue, reason)
                 event_log().record(
-                    "error", venue, "REJECTED", f"{_request_text(order)} · {reason}",
+                    "error", venue, "REJECTED", f"{_request_text(order)} · {reason}{tag}",
                     origin, strategy, latency_ms=round(took),
-                    request=[*_request_lines(order), f"error: {reason}"],
+                    request=[*_request_lines(order), *net, f"error: {reason}"],
                 )
                 self.failed.emit(venue, reason)
         except Exception as exc:  # the SDKs raise a wide variety of types
@@ -230,9 +283,9 @@ class OrderService(QObject):
             # gone on the next message: keep the full reason in the log.
             log.warning("%s order failed: %s", venue, text, exc_info=True)
             event_log().record(
-                "error", venue, "REJECTED", f"{_request_text(order)} · {text[:160]}",
+                "error", venue, "REJECTED", f"{_request_text(planned) if planned else label} · {text[:160]}{tag}",
                 origin, strategy,
-                request=[*_request_lines(order), f"error: {text[:240]}"],
+                request=[*(_request_lines(planned) if planned else [label]), *net, f"error: {text[:240]}"],
             )
             # The client may be what failed (a dropped connection, expired
             # credentials): rebuild it for the next order rather than guess.
@@ -258,7 +311,8 @@ def _request_text(order: OrderRequest) -> str:
     side = "Buy" if order.side == "buy" else "Sell"
     if order.notional is not None:
         return f"{side} ${order.notional:,.2f} · up to {order.price:g}"
-    return f"{side} {order.size:g} {order.instrument.symbol[:12]} @ {order.price:g}"
+    text = f"{side} {order.size:g} {order.instrument.symbol[:12]} @ {order.price:g}"
+    return f"{text} · reduce only" if order.reduce_only else text
 
 
 def _request_lines(order: OrderRequest) -> list[str]:
@@ -300,6 +354,7 @@ __all__ = [
     "OrderService",
     "armed",
     "can_trade",
+    "is_testnet",
     "config_for",
     "service",
 ]

@@ -212,6 +212,23 @@ available until the window ends. There is no confirm dialog, on purpose: a sell 
 closes what a bet opened, and it should be as quick as pressing the button. Shares are
 counted from this session's fills.
 
+**Hyperliquid, the same way.** Buy / Sell in the trade form send a **fill-or-cancel** order
+priced 0.2% through the price on screen: it takes what the book offers up to that price
+right now and never rests, so it either fills or tells you why not (the old order was a
+resting limit that could sit on the book). The venue's answer carries the fill, so the
+log says `FILLED` with the size and average price, and the form's position takes the
+venue's price as its entry. **Close**, when live orders are on, reads the whole position
+from the venue and closes it at once: the opposite side, reduce-only and fill-or-cancel,
+1% through the live price. It closes exactly what is open however it was opened, can never
+open the other way, and has no confirm dialog (it only ever shrinks a position). With live
+orders off, Close is the paper close as before. Two calls go out (the position, then the
+order), on the warm client.
+
+**Testnet.** When the Hyperliquid account is set to the test network (Settings → Accounts →
+Network), an amber **TESTNET** badge shows beside the trade form's status, on the Settings
+card as soon as the network is picked, and in the Home balance card; every order the log
+records carries `· testnet` and a `network: testnet` line in its details.
+
 ## Tuning the chart
 
 The feel of the Polymarket chart comes from `~/.config/bi-trading/settings.json`,

@@ -181,6 +181,10 @@ class HyperliquidVenue:
     # -- writes ------------------------------------------------------------
 
     async def submit(self, order: OrderRequest) -> OrderAck:
+        """Place an order. With `order.market` it is fill-or-cancel at its limit
+        price (`Ioc`): it takes what the book offers up to that price right now and
+        never rests, so it either fills or says why it could not. Without it, it is
+        a resting limit order (`Gtc`)."""
         await self.connect()
         if self._exchange is None:
             raise VenueError("submit requires private_key and account_address")
@@ -191,16 +195,55 @@ class HyperliquidVenue:
                 is_buy=order.side == "buy",
                 sz=order.size,
                 limit_px=order.price,
-                order_type={"limit": {"tif": "Gtc"}},
+                order_type={"limit": {"tif": "Ioc" if order.market else "Gtc"}},
                 reduce_only=order.reduce_only,
             )
         except Exception as exc:  # region blocks, rejects, transport
             raise VenueError(friendly_message(exc)) from exc
-        if result.get("status") != "ok":
-            return OrderAck("", order.client_id, False, str(result))
-        statuses = result["response"]["data"]["statuses"]
-        venue_id = str(statuses[0].get("resting", {}).get("oid", ""))
-        return OrderAck(venue_id, order.client_id, True)
+        return _ack(result, order)
+
+    async def position(self, symbol: str) -> float:
+        """The signed size held in `symbol`: positive long, negative short, 0 flat."""
+        await self.connect()
+        if not self.account_address:
+            raise VenueError("a position needs the account address")
+        try:
+            state = await asyncio.to_thread(self._info.user_state, self.account_address)
+        except Exception as exc:
+            raise VenueError(friendly_message(exc)) from exc
+        for entry in state.get("assetPositions", []):
+            item = entry.get("position", {})
+            if item.get("coin") == symbol:
+                return float(item.get("szi", 0.0))
+        return 0.0
+
+    async def close_position(
+        self, instrument: Instrument, price: float | None = None, slippage: float = 0.01
+    ) -> tuple[OrderAck, OrderRequest]:
+        """Close the whole position in `instrument` at once.
+
+        Reads the size from the venue (so it closes exactly what is open, however
+        it was opened), then sends the opposite side reduce-only and fill-or-cancel,
+        priced `slippage` through `price` (the live mid; the venue's own mid when
+        none is given). Returns the ack and the order that was sent.
+        """
+        size = await self.position(instrument.symbol)
+        if abs(size) < 1e-12:
+            raise VenueError(f"no open {instrument.symbol} position to close")
+        if self._exchange is None:
+            raise VenueError("closing requires private_key and account_address")
+        buy = size < 0
+        try:
+            limit = await asyncio.to_thread(
+                self._exchange._slippage_price, instrument.symbol, buy, slippage, price
+            )
+        except Exception as exc:
+            raise VenueError(friendly_message(exc)) from exc
+        order = OrderRequest(
+            instrument=instrument, side="buy" if buy else "sell", price=float(limit),
+            size=abs(size), reduce_only=True, market=True,
+        )
+        return await self.submit(order), order
 
     async def cancel(self, instrument: Instrument, venue_order_id: str) -> None:
         await self.connect()
@@ -209,3 +252,33 @@ class HyperliquidVenue:
         await asyncio.to_thread(
             self._exchange.cancel, instrument.symbol, int(venue_order_id)
         )
+
+
+def _ack(result: Any, order: OrderRequest) -> OrderAck:
+    """The exchange's answer as an `OrderAck`, with the fill when there is one.
+
+    `status: ok` only says the request was well formed; each order inside has its
+    own status: `filled` (with the size and the average price), `resting` (on the
+    book) or `error`.
+    """
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return OrderAck("", order.client_id, False, str(result))
+    try:
+        status = result["response"]["data"]["statuses"][0]
+    except (KeyError, IndexError, TypeError):
+        return OrderAck("", order.client_id, True)
+    if "error" in status:
+        return OrderAck("", order.client_id, False, str(status["error"]))
+    if "filled" in status:
+        filled = status["filled"]
+        size = float(filled.get("totalSz", 0.0))
+        average = float(filled.get("avgPx", 0.0))
+        return OrderAck(
+            str(filled.get("oid", "")), order.client_id, True,
+            detail=f"filled · {size:g} {order.instrument.symbol} @ {average:,.1f}",
+            shares=size, dollars=size * average,
+        )
+    resting = status.get("resting", {})
+    return OrderAck(
+        str(resting.get("oid", "")), order.client_id, True, detail="resting"
+    )

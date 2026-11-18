@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from bi_trading.state.orders import HL_BTC, armed, config_for, service
 from bi_trading.state.positions import store
+from bi_trading.ui.badges import refresh_badge, testnet_badge
 from bi_trading.ui.theme import UP
 
 # What the shortcut buttons scale, in dollars.
@@ -57,6 +58,7 @@ class TradeForm(QWidget):
         self._position: dict | None = store().get()
         self._pending: str | None = None   # side of an order in flight
         self._wired = False                # the order service connected yet?
+        self._fill: tuple[float, float] | None = None   # (size, dollars) of the order in flight
 
         column = QVBoxLayout(self)
         column.setContentsMargins(12, 12, 12, 12)
@@ -136,10 +138,17 @@ class TradeForm(QWidget):
         sides.addWidget(self.sell, 1)
         column.addLayout(sides)
 
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
         self.status_label = QLabel("")
         self.status_label.setObjectName("gl")
         self.status_label.setWordWrap(True)
-        column.addWidget(self.status_label)
+        status_row.addWidget(self.status_label, 1)
+        # Which network these buttons talk to, when it is not the real one.
+        self.network_badge = testnet_badge(self)
+        status_row.addWidget(self.network_badge, 0)
+        column.addLayout(status_row)
 
         self.position_row = QWidget(self)
         self.position_row.setObjectName("positionRow")
@@ -158,7 +167,9 @@ class TradeForm(QWidget):
         close = QPushButton("Close")
         close.setObjectName("ghostButton")
         close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.clicked.connect(self.close_position)
+        close.setToolTip("Close the position at once (the whole position, reduce-only, when live)")
+        close.clicked.connect(self.close_clicked)
+        self.close_button = close
         row.addWidget(self.position_label, 1)
         row.addWidget(self.pnl_label, 0)
         row.addWidget(close, 0)
@@ -198,6 +209,30 @@ class TradeForm(QWidget):
             "manual",
         )
         self._refresh()
+
+    def close_clicked(self) -> None:
+        """The Close button: a real close when live orders are on, else the paper one.
+
+        A real close reads the whole position from the venue and closes it at once,
+        reduce-only and fill-or-cancel, so it never opens the other way and needs
+        no size from here. No confirm dialog: it only ever shrinks what is open,
+        and it should be as quick as pressing the button.
+        """
+        refresh_badge(self.network_badge)
+        if config_for("hyperliquid") is None or not armed():
+            self.close_position()
+            return
+        self._pending = "CLOSE"
+        self._status("closing…")
+        svc = service()
+        if not self._wired:
+            svc.placed.connect(self._on_placed)
+            svc.failed.connect(self._on_failed)
+            svc.filled.connect(self._on_filled)
+            self._wired = True
+        svc.close_position(
+            "hyperliquid", HL_BTC, config_for("hyperliquid") or {}, self.price
+        )
 
     def close_position(self) -> None:
         position, self._position = self._position, None
@@ -242,10 +277,6 @@ class TradeForm(QWidget):
             self.open_position(side)
             self._status("dry run — paper position (arm live orders in Settings)")
             return
-        if not armed():
-            self.open_position(side)
-            self._status("dry run — paper position (arm live orders in Settings)")
-            return
 
         if Settings.load().trading.confirm_orders and not self._confirm(side, usd, price):
             return
@@ -259,6 +290,7 @@ class TradeForm(QWidget):
             side="buy" if buy else "sell",
             price=limit,
             size=round(usd / price, 5),
+            market=True,       # fill-or-cancel at that price: it fills now or says why not
         )
         self._pending = side
         self._status("sending…")
@@ -266,6 +298,7 @@ class TradeForm(QWidget):
         if not self._wired:
             svc.placed.connect(self._on_placed)
             svc.failed.connect(self._on_failed)
+            svc.filled.connect(self._on_filled)
             self._wired = True
         svc.submit("hyperliquid", order, config_for("hyperliquid") or {})
 
@@ -284,8 +317,21 @@ class TradeForm(QWidget):
         if venue != "hyperliquid" or self._pending is None:
             return
         side, self._pending = self._pending, None
+        if side == "CLOSE":
+            self.close_position()
+            self._status(f"closed · {summary}", tone="ok")
+            return
         self.open_position(side)
+        fill, self._fill = self._fill, None
+        if fill is not None and fill[0] > 0 and self._position is not None:
+            # The venue's own average price, not the one the click saw.
+            self._position["entry"] = fill[1] / fill[0]
+            store().set(self._position)
         self._status(f"filled · {summary}", tone="ok")
+
+    def _on_filled(self, venue: str, token: str, side: str, shares: float, dollars: float) -> None:
+        if venue == "hyperliquid" and self._pending not in (None, "CLOSE"):
+            self._fill = (shares, dollars)
 
     def _on_failed(self, venue: str, reason: str) -> None:
         if venue != "hyperliquid" or self._pending is None:

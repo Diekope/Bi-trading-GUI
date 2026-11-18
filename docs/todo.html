@@ -56,13 +56,6 @@
     </ul>
   </section>
   <section>
-    <h2>Trading speed</h2>
-    <ul>
-    <li data-p="med" data-id="-fast-buy-and-sell-on-hyperliquid-possible-"><input type="checkbox"><span><b>Fast buy and sell on Hyperliquid.</b> Possible: the warm, reused client already covers it (it is shared by every venue), but the order itself is not as quick as Polymarket&#x27;s yet. It is a resting limit order (<code>Gtc</code>), sent through the SDK&#x27;s blocking call on a thread, and its answer carries no fill. To do: a marketable order (<code>Ioc</code> at a price a little through the book, as Sell does on Polymarket), a one-click <b>Close</b> that reads the open position from the venue and sells exactly that (reduce-only), the fill (size and price) read from the answer so it logs <code>FILLED</code>, and the same Sell/Close buttons in the terminal. Try it on the testnet first (Settings → Accounts → Network).</span><span class="tag med">Medium</span></li>
-    <li data-p="low" data-id="-a-testnet-badge-wherever-orders-can-go-out-"><input type="checkbox"><span><b>A TESTNET badge</b> wherever orders can go out, so the network is never in doubt.</span><span class="tag low">Low</span></li>
-    </ul>
-  </section>
-  <section>
     <h2>Quality</h2>
     <ul>
     <li data-p="low" data-id="-goldens-for-the-screenshot-tests-on-linux-"><input type="checkbox"><span><b>Goldens for the screenshot tests on Linux.</b> <code>tests/golden/</code> was drawn on macOS. The comparison is coarse (8px blocks) so another system&#x27;s fonts should pass, but CI has never run it: if it fails there, redraw the goldens on that system (<code>UPDATE_GOLDEN=1</code>) and keep both sets.</span><span class="tag low">Low</span></li>

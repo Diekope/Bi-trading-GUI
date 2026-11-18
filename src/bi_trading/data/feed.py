@@ -251,7 +251,11 @@ class MarketFeed(QObject):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # a reconnect loop must outlive any one failure
-                log.warning("market stream dropped", exc_info=True)
+                if isinstance(exc, (websockets.WebSocketException, OSError, TimeoutError)):
+                    # The usual network trouble: one line, not a traceback.
+                    log.warning("market stream dropped: %s: %s", type(exc).__name__, exc)
+                else:
+                    log.warning("market stream dropped", exc_info=True)
                 self.error.emit(f"stream: {type(exc).__name__}: {exc}")
             finally:
                 self.connected.emit(False)

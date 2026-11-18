@@ -58,6 +58,7 @@ from bi_trading.state.settings import (
 )
 
 # The hub's palette, imported so the view matches it exactly.
+from bi_trading.ui.badges import testnet_badge  # noqa: E402
 from bi_trading.ui.venue_icons import venue_mark  # noqa: E402
 from bi_trading.ui.palette import (  # noqa: E402
     ACCENT,
@@ -338,7 +339,10 @@ class SettingsView(QWidget):
         return card
 
     def _hyperliquid_card(self) -> QFrame:
-        card, body, _ = self._card("Hyperliquid", HL_DOT)
+        card, body, header = self._card("Hyperliquid", HL_DOT)
+        # Says so on the card itself when the network picked below is the test one.
+        self._hl_badge = testnet_badge()
+        header.addWidget(self._hl_badge)
         self._hl_status = _label("", "setStatus", rich=True)
         self._hl_status.setWordWrap(True)
         body.addWidget(self._hl_status)
@@ -354,6 +358,10 @@ class SettingsView(QWidget):
         self._hl_network = _field(
             "Network", combo=["Mainnet", "Testnet"], current="Mainnet"
         )
+        self._hl_network.combo.currentTextChanged.connect(
+            lambda text: self._hl_badge.setVisible(text == "Testnet")
+        )
+        self._hl_badge.setVisible(self._hl_network.combo.currentText() == "Testnet")
         grid.addWidget(self._hl_address, 0, 0)
         grid.addWidget(self._hl_key, 0, 1)
         grid.addWidget(self._hl_network, 1, 0)

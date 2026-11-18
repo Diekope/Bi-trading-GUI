@@ -1502,3 +1502,48 @@ def test_the_signal_turning_true_places_the_auto_bet_only_when_ticked(
     assert len(auto_window._autobet.open) == 1
     auto_window._refresh_strategy_bar()                   # still true: no second bet
     assert len(auto_window._autobet.open) == 1
+
+
+# -- a dropped socket in the log ------------------------------------------------
+
+
+def test_a_network_drop_logs_one_line_and_a_bug_logs_its_traceback(caplog) -> None:
+    import logging
+
+    import websockets
+
+    from bi_trading.data.polymarket_feed import _log_drop
+
+    with caplog.at_level(logging.WARNING, logger="bi_trading.data.polymarket_feed"):
+        _log_drop("market socket dropped", websockets.exceptions.ConnectionClosedError(None, None))
+        _log_drop("market socket dropped", TimeoutError("timed out while closing connection"))
+        _log_drop("market socket dropped", KeyError("bids"))
+
+    network, timeout, bug = caplog.records
+    assert network.exc_info is None and "ConnectionClosedError" in network.getMessage()
+    assert timeout.exc_info is None and "timed out" in timeout.getMessage()
+    assert bug.exc_info is not None                      # something that looks like a bug keeps it
+
+
+def test_the_market_socket_does_not_negotiate_compression(monkeypatch) -> None:
+    import asyncio
+
+    from bi_trading.data import polymarket_feed
+
+    seen: dict = {}
+
+    class Closed:
+        async def __aenter__(self):
+            raise OSError("stop here")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def connect(url, **kwargs):
+        seen.update(kwargs)
+        return Closed()
+
+    monkeypatch.setattr(polymarket_feed.websockets, "connect", connect)
+    with pytest.raises(OSError):      # the connect fails first: no feed (or its loop) is needed
+        asyncio.run(polymarket_feed.PolymarketFeed._session(object(), ["t1"], 9e12))
+    assert seen["compression"] is None and seen["max_queue"] == 256

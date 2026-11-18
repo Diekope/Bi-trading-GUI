@@ -195,3 +195,79 @@ def test_the_open_position_card_follows_the_shared_store(
         assert sub.text() == "no position"
     finally:
         window.close()
+
+
+def test_the_home_balance_card_says_testnet(app: QApplication, monkeypatch, tmp_path) -> None:
+    from bi_trading.state.accounts import Accounts, HL_KEY, HyperliquidAccount, save_accounts, set_secret
+
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_SECRETS", str(tmp_path / "secrets.json"))
+    monkeypatch.setenv("BI_TRADING_KEYCHAIN", "0")
+    set_secret(HL_KEY, "0x" + "ab" * 32)
+    for testnet, expected in ((True, True), (False, False)):
+        save_accounts(Accounts(hyperliquid=HyperliquidAccount(address="0x" + "cd" * 20, testnet=testnet)))
+        window = MainHubWindow(autostart=False)
+        window._refresh_balances()
+        assert ("TESTNET" in window._stat_subs["Hyperliquid balance"].text()) is expected
+        window.close()
+
+
+def test_the_hub_starts_with_logging_pointed_at_a_file(monkeypatch, tmp_path) -> None:
+    """The hub's own entry point set up no logging, so every dropped socket printed
+    its traceback over the terminal it was launched from."""
+    import logging
+
+    from bi_trading import logs
+    from bi_trading.ui.hub import main_hub
+
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("BI_TRADING_LOG", str(tmp_path / "bi-trading.log"))
+    logs.reset()
+    calls: list[str] = []
+
+    class FakeApp:
+        def __init__(self, argv) -> None:
+            pass
+
+        def setApplicationName(self, name) -> None:  # noqa: N802
+            pass
+
+        def setOrganizationName(self, name) -> None:  # noqa: N802
+            pass
+
+        @staticmethod
+        def setHighDpiScaleFactorRoundingPolicy(policy) -> None:  # noqa: N802
+            calls.append("dpi")
+
+        def exec(self) -> int:
+            calls.append("exec")
+            return 0
+
+    class FakeWindow:
+        def show(self) -> None:
+            pass
+
+        def raise_(self) -> None:
+            pass
+
+        def activateWindow(self) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr(main_hub, "QApplication", FakeApp)
+    monkeypatch.setattr(main_hub, "MainHubWindow", FakeWindow)
+    monkeypatch.setattr("bi_trading.ui.theme.apply_theme", lambda app: None)
+    monkeypatch.setattr(logs, "install_qt_handler", lambda: calls.append("qt"))
+    try:
+        assert main_hub.run([]) == 0
+        # Logging goes to the file, and there is no console handler to scribble with.
+        handlers = logging.getLogger().handlers
+        assert any(getattr(h, "baseFilename", "").endswith("bi-trading.log") for h in handlers)
+        assert not any(isinstance(h, logging.StreamHandler) and not hasattr(h, "baseFilename")
+                       for h in handlers)
+        logging.getLogger("bi_trading.test").warning("a dropped socket")
+        for handler in handlers:
+            handler.flush()
+        assert "a dropped socket" in (tmp_path / "bi-trading.log").read_text()
+    finally:
+        logs.reset()
+    assert calls[:2] == ["qt", "dpi"] and calls[-1] == "exec"

@@ -48,6 +48,15 @@ from bi_trading.venues.runner import AsyncRunner
 
 log = logging.getLogger(__name__)
 
+
+def _log_drop(message: str, exc: BaseException) -> None:
+    """A dropped socket in the log: one line for the usual network trouble, the whole
+    traceback only for something that looks like a bug."""
+    if isinstance(exc, (websockets.WebSocketException, OSError, TimeoutError)):
+        log.warning("%s: %s: %s", message, type(exc).__name__, exc)
+    else:
+        log.warning(message, exc_info=True)
+
 # What a network call can fail with, so a flaky link is told apart from a bug.
 _NET_ERRORS = (
     httpx.HTTPError,
@@ -173,7 +182,7 @@ class PolymarketFeed(QObject):
                 # The venue closes the socket at resolution; that is expected,
                 # not an error worth printing every five minutes.
                 if time.time() < market.end_ms / 1000 - 1.0:
-                    log.warning("market socket dropped", exc_info=True)
+                    _log_drop("market socket dropped", exc)
                     self.error.emit(f"market ws: {type(exc).__name__}: {exc}")
             # Do not reconnect in the last seconds of a window: the market is
             # about to close and the next slug is a fresh session anyway.
@@ -215,6 +224,9 @@ class PolymarketFeed(QObject):
             # reader room to absorb a burst instead of pausing the socket and
             # tripping the venue's slow-consumer guard.
             max_queue=256,
+            # No per-message compression: inflating several hundred frames a second
+            # is CPU on the loop that has to keep reading, and the frames are small.
+            compression=None,
         ) as ws:
             await ws.send(json.dumps({"assets_ids": tokens, "type": "market"}))
             self.status.emit("live")
