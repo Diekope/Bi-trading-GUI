@@ -45,29 +45,6 @@
     <button data-f="open" aria-pressed="false">Open only</button>
   </div>
   <section>
-    <h2>Backtest engine</h2>
-    <ul>
-    <li data-p="low" data-id="-formula-strategies-on-spans-over-core-max-"><input type="checkbox"><span><b>Formula strategies on spans over <code>CORE_MAX</code>.</b> The two built-in rules now walk a long span in pieces (see the backtest docs), but a formula strategy still loads the whole span, because an indicator needs its look-back: a piece would have to be handed the last N bars of the one before it, N being the longest window the formula uses. Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars).</span><span class="tag low">Low</span></li>
-    </ul>
-  </section>
-  <section>
-    <h2>Results &amp; visualisation</h2>
-    <ul>
-    <li data-p="low" data-id="-export-trades-to-csv-"><input type="checkbox"><span><b>Export trades to CSV</b>.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-a-compare-part-in-the-backtest-window-it-l"><input type="checkbox"><span><b>A Compare part in the backtest window</b> — it lives only in the builder.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-real-candles-in-the-trade-detail-a-tiny-can"><input type="checkbox"><span><b>Real candles in the trade detail</b> (a tiny candle strip) instead of the price line, and a candle sparkline per row.</span><span class="tag low">Low</span></li>
-    <li data-p="med" data-id="-more-stats-sortino-exposure-average-hold-"><input type="checkbox"><span><b>More stats:</b> Sortino, exposure, average hold, expectancy. Decide which figure is the headline for a quick glance.</span><span class="tag med">Medium</span></li>
-    </ul>
-  </section>
-  <section>
-    <h2>Strategy &amp; builder</h2>
-    <ul>
-    <li data-p="low" data-id="-sweeps-walk-forward-in-the-backtest-window-"><input type="checkbox"><span><b>Sweeps / walk-forward in the backtest window</b>, builder-only today.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-rename-and-edit-a-run-s-strategy-inline-wit"><input type="checkbox"><span><b>Rename and edit a run&#x27;s strategy inline</b>, without going to the builder.</span><span class="tag low">Low</span></li>
-    <li data-p="med" data-id="-open-question-is-the-entry-rule-a-field-of-"><input type="checkbox"><span><b>Open question:</b> is the entry rule a field of a run, or a separately saved, named strategy picked before starting? The answer decides the data model.</span><span class="tag med">Medium</span></li>
-    </ul>
-  </section>
-  <section>
     <h2>Logs</h2>
     <ul>
     <li data-p="low" data-id="-polymarket-holdings-from-the-venue-sell-wor"><input type="checkbox"><span><b>Polymarket holdings from the venue.</b> Sell works on the shares this session bought (counted from the fills); read the wallet&#x27;s positions so a restart, or a bet placed elsewhere, can be sold from here too.</span><span class="tag low">Low</span></li>

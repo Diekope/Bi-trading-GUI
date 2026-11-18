@@ -23,6 +23,7 @@ from datetime import datetime, UTC
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QFileDialog,
     QAbstractItemView,
     QButtonGroup,
     QComboBox,
@@ -35,12 +36,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from bi_trading.engine.stats import trade_stats, write_trades_csv
 from bi_trading.ui.cards import mono_font
 from bi_trading.ui.panels import Card
 from bi_trading.ui.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, TEXT_MUTED, UP
@@ -187,6 +190,7 @@ class ResultsTile(Card):
     """The run's results, in two parts: an Overview and a Trades table."""
 
     trade_selected = Signal(object)
+    part_changed = Signal(int)   # a part was picked: 0 overview, 1 trades, 2 compare
 
     # How many of the newest trades the table shows; a run can hold far more.
     TRADES_SHOWN = 400
@@ -207,7 +211,7 @@ class ResultsTile(Card):
         self.tabs.setExclusive(True)
         self.tab_buttons: dict[str, QPushButton] = {}
         for index, (key, caption) in enumerate(
-            (("overview", "Overview"), ("trades", "Trades"))
+            (("overview", "Overview"), ("trades", "Trades"), ("compare", "Compare"))
         ):
             button = QPushButton(caption)
             button.setObjectName("resultTab")
@@ -235,32 +239,48 @@ class ResultsTile(Card):
         overview_layout.setContentsMargins(0, 0, 0, 0)
         overview_layout.setSpacing(8)
 
+        # Every figure on one line, a size up from the playback tile's: the headline
+        # figures first, then what one trade is worth (read off the trade log).
         figures = QHBoxLayout()
         figures.setContentsMargins(0, 0, 0, 0)
-        figures.setSpacing(10)
+        figures.setSpacing(22)
         self.metrics: dict[str, QLabel] = {}
-        for key, caption in (
-            ("pnl", "PnL"),
-            ("sharpe", "Sharpe"),
-            ("maxdd", "Max DD"),
-            ("trades", "Trades"),
-            ("win", "Win rate"),
-            ("fees", "Fees"),
+        for key, caption, tip in (
+            ("pnl", "PnL", ""),
+            ("sharpe", "Sharpe", ""),
+            ("maxdd", "Max DD", ""),
+            ("trades", "Trades", ""),
+            ("win", "Win rate", ""),
+            ("fees", "Fees", ""),
+            ("expectancy", "Expectancy", "the average trade: its return, and its profit in dollars"),
+            ("hold", "Avg hold", "bars a trade ran, on average"),
+            ("exposure", "Exposure", "the share of bars with a position open"),
+            ("pf", "Profit factor", "what the winners made over what the losers lost"),
+            ("sortino", "Sortino", "the average trade over its downside deviation (losing trades "
+             "only); per trade and not annualised, unlike the Sharpe, which is per bar"),
         ):
             box = QVBoxLayout()
             box.setContentsMargins(0, 0, 0, 0)
-            box.setSpacing(1)
+            box.setSpacing(2)
             cap = QLabel(caption)
             cap.setObjectName("fieldLabel")
             value = QLabel("—")
             value.setObjectName("metricValue_text")
-            value.setFont(mono_font(8, bold=True))
+            value.setFont(mono_font(11, bold=True))
+            if tip:
+                cap.setToolTip(tip)
+                value.setToolTip(tip)
             box.addWidget(cap)
             box.addWidget(value)
             figures.addLayout(box)
             self.metrics[key] = value
         figures.addStretch(1)
-        overview_layout.addLayout(figures)
+        # The line clips rather than forcing the window wider when it is narrow.
+        figures_row = QWidget()
+        figures_row.setObjectName("resultsPage")      # a plain container: no canvas fill
+        figures_row.setLayout(figures)
+        figures_row.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        overview_layout.addWidget(figures_row)
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -360,6 +380,23 @@ class ResultsTile(Card):
         self.trades_page.trade_selected.connect(self.trade_selected)
         self.stack.addWidget(self.trades_page)
 
+        # Compare: the run against its stand-ins, a TP/SL sweep and walk-forward.
+        from bi_trading.ui.strat.strat_compare import ComparePage
+
+        self.compare = ComparePage()
+        self.compare_hint = QLabel(
+            "Compare needs an entry rule: pick Bollinger reversion or a saved strategy."
+        )
+        self.compare_hint.setObjectName("hintLabel")
+        compare_page = QWidget()
+        compare_page.setObjectName("resultsPage")   # a plain container: no canvas fill
+        compare_layout = QVBoxLayout(compare_page)
+        compare_layout.setContentsMargins(0, 0, 0, 0)
+        compare_layout.setSpacing(6)
+        compare_layout.addWidget(self.compare_hint)
+        compare_layout.addWidget(self.compare, 1)
+        self.stack.addWidget(compare_page)
+
     # -- the parts ---------------------------------------------------------
 
     def part(self) -> str:
@@ -370,13 +407,19 @@ class ResultsTile(Card):
 
     def set_part(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        keys = list(self.tab_buttons)
+        if 0 <= index < len(keys):
+            self.tab_buttons[keys[index]].setChecked(True)
         if index == 1:
             self.trades_page.refresh()
         self.note.setText(
             "return since the start, read as the loop walks"
             if index == 0
             else "closed trades, newest first"
+            if index == 1
+            else "the rule on the last bars, against a random buy and buy & hold"
         )
+        self.part_changed.emit(index)
 
     # -- the run -----------------------------------------------------------
 
@@ -385,6 +428,26 @@ class ResultsTile(Card):
         self.trades_page.set_session(session)
         self.note.setText("return since the start, read as the loop walks")
         self.refresh()
+
+    def set_compare_inputs(
+        self, bars, entry, exit_, tp: float, sl: float,
+        short: bool = False, short_entry=None,
+    ) -> None:
+        """Feed Compare: the last bars, the rule, and the run's TP and SL.
+
+        Without an entry rule (the random baseline) there is nothing to sweep, so
+        it says so instead of drawing an empty page.
+        """
+        self.compare_hint.setVisible(entry is None or not bars)
+        if entry is None or not bars:
+            self.compare.configure([], None, None, None, tp, sl)
+            return
+        from bi_trading.engine.formula_eval import backtest
+
+        report = backtest(
+            bars, entry, exit_, tp=tp, sl=sl, short=short, short_entry=short_entry
+        )
+        self.compare.configure(bars, entry, exit_, report, tp, sl, short, short_entry)
 
     def set_overlay(self, name: str, curve: list[float] | None) -> None:
         """Lay a saved run's strategy curve over the current one; none clears it."""
@@ -448,6 +511,23 @@ class ResultsTile(Card):
             f"{play.fee * 100:.3g}% fee + {play.slippage * 100:.3g}% slippage "
             "on each fill"
         )
+        stats = trade_stats(play.trades_log, play.index or session.total)
+        if stats.trades:
+            self.metrics["expectancy"].setText(
+                f"{stats.expectancy * 100:+,.2f}% · "
+                f"{'-' if stats.expectancy_usd < 0 else '+'}${abs(stats.expectancy_usd):,.2f}"
+            )
+            self.metrics["hold"].setText(f"{stats.average_hold:,.1f} bars")
+            self.metrics["exposure"].setText(f"{stats.exposure * 100:,.0f}%")
+            self.metrics["pf"].setText(
+                "—" if stats.profit_factor is None else f"{stats.profit_factor:,.2f}"
+            )
+            self.metrics["sortino"].setText(
+                "—" if stats.sortino is None else f"{stats.sortino:,.2f}"
+            )
+        else:
+            for key in ("expectancy", "hold", "exposure", "pf", "sortino"):
+                self.metrics[key].setText("—")
         self.pnl_bars.set_values([record[6] for record in play.trades_log])
         self.drawdown.set_curve(session.strategy_curve)
 
@@ -589,17 +669,61 @@ class DrawdownCurve(QWidget):
 
 
 class TradeSpark(QWidget):
-    """A tiny line from a trade's entry to its exit, with the two dots."""
+    """A trade drawn small: its candles when they can be read, else a line.
+
+    The candles run from a few bars before the entry to a few after the exit, the
+    entry and the exit marked on them. When the bars are not on disk (a sample
+    run) it falls back to a line through the prices the trade saw.
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("tradeSpark")
         self.setMinimumHeight(72)
         self._trade: dict | None = None
+        self._bars: list = []
 
-    def set_trade(self, trade: dict | None) -> None:
+    def set_trade(self, trade: dict | None, bars: list | None = None) -> None:
         self._trade = trade
+        self._bars = list(bars or [])
         self.update()
+
+    def _paint_candles(self, painter: QPainter, rect, trade: dict) -> bool:
+        bars = self._bars
+        if len(bars) < 2:
+            return False
+        low = min(bar.low for bar in bars)
+        high = max(bar.high for bar in bars)
+        spread = high - low or abs(high) * 1e-3 or 1.0
+        low -= spread * 0.1
+        high += spread * 0.1
+        slot = rect.width() / len(bars)
+        body = max(1.0, min(8.0, slot * 0.6))
+
+        def y_of(price: float) -> float:
+            return rect.bottom() - (price - low) / (high - low) * rect.height()
+
+        entered = exited = None
+        for index, bar in enumerate(bars):
+            x = rect.left() + slot * (index + 0.5)
+            colour = QColor(UP if bar.close >= bar.open else DOWN)
+            painter.setPen(QPen(colour, 1))
+            painter.drawLine(QPointF(x, y_of(bar.high)), QPointF(x, y_of(bar.low)))
+            top, bottom = sorted((y_of(bar.open), y_of(bar.close)))
+            painter.setBrush(colour)
+            painter.drawRect(QRectF(x - body / 2, top, body, max(1.0, bottom - top)))
+            if entered is None and bar.stamp >= int(trade["in_stamp"]):
+                entered = (x, float(trade["in_price"]))
+            if bar.stamp <= int(trade["out_stamp"]):
+                exited = (x, float(trade["out_price"]))
+        painter.setPen(Qt.PenStyle.NoPen)
+        if entered is not None:
+            painter.setBrush(QColor(ACCENT))
+            painter.drawEllipse(QPointF(entered[0], y_of(entered[1])), 3, 3)
+        if exited is not None:
+            painter.setBrush(QColor("#c9cad0"))
+            painter.drawEllipse(QPointF(exited[0], y_of(exited[1])), 3, 3)
+        return True
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -609,6 +733,8 @@ class TradeSpark(QWidget):
         if trade is None:
             return
         rect = self.rect().adjusted(8, 8, -8, -8)
+        if self._paint_candles(painter, rect, trade):
+            return
         path = list(trade.get("path") or [])
         if not path:
             path = [float(trade["in_price"]), float(trade["out_price"])]
@@ -638,6 +764,42 @@ class TradeSpark(QWidget):
         painter.drawEllipse(points[-1], 3, 3)
 
 
+STRIP_ROLE = Qt.ItemDataRole.UserRole + 1   # a row's strip: [(open, high, low, close), …]
+STRIP_WIDTH = 150
+
+
+class _StripDelegate(QStyledItemDelegate):
+    """The "In → Out" cell: the prices as text, and the trade's candles beside it."""
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+        strip = index.data(STRIP_ROLE)
+        if not strip or len(strip) < 2:
+            return
+        rect = QRectF(option.rect).adjusted(0, 5, -8, -5)
+        rect.setLeft(max(rect.left(), rect.right() - STRIP_WIDTH))
+        low = min(bar[2] for bar in strip)
+        high = max(bar[1] for bar in strip)
+        spread = (high - low) or abs(high) * 1e-3 or 1.0
+        slot = rect.width() / len(strip)
+        body = max(1.0, min(5.0, slot * 0.6))
+
+        def y_of(price: float) -> float:
+            return rect.bottom() - (price - low) / spread * rect.height()
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        for position, (open_, high_, low_, close) in enumerate(strip):
+            x = rect.left() + slot * (position + 0.5)
+            colour = QColor(UP if close >= open_ else DOWN)
+            painter.setPen(QPen(colour, 1))
+            painter.drawLine(QPointF(x, y_of(high_)), QPointF(x, y_of(low_)))
+            top, bottom = sorted((y_of(open_), y_of(close)))
+            painter.setBrush(colour)
+            painter.drawRect(QRectF(x - body / 2, top, body, max(1.0, bottom - top)))
+        painter.restore()
+
+
 class TradesPage(QWidget):
     """The closed trades: a filter row, a table, and the picked trade beside it."""
 
@@ -655,6 +817,9 @@ class TradesPage(QWidget):
         self.trades: list[dict] = []
         self._shown: list[dict] = []
         self._last_total = -1
+        # Each trade's strip of candles, kept so a filter or a refresh does not read
+        # the store again: {(entry stamp, exit stamp): strip or None}.
+        self._strips: dict[tuple[int, int], list | None] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -679,12 +844,18 @@ class TradesPage(QWidget):
         self.exit.setFixedWidth(140)
         self.count = QLabel("0 trades")
         self.count.setObjectName("hintLabel")
+        self.export_button = QPushButton("Export CSV")
+        self.export_button.setObjectName("ghostButton")
+        self.export_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_button.setToolTip("write every trade of the run to a CSV file (times in UTC)")
+        self.export_button.clicked.connect(lambda: self.export_csv())
         filters.addWidget(self.search)
         filters.addWidget(self.side)
         filters.addWidget(self.outcome)
         filters.addWidget(self.exit)
         filters.addStretch(1)
         filters.addWidget(self.count)
+        filters.addWidget(self.export_button)
         layout.addLayout(filters)
 
         body = QHBoxLayout()
@@ -710,6 +881,7 @@ class TradesPage(QWidget):
                 column, QHeaderView.ResizeMode.ResizeToContents
             )
         head.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.setItemDelegateForColumn(3, _StripDelegate(self.table))
         body.addWidget(self.table, 1)
 
         detail = QFrame()
@@ -760,13 +932,38 @@ class TradesPage(QWidget):
 
     def set_session(self, session) -> None:
         self.session = session
+        self._strips.clear()           # another run may be on another span or resolution
         self.refresh()
+
+    def export_csv(self, path: str | None = None) -> int:
+        """Write every trade of the run (not just the newest shown) to a CSV.
+
+        With no `path` it asks where. Returns how many trades were written, 0 if
+        there is nothing to write or the dialog was cancelled.
+        """
+        if self.session is None or not self.session.strategy.trades_log:
+            self.count.setText("no trades to export")
+            return 0
+        if path is None:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Export trades", "trades.csv", "CSV (*.csv)"
+            )
+            if not path:
+                return 0
+        try:
+            written = write_trades_csv(self.session.strategy.trades_log, path)
+        except OSError as exc:
+            self.count.setText(f"could not write: {exc.strerror or exc}")
+            return 0
+        self.count.setText(f"{written:,} trades written")
+        return written
 
     def clear(self) -> None:
         self.session = None
         self.trades = []
         self._shown = []
         self._last_total = -1
+        self._strips.clear()
         self.table.setRowCount(0)
         self.count.setText("0 trades")
         self.spark.set_trade(None)
@@ -855,7 +1052,28 @@ class TradesPage(QWidget):
             ]
         )
 
+    def _strips_for(self, rows: list[dict]) -> None:
+        """Read the candles of the rows that have none yet (one read per year)."""
+        session = self.session
+        if session is None or not session.years:
+            return
+        from bi_trading.ui.strat.playback_data import trade_strips
+
+        missing = [
+            (trade["in_stamp"], trade["out_stamp"])
+            for trade in rows
+            if (trade["in_stamp"], trade["out_stamp"]) not in self._strips
+        ]
+        if not missing:
+            return
+        try:
+            found = trade_strips(session.years, session.resolution, missing)
+        except (OSError, ValueError):
+            found = [None] * len(missing)
+        self._strips.update(zip(missing, found, strict=True))
+
     def _fill(self, rows: list[dict]) -> None:
+        self._strips_for(rows)
         self.table.setRowCount(len(rows))
         for row, trade in enumerate(rows):
             pnl = trade["pnl"]
@@ -884,6 +1102,10 @@ class TradesPage(QWidget):
                     )
                 elif column == 6:
                     item.setForeground(QColor(TEXT_MUTED))
+                elif column == 3:
+                    item.setData(
+                        STRIP_ROLE, self._strips.get((trade["in_stamp"], trade["out_stamp"]))
+                    )
                 self.table.setItem(row, column, item)
 
     def _selected(self) -> dict | None:
@@ -895,12 +1117,27 @@ class TradesPage(QWidget):
             return self._shown[index]
         return None
 
+    def _candles_of(self, trade: dict | None) -> list:
+        """The trade's candles from the store, or none (a sample run, another year)."""
+        session = self.session
+        if trade is None or session is None or not session.years:
+            return []
+        from bi_trading.ui.strat.playback_data import bars_between
+
+        try:
+            return bars_between(
+                session.years, session.resolution,
+                int(trade["in_stamp"]), int(trade["out_stamp"]),
+            )
+        except (OSError, ValueError):
+            return []
+
     def _show_detail(self, emit: bool = False) -> None:
         trade = self._selected()
         if trade is None and self._shown:
             self.table.selectRow(0)
             trade = self._shown[0]
-        self.spark.set_trade(trade)
+        self.spark.set_trade(trade, self._candles_of(trade))
         if trade is None:
             self.detail_title.setText("Trade —")
             for label in self.detail_rows.values():

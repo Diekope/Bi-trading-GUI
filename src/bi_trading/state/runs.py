@@ -263,6 +263,27 @@ def _pad(record) -> tuple:
     return tuple(row[: len(TRADE_COLUMNS)])
 
 
+def rename(old: str, new: str) -> list[SavedRun]:
+    """Give a saved run another name, keeping its trades and curves.
+
+    Raises ValueError for a blank name, a name another run already has, or a run
+    that is not there; nothing is changed then.
+    """
+    new = new.strip()
+    if not new:
+        raise ValueError("a run needs a name")
+    if new == old:
+        return load()
+    if get(new) is not None:
+        raise ValueError(f"there is already a run called {new}")
+    run = get(old)
+    if run is None:
+        raise ValueError(f"no run called {old}")
+    run.name = new                   # `get` brought its trades and curves with it
+    save(run)
+    return remove(old)
+
+
 def remove(name: str) -> list[SavedRun]:
     """Forget a run and delete its Parquet files."""
     kept = [item for item in _read_index() if item.get("name") != name]

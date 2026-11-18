@@ -22,7 +22,18 @@ held, a line across it, and its entry and exit prices marked. A window of
 candles around the trade is read on demand and shown in place of the live
 tail, so a trade well before the last candles can be looked at **without
 moving the run**. It reads the newest `SHOWN` (400) trades so a long run stays
-light.
+light. The detail panel draws the trade's **real candles** (a few bars before the entry to
+a few after the exit, the entry and exit marked), read from the store on demand; a sample
+run, with nothing on disk, falls back to a line. Every row of the table also carries a small
+strip of its own candles beside its prices (a trade longer than 32 bars is squeezed to 32); a
+year is read once however many trades fall in it, and kept (three at a time), so filtering or
+picking a trade does not read it again. **Export CSV** writes *every* trade of the
+run, not just the 400 shown (times in UTC).
+
+The third part, **Compare**, is the builder's compare page fed from the run: the rule
+over the last 2,000 bars against a random buy and buy & hold, a TP × SL sweep and a
+walk-forward, with the saved strategies addable. It needs an entry rule, so Bollinger
+reversion or a saved strategy; the random baseline has none and it says so.
 
 Everything is drawn as **return from the start**, not as a dollar balance. Over
 a long span buy and hold compounds many times over while a strategy that
@@ -34,6 +45,15 @@ a note when it does.
 Random buy is the benchmark that matters: it opens on a coin flip with the same
 exits, sizing and fees, so an entry rule that cannot beat it has no edge. Buy
 and hold puts the whole book in at the first bar and never sells.
+
+Under the six figures a second row reads **what one trade is worth**, all off the trade
+log: **Expectancy** (the average trade, as a return and in dollars), **Avg hold** (bars),
+**Exposure** (the share of bars with a position open), **Profit factor** (what the winners
+made over what the losers lost) and **Sortino** (the average trade over its downside
+deviation — losing trades only; per trade and not annualised, unlike the Sharpe, which is
+per bar). Profit factor and Sortino read `—` while there is no losing trade. PnL stays the
+headline; Expectancy is the one to read next, because it says whether the edge is per trade
+or a few lucky ones. (`engine/stats.py`.)
 
 The curves are sampled **once per tick**, not once per bar — a run can be
 millions of bars and the chart cannot use more points than it has pixels.
@@ -117,7 +137,13 @@ rule is checked over the whole span and the walk opens on the bars it fires on
 and so does its **exit rule**, checked at each bar's close while a trade is
 open, after the params' take profit and stop loss (which still act inside the
 bar) and before the hold limit; a trade it closes reads `Rule`. A saved
-strategy's side is honoured too. **SAVE RUN** keeps the run under a name: the
+strategy's side is honoured too. **Edit rules**, under the strategy picker, changes a saved strategy's entry and exit rule
+in place (checked by the builder's parser as you type) and points the run at it; the
+**Create a strategy** button opens the builder. **Rename**, under the run picker, gives a
+saved run another name, trades and curves kept. A run carries *a copy* of its strategy's
+rules (name, entry, short entry, exit, side), so it replays the same even if the saved
+strategy is edited later: the entry rule is both a field of the run and a named,
+separately saved strategy. **SAVE RUN** keeps the run under a name: the
 span, resolution, parameters, the strategy (name, entry, short entry, exit, side), and what
 it produced. The small facts go in `~/.config/bi-trading/runs.json`
 (`BI_TRADING_RUNS` overrides it); the trades and both equity curves go in Parquet
@@ -151,11 +177,18 @@ trade can open in one year and close in the next and the result is the same as o
 walk over everything. The running figures (peak, drawdown, Sharpe) are accumulated
 piece by piece, the curves keep one point a tick, and only the last bars are kept for
 the picture, so memory stays flat however long the span. Finish and a jump work on
-such a span as they do on a short one, off the main thread. This covers the two built-in
-rules; a **formula** strategy always loads the span whole (an indicator needs its
-look-back). Tested equal to the whole walk on a decade of minutes (same trades, same
-figures). A run that is only played (Run) still steps in Python.
-When the
+such a span as they do on a short one, off the main thread. This covers the built-in
+rules and **formula strategies** too: a rule made of the bar's own columns and the
+indicators (`sma`, `ema`, `rsi`, `highest`, `lowest`, `stdev`, `zscore`, `change`, `shift`,
+the Bollinger bands, and the arithmetic around them) is worked out a piece at a time,
+each indicator lent what it needs from the piece before — the tail of its own input for
+a window, the running values for `ema` and `rsi` — so the signals are exactly the ones a
+whole pass gives (`SignalStream` in `engine/formula_eval.py`). Tested equal to the whole
+walk on a decade of minutes (same trades, same figures), and faster than loading the span
+whole. A rule that names something with no history on disk (`model_p`, `spread`…), or a
+span with a gap, loads whole as before. Run on a formula strategy over a span this long
+walks it in pieces instead of playing it bar by bar; a built-in rule that is only played
+still steps in Python. When the
 extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so
 nothing depends on it. Build and install it with `uv sync --extra native`
 (uv rebuilds it when `rust/bi_trading_core/src` changes).

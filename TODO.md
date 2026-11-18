@@ -6,27 +6,6 @@ Done work is not listed: the Rust walk core, long-span `ColumnSpan` support,
 the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
-## Backtest engine
-- [low] **Formula strategies on spans over `CORE_MAX`.** The two built-in rules now
-  walk a long span in pieces (see the backtest docs), but a formula strategy still
-  loads the whole span, because an indicator needs its look-back: a piece would have
-  to be handed the last N bars of the one before it, N being the longest window the
-  formula uses. Out of reach with today's data (BTC 1m since 2017 is about 5M bars).
-
-## Results & visualisation
-- [low] **Export trades to CSV**.
-- [low] **A Compare part in the backtest window** — it lives only in the builder.
-- [low] **Real candles in the trade detail** (a tiny candle strip) instead of the
-  price line, and a candle sparkline per row.
-- [med] **More stats:** Sortino, exposure, average hold, expectancy. Decide which
-  figure is the headline for a quick glance.
-
-## Strategy & builder
-- [low] **Sweeps / walk-forward in the backtest window**, builder-only today.
-- [low] **Rename and edit a run's strategy inline**, without going to the builder.
-- [med] **Open question:** is the entry rule a field of a run, or a separately saved,
-  named strategy picked before starting? The answer decides the data model.
-
 ## Logs
 - [low] **Polymarket holdings from the venue.** Sell works on the shares this session
   bought (counted from the fills); read the wallet's positions so a restart, or a bet

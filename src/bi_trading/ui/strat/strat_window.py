@@ -157,6 +157,10 @@ class StratWindow(QMainWindow):
         self.save_run.save_requested.connect(self._save_run)
         self.load_run.load_requested.connect(self._load_run)
         self.load_run.overlay_requested.connect(self._overlay_run)
+        self.load_run.renamed.connect(self._run_renamed)
+        self.strategy.create_requested.connect(self._create_strategy)
+        self.results.part_changed.connect(self._part_picked)
+        self.left.finished.connect(self._refresh_compare)
         self._sync_playback()
         self._sync_params()
         self.left.set_strategy(self.strategy.rule())
@@ -231,6 +235,20 @@ class StratWindow(QMainWindow):
                     return
         super().keyPressEvent(event)
 
+    def _run_renamed(self, old: str, new: str) -> None:
+        if self.save_run.name.text() == old:
+            self.save_run.set_saved(new)
+
+    def open_builder(self) -> None:
+        """Open the strategy builder. The hub swaps this for its own Builder view."""
+        from bi_trading.ui.strat.strat_builder import StrategyBuilderWindow
+
+        self._builder = StrategyBuilderWindow()
+        self._builder.show()
+
+    def _create_strategy(self) -> None:
+        self.open_builder()
+
     def _overlay_run(self, name: str) -> None:
         """Lay a saved run's strategy curve over the current run, or take it off."""
         from bi_trading.state import runs
@@ -279,9 +297,48 @@ class StratWindow(QMainWindow):
         )
         self.left.finish()
 
+    # How many of the last bars Compare sweeps and walks forward over. The sweep runs
+    # the rule once per (TP, SL) cell, so it reads a tail, as the builder's does.
+    COMPARE_BARS = 2_000
+
+    def _part_picked(self, index: int) -> None:
+        if index == 2:
+            self._refresh_compare()
+
+    def _refresh_compare(self) -> None:
+        """Hand Compare the run's rule and its last bars (only while it is showing)."""
+        from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, FormulaError, parse
+
+        if self.results.part() != "compare":
+            return
+        session = self.left.session
+        entry = exit_ = short_entry = None
+        bars: list = []
+        side = self.left.side()
+        try:
+            if self.left.rule_key() == "bollinger":
+                entry = parse(
+                    "close < bollinger_lower(close, 20, 2)", ENTRY_FIELDS, FUNCTIONS
+                )
+            elif self.left._entry_formula is not None:
+                entry = self.left._entry_formula
+                exit_ = self.left._exit_formula
+                short_entry = self.left._short_formula
+        except FormulaError:
+            entry = None
+        if session is not None and session.span is not None and entry is not None:
+            total = session.total
+            bars = session.span.candles(max(0, total - self.COMPARE_BARS), total)
+        params = self.params.params()
+        self.results.set_compare_inputs(
+            bars, entry, exit_, float(str(params["tp"])), float(str(params["sl"])),
+            side == "short", short_entry if side == "both" else None,
+        )
+
     def _run_loaded(self) -> None:
         self.results.set_part(0)
         self.results.refresh()
+        self._refresh_compare()
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Re-read the saved strategies and runs, so the pickers are current."""

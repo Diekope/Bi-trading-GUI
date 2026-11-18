@@ -48,6 +48,9 @@ __all__ = [
     "REASON_TAKE_PROFIT",
     "REASON_TIME",
     "Report",
+    "SignalStream",
+    "StreamUnsupported",
+    "STREAM_FIELDS",
     "backtest",
     "bar_context",
     "curve_drawdown",
@@ -509,6 +512,110 @@ def entry_signals(
     return picked
 
 
+# The names a series fed in pieces can carry: the bar's own columns.
+STREAM_FIELDS = ("open", "high", "low", "close", "volume")
+_STREAM_FUNCTIONS = frozenset({
+    "abs", "sqrt", "log", "min", "max", "sma", "ema", "rsi", "highest", "lowest",
+    "stdev", "zscore", "change", "shift", "bollinger_lower", "bollinger_middle",
+    "bollinger_upper",
+})
+
+
+class StreamUnsupported(Exception):
+    """The formula, or the data, cannot be evaluated a piece at a time."""
+
+
+class SignalStream:
+    """The bars an entry rule fires on, for a series fed in pieces, in order.
+
+        stream = SignalStream(formula)
+        picked = stream.feed(columns_of_first_piece, 0)
+        picked += stream.feed(columns_of_next_piece, 5_000_000)
+
+    A rule that looks back (an average, a RSI, the bands) needs the bars before
+    its first bar, which a piece does not have. Each indicator is handed what it
+    needs from the piece before — the tail of its own input for a window, the
+    running values for `ema` and `rsi` — so the pieces together give exactly the
+    signals one pass over the whole series gives. Memory stays at one piece.
+
+    Raises `StreamUnsupported` when it cannot: a name outside the bar's columns, a
+    function it cannot carry, or a gap in the data (the whole-series evaluation
+    treats gaps its own way, and falls back to the list walk for them).
+    """
+
+    def __init__(self, formula: Formula, fields=STREAM_FIELDS, warmup: int = 0) -> None:
+        if not self.supports(formula, fields):
+            raise StreamUnsupported("the rule uses more than the bar's columns")
+        self.formula = formula
+        self.fields = tuple(fields)
+        self.warmup = max(0, int(warmup))
+        self._state: dict = {}
+
+    @staticmethod
+    def supports(formula: Formula | None, fields=STREAM_FIELDS) -> bool:
+        """Whether a rule can be evaluated in pieces: only the bar's columns and
+        the indicators that can carry their history."""
+        if formula is None or formula.condition is None or _np is None:
+            return False
+        known = set(fields)
+        nodes = [a.value for a in formula.assignments] + [formula.condition]
+        for assignment in formula.assignments:
+            for node in _walk_nodes(assignment.value):
+                if isinstance(node, Name) and node.name not in known:
+                    return False
+                if isinstance(node, Call) and node.func not in _STREAM_FUNCTIONS:
+                    return False
+            known.add(assignment.name)
+        for node in _walk_nodes(formula.condition):
+            if isinstance(node, Name) and node.name not in known:
+                return False
+            if isinstance(node, Call) and node.func not in _STREAM_FUNCTIONS:
+                return False
+        return bool(nodes)
+
+    def feed(self, columns, offset: int) -> list[int]:
+        """The signals in this piece, as indices into the whole series.
+
+        `columns` maps each field to its values for the piece; `offset` is the
+        piece's first bar in the whole series. Pieces must come in order.
+        """
+        arrays = {}
+        for name in self.fields:
+            if name not in columns:
+                raise StreamUnsupported(f"no {name} column")
+            array = _np.asarray(columns[name], dtype=float)
+            if _np.isnan(array).any():
+                raise StreamUnsupported("a gap in the data")
+            arrays[name] = array
+        length = len(next(iter(arrays.values()))) if arrays else 0
+        if length == 0:
+            return []
+        scope = dict(arrays)
+        try:
+            for assignment in self.formula.assignments:
+                scope[assignment.name] = _eval_np(
+                    assignment.value, scope, length, self._state
+                )
+            values = _eval_np(self.formula.condition, scope, length, self._state)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise StreamUnsupported(str(exc)) from exc
+        picked = _np.nonzero(values > 0)[0] + int(offset)
+        return [int(index) for index in picked if index >= self.warmup]
+
+
+def _walk_nodes(node):
+    """`node` and every node beneath it."""
+    yield node
+    for child in (
+        getattr(node, "operand", None), getattr(node, "left", None),
+        getattr(node, "right", None), getattr(node, "value", None),
+    ):
+        if child is not None and not isinstance(child, (int, float, str)):
+            yield from _walk_nodes(child)
+    for child in getattr(node, "args", ()) or ():
+        yield from _walk_nodes(child)
+
+
 def _entry_signals(formula: Formula | None, bars, fields) -> list[int]:
     if formula is None or formula.condition is None:
         return []
@@ -596,7 +703,7 @@ def _numpy_context(bars, fields) -> dict | None:
     return arrays
 
 
-def _eval_np(node, scope: dict, length: int):
+def _eval_np(node, scope: dict, length: int, state: dict | None = None):
     """A formula over NumPy arrays; NaN stands in for the list walk's None."""
     np = _np
     if isinstance(node, Number):
@@ -604,14 +711,14 @@ def _eval_np(node, scope: dict, length: int):
     if isinstance(node, Name):
         return scope[node.name]
     if isinstance(node, Unary):
-        values = _eval_np(node.operand, scope, length)
+        values = _eval_np(node.operand, scope, length, state)
         if node.op == "not":
             # `not None` is falsy in the list walk, so an unknown stays 0.
             return np.where(np.isnan(values), 0.0, (values <= 0).astype(float))
         return -values
     if isinstance(node, Binary):
-        left = _eval_np(node.left, scope, length)
-        right = _eval_np(node.right, scope, length)
+        left = _eval_np(node.left, scope, length, state)
+        right = _eval_np(node.right, scope, length, state)
         if node.op in ("and", "or"):
             a, b = left > 0, right > 0
             return (
@@ -632,24 +739,40 @@ def _eval_np(node, scope: dict, length: int):
                 return np.power(left, right)
         raise ValueError(f"no numpy evaluator for {node.op!r}")
     if isinstance(node, Call):
-        return _call_np(node, scope, length)
+        return _call_np(node, scope, length, state)
     if isinstance(node, Assignment):
-        return _eval_np(node.value, scope, length)
+        return _eval_np(node.value, scope, length, state)
     raise ValueError("cannot evaluate this node")
 
 
-def _call_np(node, scope: dict, length: int):
-    """A function node over arrays, vectorised where it can be."""
+def _call_np(node, scope: dict, length: int, state: dict | None = None):
+    """A function node over arrays, vectorised where it can be.
+
+    With a `state` (a dict, one entry per node) the call is one piece of a longer
+    series fed in order: a windowed indicator is given the tail of its own input
+    from the piece before, and `ema` / `rsi` carry their running values, so the
+    pieces together give exactly what one pass over the whole series gives.
+    """
     np = _np
     name = node.func
     if name in _SEQUENTIAL or _np is None:
-        # ema / rsi recur, and an unknown name is the caller's fallback.
-        result = _call(node, scope)
+        if state is not None:
+            return _sequential_stream(node, scope, length, state)
+        # ema / rsi recur, and an unknown name is the caller's fallback. An unknown
+        # value (NaN: the start of a series built from a window) is a gap to them,
+        # as in the list walk, not a number to average in.
+        if np is not None and name in _SEQUENTIAL:
+            args = [_eval_np(argument, scope, length) for argument in node.args]
+            values = [None if v != v else float(v) for v in args[0].tolist()]
+            period = _np_period(args[1], name)
+            result = (_ema if name == "ema" else _rsi)(values, period)
+        else:
+            result = _call(node, scope)
         return np.array(
             [np.nan if value is None else float(value) for value in result],
             dtype=float,
         )
-    args = [_eval_np(argument, scope, length) for argument in node.args]
+    args = [_eval_np(argument, scope, length, state) for argument in node.args]
     value = args[0]
     if name == "abs":
         return np.abs(value)
@@ -664,24 +787,33 @@ def _call_np(node, scope: dict, length: int):
     if name == "max":
         return np.maximum(value, args[1])
     period = _np_period(args[1], name)
+    cut = 0
+    if state is not None:
+        # The window reaches back into the last piece: lend it that tail.
+        carry = state.get(id(node))
+        if carry is None:
+            carry = value[:0]
+        cut = len(carry)
+        value = np.concatenate((carry, value))
+        state[id(node)] = value[-period:]
     if name == "sma":
-        return _np_rolling_mean(value, period)
+        return _np_rolling_mean(value, period)[cut:]
     if name == "highest":
-        return _np_rolling_extreme(value, period, np.max)
+        return _np_rolling_extreme(value, period, np.max)[cut:]
     if name == "lowest":
-        return _np_rolling_extreme(value, period, np.min)
+        return _np_rolling_extreme(value, period, np.min)[cut:]
     if name == "stdev":
-        return _np_rolling_std(value, period)
+        return _np_rolling_std(value, period)[cut:]
     if name == "change":
-        return _np_change(value, period)
+        return _np_change(value, period)[cut:]
     if name == "shift":
-        return _np_shift(value, period)
+        return _np_shift(value, period)[cut:]
     if name == "zscore":
         mean = _np_rolling_mean(value, period)
         spread = _np_rolling_std(value, period)
         with np.errstate(divide="ignore", invalid="ignore"):
             out = (value - mean) / spread
-        return np.where((spread == 0) | np.isnan(spread), np.nan, out)
+        return np.where((spread == 0) | np.isnan(spread), np.nan, out)[cut:]
     if name in ("bollinger_lower", "bollinger_middle", "bollinger_upper"):
         deviations = float(args[2][0]) if len(args) > 2 else 2.0
         middle = _np_rolling_mean(value, period)
@@ -690,11 +822,66 @@ def _call_np(node, scope: dict, length: int):
             "bollinger_lower": middle - spread,
             "bollinger_middle": middle,
             "bollinger_upper": middle + spread,
-        }[name]
+        }[name][cut:]
+    if state is not None:
+        raise ValueError(f"{name} cannot be fed in pieces")
     result = _call(node, scope)  # an unknown function: let the list walk speak
     return np.array(
         [np.nan if item is None else float(item) for item in result], dtype=float
     )
+
+
+def _sequential_stream(node, scope: dict, length: int, state: dict):
+    """`ema` or `rsi` over one piece, from where the last piece left them.
+
+    The same arithmetic as the list indicators, bar for bar, with the running
+    values kept in `state` instead of starting from nothing.
+    """
+    np = _np
+    args = [_eval_np(argument, scope, length, state) for argument in node.args]
+    values = args[0].tolist()
+    period = _np_period(args[1], node.func)
+    out = [np.nan] * len(values)
+    if node.func == "ema":
+        alpha = 2.0 / (period + 1.0)
+        previous = state.get(id(node))
+        for index, value in enumerate(values):
+            if value != value:                 # NaN: a gap, which starts the average over
+                previous = None
+                continue
+            previous = value if previous is None else alpha * value + (1 - alpha) * previous
+            out[index] = previous
+        state[id(node)] = previous
+        return np.array(out, dtype=float)
+    if node.func == "rsi":
+        previous, average_gain, average_loss, gains, losses = state.get(
+            id(node), (None, None, None, [], [])
+        )
+        for index, value in enumerate(values):
+            if value != value:                 # NaN: a gap resets everything
+                previous = average_gain = average_loss = None
+                gains, losses = [], []
+                continue
+            if previous is None:
+                previous = value
+                continue
+            change = value - previous
+            previous = value
+            gain, loss = max(0.0, change), max(0.0, -change)
+            if average_gain is None:
+                gains.append(gain)
+                losses.append(loss)
+                if len(gains) < period:
+                    continue
+                average_gain = sum(gains) / period
+                average_loss = sum(losses) / period
+            else:
+                average_gain = (average_gain * (period - 1) + gain) / period
+                average_loss = (average_loss * (period - 1) + loss) / period
+            out[index] = _rsi_value(average_gain, average_loss)
+        state[id(node)] = (previous, average_gain, average_loss, gains, losses)
+        return np.array(out, dtype=float)
+    raise ValueError(f"{node.func} cannot be fed in pieces")
 
 
 # ema and rsi recur bar to bar; there is no tidy vector form, so the list
@@ -710,13 +897,21 @@ def _np_period(series, what: str) -> int:
 
 
 def _np_rolling_mean(values, period: int):
+    """The mean of each window, worked out from the window's own values.
+
+    Not a difference of running sums: those drift over millions of bars and make a
+    bar's value depend on where the array began, so the same bar could land on
+    either side of a threshold in a whole run and in one walked in pieces. This way
+    a window's value is the same wherever the array starts.
+    """
     np = _np
+    from numpy.lib.stride_tricks import sliding_window_view
+
     size = len(values)
     out = np.full(size, np.nan)
     if period <= 0 or period > size:
         return out
-    cumulative = np.cumsum(np.insert(values, 0, 0.0))
-    out[period - 1 :] = (cumulative[period:] - cumulative[:-period]) / period
+    out[period - 1 :] = sliding_window_view(values, period).mean(axis=1)
     return out
 
 
@@ -735,17 +930,13 @@ def _np_rolling_extreme(values, period: int, reduce):
 
 def _np_rolling_std(values, period: int):
     np = _np
+    from numpy.lib.stride_tricks import sliding_window_view
+
     size = len(values)
     out = np.full(size, np.nan)
     if period <= 0 or period > size:
         return out
-    cumulative = np.cumsum(np.insert(values, 0, 0.0))
-    squares = np.cumsum(np.insert(values * values, 0, 0.0))
-    total = cumulative[period:] - cumulative[:-period]
-    total_sq = squares[period:] - squares[:-period]
-    mean = total / period
-    variance = np.maximum(0.0, total_sq / period - mean * mean)
-    out[period - 1 :] = np.sqrt(variance)
+    out[period - 1 :] = sliding_window_view(values, period).std(axis=1)
     return out
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -68,6 +69,8 @@ class LoadRunTile(Card):
     load_requested = Signal(str)
     # Lay a saved run's curve over the current one; "" takes it off again.
     overlay_requested = Signal(str)
+    # A run was renamed: (old name, new name).
+    renamed = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -102,7 +105,13 @@ class LoadRunTile(Card):
         # On its own line: three controls do not fit this tile's width.
         second = QHBoxLayout()
         second.setContentsMargins(0, 0, 0, 0)
+        self.rename_button = QPushButton("Rename")
+        self.rename_button.setObjectName("ghostButton")
+        self.rename_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rename_button.setToolTip("Give the picked run another name")
+        self.rename_button.clicked.connect(self._ask_rename)
         second.addWidget(self.overlay_button)
+        second.addWidget(self.rename_button)
         second.addStretch(1)
         self.body.addLayout(second)
 
@@ -113,6 +122,28 @@ class LoadRunTile(Card):
 
         self.picker.currentTextChanged.connect(self._on_pick)
         self.refresh()
+
+    def _ask_rename(self) -> None:
+        old = self.picker.currentText()
+        if not old:
+            return
+        new, accepted = QInputDialog.getText(self, "Rename run", "New name:", text=old)
+        if accepted:
+            self.rename_to(new)
+
+    def rename_to(self, new: str) -> bool:
+        """Rename the picked run; says why in the tile's note if it cannot."""
+        old = self.picker.currentText()
+        try:
+            runs.rename(old, new)
+        except ValueError as exc:
+            self.note.setText(str(exc))
+            return False
+        self.refresh()
+        self.picker.setCurrentText(new.strip())
+        self.note.setText(f"renamed · {new.strip()}")
+        self.renamed.emit(old, new.strip())
+        return True
 
     def _on_overlay(self, on: bool) -> None:
         self.overlay_button.setText("Remove overlay" if on else "Overlay")
@@ -133,6 +164,7 @@ class LoadRunTile(Card):
             self.picker.setCurrentIndex(index)
         self.button.setEnabled(self.picker.count() > 0)
         self.overlay_button.setEnabled(self.picker.count() > 0)
+        self.rename_button.setEnabled(self.picker.count() > 0)
         self.note.setText("" if self.picker.count() else "no saved runs yet")
 
 

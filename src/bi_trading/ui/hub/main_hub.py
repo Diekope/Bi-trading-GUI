@@ -342,7 +342,9 @@ class MainHubWindow(QMainWindow):
         if key == "backtest":
             from bi_trading.ui.strat.strat_window import StratWindow
 
-            return StratWindow()
+            backtest = StratWindow()
+            backtest.open_builder = lambda: self._open("builder")  # type: ignore[method-assign]
+            return backtest
         if key == "logs":
             from bi_trading.ui.hub.logs_view import LogsView
 

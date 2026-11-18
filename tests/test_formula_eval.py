@@ -489,3 +489,132 @@ def test_slippage_costs_the_builders_preview_something() -> None:
         _bars([100, 100, 100, 100, 100]), entry, exit_, short=True, slippage=0.001
     )
     assert shorted.pnl < clean.pnl
+
+
+# -- a series fed in pieces ----------------------------------------------------
+
+RULES = [
+    "close < sma(close, 20)",
+    "close < bollinger_lower(close, 20, 2) and volume > 0.5",
+    "ema(close, 12) > ema(close, 26)",
+    "rsi(close, 14) < 35",
+    "close >= highest(close, 30) or close <= lowest(close, 30)",
+    "zscore(close, 25) < 0 - 1.2",
+    "change(close, 5) > 0 and shift(close, 3) < close",
+    "mid = sma(close, 10)\nslow = ema(mid, 8)\nclose < slow and stdev(close, 15) > 0",
+    "sma(sma(close, 7), 9) > sma(close, 30)",
+    "not (rsi(ema(close, 5), 9) > 50)",
+    "x = rsi(close, 9)\ny = sma(x, 6)\nx < y - 3 and abs(close - open) < 3 * sma(abs(close - open), 12)",
+]
+
+
+def _columns(size: int = 1_400, seed: int = 21) -> dict:
+    import random
+
+    import numpy as np
+
+    rng = random.Random(seed)
+    price, close = 100.0, []
+    for _ in range(size):
+        price *= 1.0 + rng.uniform(-0.012, 0.012)
+        close.append(price)
+    close_a = np.array(close)
+    open_a = np.concatenate(([close_a[0]], close_a[:-1]))
+    spread = np.array([rng.uniform(0.001, 0.006) for _ in range(size)])
+    return {
+        "open": open_a, "high": np.maximum(open_a, close_a) * (1 + spread),
+        "low": np.minimum(open_a, close_a) * (1 - spread), "close": close_a,
+        "volume": np.array([rng.uniform(0.1, 2.0) for _ in range(size)]),
+    }
+
+
+def _fed(formula, columns, cuts, warmup=0):
+    from bi_trading.engine.formula_eval import SignalStream
+
+    stream = SignalStream(formula, warmup=warmup)
+    out, start = [], 0
+    size = len(columns["close"])
+    for stop in [*cuts, size]:
+        piece = {name: values[start:stop] for name, values in columns.items()}
+        out += stream.feed(piece, start)
+        start = stop
+    return out
+
+
+@pytest.mark.parametrize("text", RULES)
+def test_a_rule_fed_in_pieces_fires_where_the_whole_series_does(text) -> None:
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import STREAM_FIELDS, entry_signals
+
+    formula = parse(text, ENTRY_FIELDS, FUNCTIONS)
+    columns = _columns()
+    whole = entry_signals(formula, columns, STREAM_FIELDS)
+    assert whole, f"the rule never fires on the test data: {text}"
+    for cuts in ([], [1], [700], [3, 17, 18, 400, 401], list(range(50, 1_400, 50)), [5, 6, 7, 8, 9, 10]):
+        assert _fed(formula, columns, cuts) == whole, (text, cuts)
+
+
+def test_a_warmup_holds_back_early_signals_across_pieces() -> None:
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import STREAM_FIELDS, entry_signals
+
+    formula = parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS)
+    columns = _columns()
+    whole = entry_signals(formula, columns, STREAM_FIELDS, warmup=300)
+    assert whole and min(whole) >= 300
+    assert _fed(formula, columns, [100, 350, 800], warmup=300) == whole
+
+
+def test_pieces_of_a_single_bar_still_agree() -> None:
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import STREAM_FIELDS, entry_signals
+
+    formula = parse("rsi(close, 5) < 40 and close < sma(close, 4)", ENTRY_FIELDS, FUNCTIONS)
+    columns = {name: values[:120] for name, values in _columns().items()}
+    assert _fed(formula, columns, list(range(1, 120))) == entry_signals(
+        formula, columns, STREAM_FIELDS
+    )
+
+
+def test_what_cannot_be_fed_in_pieces_is_refused_up_front() -> None:
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import SignalStream, StreamUnsupported
+
+    for text in ("model_p > 0.5", "spread < 0.02", "price < sma(close, 5)"):
+        formula = parse(text, ENTRY_FIELDS, FUNCTIONS)
+        assert SignalStream.supports(formula) is False, text
+        with pytest.raises(StreamUnsupported):
+            SignalStream(formula)
+    assert SignalStream.supports(None) is False
+    assert SignalStream.supports(parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS))
+
+
+def test_a_gap_in_the_data_is_refused() -> None:
+    import numpy as np
+
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import SignalStream, StreamUnsupported
+
+    columns = _columns(50)
+    columns["close"][10] = np.nan
+    stream = SignalStream(parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS))
+    with pytest.raises(StreamUnsupported):
+        stream.feed(columns, 0)
+
+
+def test_ema_and_rsi_in_pieces_equal_the_list_indicators() -> None:
+    from bi_trading.engine.formula_eval import _ema, _rsi
+
+    close = _columns(500)["close"].tolist()
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.engine.formula_eval import SignalStream
+
+    for text, reference in (("ema(close, 9) > 0", _ema(close, 9)), ("rsi(close, 9) >= 0", _rsi(close, 9))):
+        formula = parse(text, ENTRY_FIELDS, FUNCTIONS)
+        stream = SignalStream(formula)
+        picked = []
+        for start in range(0, 500, 77):
+            piece = {n: v[start:start + 77] for n, v in _columns(500).items()}
+            picked += stream.feed(piece, start)
+        defined = [i for i, v in enumerate(reference) if v is not None]
+        assert picked == defined, text

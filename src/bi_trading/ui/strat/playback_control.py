@@ -71,6 +71,19 @@ def playing(self: PlaybackTile) -> bool:
 
 def on_run(self: PlaybackTile) -> None:
     """Run to start, then Pause and Resume; Run again once it is spent."""
+    session = self.session
+    if (
+        session is not None
+        and session.stream is not None
+        and session.stream[3] is not None
+    ):
+        # A formula over a span too long to hold has no bar-by-bar form to play
+        # (its signals come from the pieces); walk it whole, in pieces, instead.
+        if not self._launched or self.playback.done:
+            self.restart(autoplay=False)
+        self.note.setText("a span this long is walked in pieces, not played…")
+        self.finish()
+        return
     if not self._launched or self.playback.done:
         self.restart()
     elif self.playing():

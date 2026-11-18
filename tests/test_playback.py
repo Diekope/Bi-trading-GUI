@@ -863,3 +863,152 @@ def test_finish_on_a_span_too_long_to_hold_walks_it_in_pieces(
     assert tile.playback.trades > 0
     assert "finished" in tile.note.text()
     tile.close()
+
+
+# -- a formula strategy over a span too long to hold ---------------------------
+
+FORMULAS = {
+    "average": ("close < sma(close, 20)", "pnl >= tp or pnl <= 0 - sl"),
+    "bands": ("close < bollinger_lower(close, 20, 2) and volume > 0.5", "bars >= 12"),
+    "momentum": ("rsi(close, 14) < 40 and ema(close, 10) < ema(close, 30)", "pnl >= tp"),
+    "named": ("m = sma(close, 12)\nz = ema(m, 6)\nclose < z and stdev(close, 10) > 0", "pnl <= 0 - sl or bars >= 20"),
+}
+
+
+def _wander_volume(years: list[int], per_year: int = 700) -> None:
+    """Like `_wander`, with a volume that moves, so rules about it can fire."""
+    import random as dice
+
+    rng = dice.Random(13)
+    price = 100.0
+    for year in years:
+        rows = []
+        for index in range(per_year):
+            price *= 1.0 + rng.uniform(-0.012, 0.012)
+            rows.append((index * 60_000, price, price * 1.006, price * 0.994, price, rng.uniform(0.1, 2.0)))
+        append_rows(candle_file(year), rows)
+
+
+def _formula_session(sp, years, resolution, entry, exit_, side="long", short_entry=None):
+    from bi_trading.engine.formula import ENTRY_FIELDS, EXIT_FIELDS, EXIT_FUNCTIONS, FUNCTIONS, parse
+
+    return sp.build_session(
+        years, _PARAMS, "saved", resolution,
+        entry_formula=parse(entry, ENTRY_FIELDS, FUNCTIONS),
+        exit_formula=parse(exit_, EXIT_FIELDS, EXIT_FUNCTIONS) if exit_ else None,
+        side=side,
+        short_entry_formula=parse(short_entry, ENTRY_FIELDS, FUNCTIONS) if short_entry else None,
+    )
+
+
+@pytest.mark.parametrize("name", FORMULAS)
+@pytest.mark.parametrize("resolution", ["1m", "5m"])
+def test_a_formula_walked_in_pieces_equals_the_whole_walk(name, resolution, monkeypatch) -> None:
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    years = [2019, 2020, 2021]
+    _wander_volume(years)
+    entry, exit_ = FORMULAS[name]
+    whole = _formula_session(sp, years, resolution, entry, exit_)
+    assert whole.span is not None and not whole._chunk_ready()
+    whole.seek(whole.total)
+
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    chunked = _formula_session(sp, years, resolution, entry, exit_)
+    assert chunked.span is None and chunked._chunk_ready()      # not loaded whole
+    chunked.seek(chunked.total)
+
+    a, b = whole.strategy, chunked.strategy
+    assert b.trades >= 5, (name, resolution, b.trades)
+    assert b.trades_log == a.trades_log
+    assert b.fees == pytest.approx(a.fees)
+    assert b.equity == pytest.approx(a.equity)
+    assert b.max_drawdown == pytest.approx(a.max_drawdown)
+    assert b.sharpe == pytest.approx(a.sharpe)
+    assert list(b.markers) == list(a.markers)
+    stride = chunked.strategy.stride
+    ticks = list(range(stride - 1, whole.total, stride))
+    if whole.total % stride:
+        ticks.append(whole.total - 1)
+    assert chunked.strategy_curve[1:] == pytest.approx([whole.strategy_curve[i] for i in ticks])
+
+
+def test_a_both_ways_formula_in_pieces_equals_the_whole_walk(monkeypatch) -> None:
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    years = [2019, 2020]
+    _wander_volume(years)
+    args = ("close < sma(close, 15)", "bars >= 10")
+    whole = _formula_session(sp, years, "1m", *args, side="both", short_entry="close > sma(close, 15) * 1.004")
+    whole.seek(whole.total)
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    chunked = _formula_session(sp, years, "1m", *args, side="both", short_entry="close > sma(close, 15) * 1.004")
+    assert chunked._chunk_ready()
+    chunked.seek(chunked.total)
+
+    assert chunked.strategy.trades_log == whole.strategy.trades_log
+    sides = {row[12] for row in whole.strategy.trades_log}
+    assert sides == {"long", "short"}
+
+
+def test_a_warmup_applies_to_a_formula_in_pieces(monkeypatch) -> None:
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    years = [2019, 2020]
+    _wander_volume(years)
+    params = dict(_PARAMS, warmup=500)
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+
+    formula = parse("close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS)
+    whole = sp.build_session(years, params, "saved", "1m", entry_formula=formula)
+    whole.seek(whole.total)
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    chunked = sp.build_session(years, params, "saved", "1m", entry_formula=formula)
+    chunked.seek(chunked.total)
+    assert chunked.strategy.trades_log == whole.strategy.trades_log
+    assert min(row[1] for row in chunked.strategy.trades_log) >= 500
+
+
+def test_a_rule_that_cannot_be_split_still_loads_the_span_whole(monkeypatch) -> None:
+    """model_p has no history on disk: the whole-span path is the only one for it."""
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    _wander_volume([2019])
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    session = sp.build_session(
+        [2019], _PARAMS, "saved", "1m",
+        entry_formula=parse("model_p > 0.5 or close < sma(close, 5)", ENTRY_FIELDS, FUNCTIONS),
+    )
+    assert session.span is not None and not session._chunk_ready()
+
+
+def test_run_on_a_formula_too_long_to_hold_walks_it_in_pieces(app: QApplication, monkeypatch) -> None:
+    import time
+
+    from bi_trading.engine.formula import ENTRY_FIELDS, FUNCTIONS, parse
+    from bi_trading.ui.strat import playback_session
+
+    _wander_volume([2019, 2020])
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    tile = PlaybackTile()
+    tile.set_source([2019, 2020], "1m")
+    tile.set_saved_strategy(
+        "avg", "close < sma(close, 20)", ENTRY_FIELDS, "pnl >= tp", "long", ""
+    )
+    assert parse("close < sma(close, 20)", ENTRY_FIELDS, FUNCTIONS) is not None
+    tile.restart(autoplay=False)
+    assert tile.session._chunk_ready() and tile.session.stream[3] is not None
+
+    tile._on_run()                                  # Run does not step it: it walks it whole
+    assert tile.playing() is False
+    deadline = time.time() + 10
+    while not tile.run_button.isEnabled() and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert tile.playback.done and tile.playback.trades > 0
+    tile.close()

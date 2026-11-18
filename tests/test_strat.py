@@ -565,7 +565,7 @@ def test_the_results_switch_between_overview_and_trades(
     results = window.results
     assert results.part() == "overview"
     assert results.stack.currentIndex() == 0
-    assert set(results.tab_buttons) == {"overview", "trades"}
+    assert set(results.tab_buttons) == {"overview", "trades", "compare"}
 
     window.left.set_source([], "1m")
     window.left.restart()
@@ -997,3 +997,333 @@ def test_a_short_window_scrolls_the_column_instead_of_squeezing_it(
     for tile in (window.download, window.params, window.strategy):
         assert tile.height() >= tile.minimumSizeHint().height()
     assert window.column_scroll.verticalScrollBar().maximum() > 0
+
+
+# -- more figures, the CSV, the candle strip and Compare ----------------------
+
+
+def _finished(app: QApplication, window, years=None):
+    window.left.set_source(years or [], "1m")
+    window.left.restart(autoplay=False)
+    window.left.finish(wait=True)
+    window.results.refresh()
+    app.processEvents()
+    return window.left.session
+
+
+def test_the_overview_shows_what_a_trade_is_worth(app: QApplication, window) -> None:
+    from bi_trading.engine.stats import trade_stats
+
+    session = _finished(app, window)
+    assert session.strategy.trades > 0
+    stats = trade_stats(session.strategy.trades_log, session.total)
+    metrics = window.results.metrics
+    assert metrics["expectancy"].text().startswith(f"{stats.expectancy * 100:+,.2f}%")
+    assert metrics["hold"].text() == f"{stats.average_hold:,.1f} bars"
+    assert metrics["exposure"].text() == f"{stats.exposure * 100:,.0f}%"
+    assert metrics["pf"].text() != "—" or stats.profit_factor is None
+    assert metrics["expectancy"].toolTip()
+
+
+def test_the_trades_export_to_a_csv(app: QApplication, window, tmp_path) -> None:
+    import csv
+
+    session = _finished(app, window)
+    page = window.results.trades_page
+    path = tmp_path / "out.csv"
+
+    written = page.export_csv(str(path))
+
+    # Every trade of the run, not only the newest the table shows.
+    assert written == session.strategy.trades > 0
+    with open(path, newline="") as handle:
+        rows = list(csv.reader(handle))
+    assert rows[0][0] == "entry_time" and len(rows) == written + 1
+    assert "written" in page.count.text()
+
+
+def test_there_is_nothing_to_export_before_a_run(app: QApplication, window, tmp_path) -> None:
+    assert window.results.trades_page.export_csv(str(tmp_path / "x.csv")) == 0
+    assert not (tmp_path / "x.csv").exists()
+
+
+def test_a_picked_trade_shows_its_real_candles(app: QApplication, window) -> None:
+    import random as dice
+
+    rng = dice.Random(3)
+    price, rows = 100.0, []
+    for index in range(600):
+        price *= 1.0 + rng.uniform(-0.01, 0.01)
+        rows.append((index * 60_000, price, price * 1.004, price * 0.996, price, 1.0))
+    append_rows(candle_file(2021), rows)
+    # (the 2021 file's own stamps are in January 1970: read by year of the stamp)
+    window.left.set_source([1970], "1m")
+    append_rows(candle_file(1970), rows)
+    window.left.restart(autoplay=False)
+    window.left.finish(wait=True)
+    window.results.refresh()
+    window.results.set_part(1)
+    app.processEvents()
+
+    page = window.results.trades_page
+    assert page.trades, "the run made no trades"
+    page._show_detail()
+    assert len(page.spark._bars) >= 2           # candles, not just a line
+    trade = page.spark._trade
+    assert page.spark._bars[0].stamp <= trade["in_stamp"]
+    assert page.spark._bars[-1].stamp >= trade["out_stamp"]
+    assert not page.spark.grab().toImage().isNull()
+
+
+def test_a_sample_run_falls_back_to_the_line(app: QApplication, window) -> None:
+    _finished(app, window)                      # nothing on disk: the sample run
+    window.results.set_part(1)
+    app.processEvents()
+    page = window.results.trades_page
+    page._show_detail()
+    assert page.spark._bars == []
+    assert not page.spark.grab().toImage().isNull()
+
+
+def test_compare_gets_the_rule_and_the_last_bars(app: QApplication, window) -> None:
+    window.left.set_strategy("bollinger")
+    session = _finished(app, window)
+    window.results.set_part(2)
+    app.processEvents()
+
+    compare = window.results.compare
+    assert window.results.part() == "compare"
+    assert compare.entry is not None and compare.report is not None
+    assert 0 < len(compare.bars) <= window.COMPARE_BARS
+    assert len(compare.bars) == min(window.COMPARE_BARS, session.total)
+    assert window.results.compare_hint.isHidden()
+
+
+def test_compare_says_so_without_an_entry_rule(app: QApplication, window) -> None:
+    window.left.set_strategy("random")
+    _finished(app, window)
+    window.results.set_part(2)
+    app.processEvents()
+    assert window.results.compare.entry is None
+    assert not window.results.compare_hint.isHidden()
+
+
+# -- renaming a run, editing a rule, the Create button -------------------------
+
+
+def test_a_run_is_renamed_from_its_tile(app: QApplication, window, tmp_path, monkeypatch) -> None:
+    from bi_trading.state import runs
+
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
+    runs.save(runs.SavedRun(name="first", years=[2020]))
+    runs.save(runs.SavedRun(name="second", years=[2020]))
+    tile = window.load_run
+    tile.refresh()
+    tile.picker.setCurrentText("first")
+    seen: list[tuple[str, str]] = []
+    tile.renamed.connect(lambda old, new: seen.append((old, new)))
+
+    assert tile.rename_to("  renamed ") is True
+    assert seen == [("first", "renamed")]
+    assert tile.picker.currentText() == "renamed"
+    assert [item.name for item in runs.load()] == ["second", "renamed"]
+
+    assert tile.rename_to("second") is False                 # taken: the tile says so
+    assert "already a run" in tile.note.text()
+    assert tile.picker.currentText() == "renamed"
+
+
+def test_the_save_tile_follows_a_renamed_run(app: QApplication, window, tmp_path, monkeypatch) -> None:
+    from bi_trading.state import runs
+
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
+    runs.save(runs.SavedRun(name="mine", years=[2020]))
+    window.save_run.set_saved("mine")
+    window.load_run.refresh()
+    window.load_run.picker.setCurrentText("mine")
+    window.load_run.rename_to("yours")
+    assert window.save_run.name.text() == "yours"
+
+
+def _saved_strategy(tmp_path, monkeypatch):
+    from bi_trading.state import strategies
+
+    monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "strategies.json"))
+    strategies.save(strategies.SavedStrategy(
+        "Dip", "1m", "close < sma(close, 20)", "pnl >= tp",
+    ))
+
+
+def test_a_saved_strategys_rules_are_edited_in_the_backtest_window(
+    app: QApplication, window, tmp_path, monkeypatch
+) -> None:
+    from bi_trading.state import strategies
+
+    _saved_strategy(tmp_path, monkeypatch)
+    tile = window.strategy
+    tile.refresh_saved()
+    assert tile.edit_button.isEnabled() is False             # a built-in is on show
+    tile.picker.setCurrentText("Dip")
+    assert tile.edit_button.isEnabled() is True
+    picked: list = []
+    tile.saved_picked.connect(picked.append)
+
+    updated = tile.save_rules("close < sma(close, 50)", "pnl >= tp or bars >= 9")
+
+    assert updated.entry == "close < sma(close, 50)"
+    (kept,) = strategies.load()
+    assert (kept.name, kept.entry, kept.exit) == ("Dip", "close < sma(close, 50)", "pnl >= tp or bars >= 9")
+    assert picked and picked[-1].entry == "close < sma(close, 50)"   # the run points at it
+    assert tile.picker.currentText() == "Dip"
+
+
+def test_the_rule_dialog_names_a_typo_and_will_not_save_it(app: QApplication) -> None:
+    from bi_trading.ui.strat.rule_edit import RuleEditDialog
+
+    dialog = RuleEditDialog("Dip", "close < sma(close, 20)", "pnl >= tp")
+    assert dialog.save_button.isEnabled() and "valid" in dialog.entry_status.text()
+    dialog.entry_edit.setPlainText("clsoe < 1")
+    assert not dialog.save_button.isEnabled()
+    assert "unknown name 'clsoe'" in dialog.entry_status.text()
+    dialog.entry_edit.setPlainText("close < 1")
+    dialog.exit_edit.setPlainText("pnl >= nope")
+    assert not dialog.save_button.isEnabled()
+    dialog.exit_edit.setPlainText("")                         # no exit rule is allowed
+    assert dialog.save_button.isEnabled()
+    dialog.entry_edit.setPlainText("")                        # an entry rule is not optional
+    assert not dialog.save_button.isEnabled()
+    assert dialog.entry() == ""
+
+
+def test_the_create_button_opens_the_builder(app: QApplication, window, monkeypatch) -> None:
+    opened: list[bool] = []
+    monkeypatch.setattr(type(window), "open_builder", lambda self: opened.append(True))
+    window.strategy.create_button.click()
+    assert opened == [True]
+
+
+def test_the_hub_sends_create_to_its_own_builder_view(app: QApplication, monkeypatch, tmp_path) -> None:
+    from bi_trading.ui.hub.main_hub import MainHubWindow
+
+    monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    hub = MainHubWindow(autostart=False)
+    hub._open("backtest")
+    app.processEvents()
+    assert hub._key == "backtest"
+    hub._view.strategy.create_button.click()
+    app.processEvents()
+    assert hub._key == "builder"                 # the hub's Builder view, not a second window
+    hub.close()
+
+
+# -- a strip of candles on every row of the trades table -----------------------
+
+
+def _walk_on_disk(years: list[int], per_year: int = 700) -> None:
+    import random as dice
+
+    rng = dice.Random(17)
+    price = 100.0
+    for year in years:
+        rows = []
+        for index in range(per_year):
+            price *= 1.0 + rng.uniform(-0.01, 0.01)
+            stamp = int(datetime(year, 1, 1, tzinfo=UTC).timestamp() * 1000) + index * 60_000
+            rows.append((stamp, price, price * 1.004, price * 0.996, price, 1.0))
+        append_rows(candle_file(year), rows)
+
+
+def test_trade_strips_are_the_trades_own_bars() -> None:
+    from bi_trading.ui.strat.playback_data import trade_strips
+
+    _walk_on_disk([2021])
+    start = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    bars = candles.arrays(candle_file(2021))
+    entry, exit_ = start + 100 * 60_000, start + 105 * 60_000
+
+    (strip,) = trade_strips([2021], "1m", [(entry, exit_)], margin=2)
+
+    assert len(strip) == 5 + 1 + 4               # bars 98..107 (the trade and two either side)
+    first = 98
+    assert strip[0] == (bars[1][first], bars[2][first], bars[3][first], bars[4][first])
+    assert strip[-1][3] == bars[4][first + len(strip) - 1]
+
+
+def test_a_long_trade_is_squeezed_to_the_limit_and_a_missing_one_is_none() -> None:
+    from bi_trading.ui.strat.playback_data import trade_strips
+
+    _walk_on_disk([2021])
+    start = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    bars = candles.arrays(candle_file(2021))
+
+    strips = trade_strips(
+        [2021], "1m",
+        [(start + 10 * 60_000, start + 300 * 60_000),       # 290 bars
+         (start + 5 * 60_000, start + 5 * 60_000),          # a single bar
+         (int(datetime(2020, 6, 1, tzinfo=UTC).timestamp() * 1000), 1)],   # a year not on disk
+        limit=32,
+    )
+    long_strip = strips[0]
+    assert long_strip is not None and len(long_strip) <= 32
+    # Squeezed bars keep the first open, the extremes and the last close.
+    assert long_strip[0][0] == bars[1][8]
+    assert max(bar[1] for bar in long_strip) == pytest.approx(bars[2][8:304].max())
+    assert min(bar[2] for bar in long_strip) == pytest.approx(bars[3][8:304].min())
+    assert strips[1] is not None and len(strips[1]) >= 2     # the margin gives it neighbours
+    assert strips[2] is None
+
+
+def test_a_year_is_read_once_for_all_the_trades_in_it(monkeypatch) -> None:
+    from bi_trading.ui.strat import playback_data
+
+    _walk_on_disk([2021])
+    playback_data._YEAR_CACHE.clear()
+    reads: list[object] = []
+    original = candles.arrays
+    monkeypatch.setattr(candles, "arrays", lambda path: reads.append(path) or original(path))
+    start = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    spans = [(start + i * 60_000, start + (i + 4) * 60_000) for i in range(0, 600, 10)]
+
+    strips = playback_data.trade_strips([2021], "1m", spans)
+    playback_data.bars_between([2021], "1m", spans[0][0], spans[0][1])
+
+    assert all(strips) and len(reads) == 1          # sixty trades, and a picked one: one read
+    _walk_on_disk([2021], 20)                         # the file changed: it is read again
+    playback_data.trade_strips([2021], "1m", spans[:1])
+    assert len(reads) == 2
+
+
+def test_every_row_of_the_trades_table_carries_its_candles(app: QApplication, window) -> None:
+    _walk_on_disk([2021], 900)
+    window.left.set_source([2021], "1m")
+    window.left.restart(autoplay=False)
+    window.left.finish(wait=True)
+    window.results.refresh()
+    window.results.set_part(1)
+    app.processEvents()
+
+    page = window.results.trades_page
+    assert page.table.rowCount() > 5
+    from bi_trading.ui.strat.strat_results import STRIP_ROLE
+
+    strips = [page.table.item(row, 3).data(STRIP_ROLE) for row in range(page.table.rowCount())]
+    assert all(strip and len(strip) >= 2 for strip in strips)
+    assert all(len(bar) == 4 for bar in strips[0])
+    # A filter does not read the store again: the strips are kept.
+    before = dict(page._strips)
+    page.outcome.setCurrentText("win")
+    app.processEvents()
+    assert page._strips == before
+    assert not page.table.grab().toImage().isNull()
+
+
+def test_a_sample_run_has_no_strips_and_still_draws(app: QApplication, window) -> None:
+    from bi_trading.ui.strat.strat_results import STRIP_ROLE
+
+    _finished(app, window)                       # nothing on disk
+    window.results.set_part(1)
+    app.processEvents()
+    page = window.results.trades_page
+    assert page.table.rowCount() > 0
+    assert page.table.item(0, 3).data(STRIP_ROLE) is None
+    assert not page.table.grab().toImage().isNull()

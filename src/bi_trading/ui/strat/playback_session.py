@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from bi_trading.engine.formula_eval import SignalStream
+
 import random
 from bi_trading.engine.core import DEFAULT_HOLD
 from collections import deque
@@ -236,8 +238,13 @@ class BacktestSession:
     random_entries_arr: Any = None
     exit_formula: Any = None
     short_entries_arr: Any = None
-    # A span too long to hold is walked in pieces: (years, resolution, rule).
+    # A span too long to hold is walked in pieces: (years, resolution, rule,
+    # entry formula, short formula, exit formula). A formula is None for the
+    # built-in rules; the short one only for a strategy that trades both ways.
     stream: tuple | None = None
+    # Where the bars came from, so a picked trade's candles can be read back.
+    years: list[int] = field(default_factory=list)
+    resolution: str = "1m"
 
     def _settings(self) -> dict[str, Any]:
         """The walk settings; a session that walks has them."""
@@ -402,7 +409,7 @@ class BacktestSession:
         from bi_trading.engine import core
 
         assert self.stream is not None
-        years, resolution, rule = self.stream
+        years, resolution, rule, entry_formula, short_formula, exit_formula = self.stream
         s = self._settings()
         warmup = int(s.get("warmup", 0))
         capital = s["capital"]
@@ -424,12 +431,28 @@ class BacktestSession:
         walked = 0
         last_close = 0.0
 
-        def walk(run, entries, closes, highs, lows, offset):
+        # A formula's entries are worked out a piece at a time, each indicator
+        # lent what it needs from the piece before (see `SignalStream`).
+        signals = (
+            SignalStream(entry_formula, warmup=warmup) if entry_formula is not None else None
+        )
+        short_signals = (
+            SignalStream(short_formula, warmup=warmup) if short_formula is not None else None
+        )
+
+        def flags_of(stream, data, offset: int, size: int):
+            columns = dict(zip(("stamp", "open", "high", "low", "close", "volume"), data, strict=True))
+            picked = np.asarray(stream.feed(columns, offset), dtype=np.int64)
+            flags = np.zeros(size, dtype=bool)
+            flags[picked - offset] = True
+            return flags
+
+        def walk(run, entries, closes, highs, lows, offset, exit_rule=None, shorts=None):
             trades, equity, end = core.walk_chunk(
                 closes, highs, lows, entries, capital, s["tp"], s["sl"],
                 s["position"], s["sizing"], s["max_cash"], s["fee"],
                 s.get("max_hold", DEFAULT_HOLD), s.get("dynamic_tp", False),
-                s.get("reverse", 0.0), s.get("side", "long"), None, None,
+                s.get("reverse", 0.0), s.get("side", "long"), exit_rule, shorts,
                 s.get("slippage", 0.0), offset, run.state,
             )
             return trades, np.asarray(equity, dtype=float), end
@@ -439,7 +462,12 @@ class BacktestSession:
             size = len(stamps)
             tail.add(data)
 
-            if rule == "bollinger":
+            mine_short = None
+            if signals is not None:
+                mine = flags_of(signals, data, offset, size)
+                if short_signals is not None:
+                    mine_short = flags_of(short_signals, data, offset, size)
+            elif rule == "bollinger":
                 joined = np.concatenate((carry, closes))
                 mine = np.asarray(
                     bollinger_entries_columns(joined)[len(carry):], dtype=bool
@@ -466,7 +494,11 @@ class BacktestSession:
 
             equities = []
             for run, entries in ((strategy, mine), (baseline, other)):
-                trades, equity, end = walk(run, entries, closes, highs, lows, offset)
+                own = run is strategy
+                trades, equity, end = walk(
+                    run, entries, closes, highs, lows, offset,
+                    exit_formula if own else None, mine_short if own else None,
+                )
                 run.take(trades, equity, stamps, offset, end)
                 equities.append(equity)
             walked = offset + size
@@ -642,7 +674,19 @@ def build_session(
     settings["side"] = "short" if side == "short" else "long"
     span: ColumnSpan | None = None
     total = count_bars(years, resolution)
-    if entry_formula is not None or (total and total <= CORE_MAX):
+    # A formula needs the whole span in memory unless it is too long for that and
+    # the rule can be worked out a piece at a time (the bar's own columns, and
+    # indicators that can carry their history across pieces).
+    in_pieces = (
+        entry_formula is not None
+        and bool(total and total > CORE_MAX)
+        and SignalStream.supports(entry_formula)
+        and (
+            side != "both" or short_entry_formula is None
+            or SignalStream.supports(short_entry_formula)
+        )
+    )
+    if (entry_formula is not None and not in_pieces) or (total and total <= CORE_MAX):
         span = load_span(years, resolution)
         if span is None or span.length == 0:
             span = ColumnSpan(fallback if fallback is not None else sample_candles())
@@ -653,6 +697,8 @@ def build_session(
 
     stride = plan_stride(total)
     session = BacktestSession(strategy=None, random=None)  # type: ignore[arg-type]  # set below
+    session.years = list(years)
+    session.resolution = resolution
     if span is not None:
         session.settings = settings
         session.exit_formula = exit_formula
@@ -727,7 +773,13 @@ def build_session(
         )
         # Too long to hold, so the core walks it a year at a time.
         session.settings = settings
-        session.stream = (list(years), resolution, rule)
+        session.exit_formula = exit_formula
+        session.stream = (
+            list(years), resolution, rule,
+            entry_formula if in_pieces else None,
+            short_entry_formula if in_pieces and side == "both" else None,
+            exit_formula,
+        )
     session.strategy = strategy
     session.random = random_buy
     session.low = session.high = settings["capital"]

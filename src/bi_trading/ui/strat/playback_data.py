@@ -269,6 +269,104 @@ def window_around(
     return bars[start : start + count]
 
 
+# A year's columns, kept after they are read: picking a trade, or filling a table of
+# them, would otherwise read the same Parquet file once per trade.
+_YEAR_CACHE: dict[tuple[int, int], tuple] = {}
+YEARS_KEPT = 3
+
+
+def _year_columns(year: int, factor: int):
+    """A year's columns compacted `factor`-to-one, or None. Memoised on the file."""
+    from bi_trading.data import candles
+
+    path = candle_file(year)
+    signature = candles.store_signature(path)
+    key = (year, factor)
+    hit = _YEAR_CACHE.get(key)
+    if hit is not None and hit[0] == signature:
+        return hit[1]
+    data = candles.arrays(path)
+    if data is None or not len(data[0]):
+        return None
+    if factor > 1:
+        data = _compact_arrays(data, factor)
+    while len(_YEAR_CACHE) >= YEARS_KEPT:
+        _YEAR_CACHE.pop(next(iter(_YEAR_CACHE)))
+    _YEAR_CACHE[key] = (signature, data)
+    return data
+
+
+def _slice_of(data: tuple, start: int, end: int, margin: int) -> tuple[int, int]:
+    import numpy as np
+
+    stamps = data[0]
+    first = int(np.searchsorted(stamps, start, side="left"))
+    last = int(np.searchsorted(stamps, end, side="right"))
+    return max(0, first - margin), min(len(stamps), last + margin)
+
+
+def bars_between(
+    years: list[int], resolution: str, start: int, end: int, margin: int = 4
+) -> list[Candle]:
+    """The bars from `start` to `end` (stamps, ms) plus `margin` either side.
+
+    Read from the year `start` falls in, as columns, so a picked trade's candles
+    cost a slice of a year already in memory, not a Candle per bar of the year.
+    Empty when the span is not on disk (a sample run).
+    """
+    if not years or not start:
+        return []
+    year = datetime.fromtimestamp(start / 1000, tz=UTC).year
+    if year not in years:
+        return []
+    data = _year_columns(year, FACTOR.get(resolution, 1))
+    if data is None:
+        return []
+    first, last = _slice_of(data, start, end, margin)
+    return [
+        Candle(
+            int(data[0][i]), float(data[1][i]), float(data[2][i]),
+            float(data[3][i]), float(data[4][i]), float(data[5][i]),
+        )
+        for i in range(first, last)
+    ]
+
+
+def trade_strips(
+    years: list[int], resolution: str, spans: list[tuple[int, int]],
+    margin: int = 2, limit: int = 32,
+) -> list[list[tuple] | None]:
+    """A small strip of `(open, high, low, close)` per trade, for the table rows.
+
+    `spans` are `(entry stamp, exit stamp)` pairs. Each year is read once however
+    many trades fall in it, and a trade longer than `limit` bars is squeezed to
+    `limit` (a group of bars becomes one: its open, its extremes, its close), so a
+    row is always a few dozen numbers. None where the bars are not on disk.
+    """
+    factor = FACTOR.get(resolution, 1)
+    out: list[list[tuple] | None] = []
+    for start, end in spans:
+        year = datetime.fromtimestamp(start / 1000, tz=UTC).year if start else 0
+        data = _year_columns(year, factor) if year in years else None
+        if data is None:
+            out.append(None)
+            continue
+        first, last = _slice_of(data, start, end, margin)
+        if last - first < 2:
+            out.append(None)
+            continue
+        group = -(-(last - first) // limit)
+        strip = []
+        for i in range(first, last, group):
+            j = min(last, i + group)
+            strip.append((
+                float(data[1][i]), float(data[2][i:j].max()),
+                float(data[3][i:j].min()), float(data[4][j - 1]),
+            ))
+        out.append(strip)
+    return out
+
+
 def sample_candles(count: int = SAMPLE_BARS, seed: int = SAMPLE_SEED) -> list[Candle]:
     """A fixed-seed walk, for when the store has nothing to show."""
     rng = random.Random(seed)
