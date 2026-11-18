@@ -21,6 +21,20 @@ log and the run log all exist.
 - [low] **Strategy stats beyond today.** The strategy filter and its figures are for
   today; add a range (week, all) and a per-strategy summary.
 
+## ML
+- [med] **Auto-bet from `model_p`, and Min edge.** Live auto-bet is the Bollinger signal only. It
+  needs a rolling window of live bars at the model's timeframe, a score, and the comparison with
+  the Polymarket price that *Min edge vs market price* describes (saved with the model, unused).
+  It touches the real order path, so it was left out on purpose until it is asked for.
+- [low] **Walk-forward for custom networks.** Only built-in models retrain through time; a
+  torch network would need a warm start per stretch to stay tractable.
+- [low] **Other markets.** Training reads the BTC store only; Hyperliquid candles for other
+  coins would need their own history.
+- [low] **Compare page with a model.** The builder's compare page runs the rule on the
+  preview candles, where `model_p` is unknown, so a model strategy shows no trades there.
+- [low] **Code mode in the model builder.** It shows the PyTorch module read-only; a blank,
+  editable code model is not offered.
+
 ## Quality
 - [low] **Goldens for the screenshot tests on Linux.** `tests/golden/` was drawn on
   macOS. The comparison is coarse (8px blocks) so another system's fonts should pass,

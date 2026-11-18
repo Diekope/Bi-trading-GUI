@@ -186,7 +186,8 @@ a window, the running values for `ema` and `rsi` — so the signals are exactly 
 whole pass gives (`SignalStream` in `engine/formula_eval.py`). Tested equal to the whole
 walk on a decade of minutes (same trades, same figures), and faster than loading the span
 whole. A rule that names something with no history on disk (`model_p`, `spread`…), or a
-span with a gap, loads whole as before. Run on a formula strategy over a span this long
+span with a gap, loads whole as before. (`model_p` is filled from the strategy's saved ML
+model when it has one; see [ml.md](ml.md).) Run on a formula strategy over a span this long
 walks it in pieces instead of playing it bar by bar; a built-in rule that is only played
 still steps in Python. When the
 extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so

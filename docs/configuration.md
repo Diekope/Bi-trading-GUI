@@ -47,7 +47,8 @@ ask comes from the live book, then Gamma's quote, then the other side's bid.
 `~/.config/bi-trading/` holds `settings.json`, `strategies.json`, `runs.json` and
 the key store, and `runs_data/` beside it with each saved run's trades and
 equity curves as Parquet. Point these elsewhere with `BI_TRADING_SETTINGS`, `BI_TRADING_SECRETS`,
-`BI_TRADING_STRATEGIES` and `BI_TRADING_RUNS`; `BI_TRADING_KEYCHAIN=0` forces the file
+`BI_TRADING_STRATEGIES`, `BI_TRADING_RUNS`, `BI_TRADING_MODELS` (trained ML models) and
+`BI_TRADING_ARCHITECTURES` (custom layer stacks; see [ml.md](ml.md)); `BI_TRADING_KEYCHAIN=0` forces the file
 store, and `BI_TRADING_DATA` overrides the candle folder.
 
 Tests (headless, no network, no sockets):

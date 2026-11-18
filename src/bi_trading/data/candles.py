@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 import os
+import re
 from datetime import datetime, UTC
 from pathlib import Path
 
@@ -282,6 +283,48 @@ def append_rows(
     _write_table(path, combined)
     _ROW_CACHE.clear()
     return len(rows)
+
+
+def repair(path: Path) -> int:
+    """Drop the rows that do not belong in a year's file; returns how many went.
+
+    A row belongs when its stamp falls inside the year the file is named for and
+    is later than every row before it. Stray rows (a stamp of 0, a block written
+    twice, a row from another year) break anything that reads the file in time
+    order, so they are cut and the file is rewritten, in place, when any are found.
+    """
+    data = arrays(path)
+    if data is None:
+        return 0
+    match = re.search(r"-(\d{4})-", path.name)
+    stamps = data[0]
+    keep = np.ones(len(stamps), dtype=bool)
+    if match:
+        year = int(match.group(1))
+        keep &= (stamps >= _stamp(year, 1, 1)) & (stamps < _stamp(year + 1, 1, 1))
+    # strictly later than everything kept before it
+    last = -1
+    for index in np.nonzero(keep)[0]:
+        if stamps[index] <= last:
+            keep[index] = False
+        else:
+            last = int(stamps[index])
+    dropped = int((~keep).sum())
+    if dropped:
+        pa, _ = _arrow()
+        _write_table(
+            path,
+            pa.table(
+                {"timestamp": pa.array(stamps[keep], pa.int64())}
+                | {
+                    name: pa.array(column[keep], pa.float64())
+                    for name, column in zip(COLUMNS, data[1:], strict=True)
+                },
+                schema=_schema(),
+            ),
+        )
+        _ROW_CACHE.clear()
+    return dropped
 
 
 def _write_table(path: Path, data) -> None:

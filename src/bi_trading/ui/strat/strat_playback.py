@@ -432,6 +432,7 @@ class PlaybackTile(Card):
         self._wanted_side = "long"
         self._short_formula: Formula | None = None
         self._saved_short = ""
+        self._model = ""
 
         # Header: the title over its status line, then Restart, a speed picker
         # and the Run / Pause button, as in the mock.
@@ -591,6 +592,7 @@ class PlaybackTile(Card):
     saved_exit = _panels.saved_exit
     side = _panels.side
     saved_short = _panels.saved_short
+    saved_model = _panels.saved_model
     set_saved_strategy = _panels.set_saved_strategy
     _describe = _panels.describe
 

@@ -38,6 +38,14 @@ src/bi_trading/
     formula_eval.py    run a formula over bars: indicators, signals, the walk
     formula_palettes.py the builder's palettes: the sources you drag from
 
+  ml/              the ML layer (no Qt; scikit-learn and torch are optional)
+    features.py        causal features, the target, the time split
+    spec.py            model kinds, layers, the validator, the code view
+    models.py          the built-in models (scikit-learn)
+    nets.py            custom networks (torch)
+    train.py           train, score, walk-forward, `predict_series` for a backtest
+    store.py           saved architectures and trained models
+
   state/           config and what persists between runs
     settings.py        chart feel + defaults from ~/.config/bi-trading/settings.json
     accounts.py        public account settings + the private keys, in the keychain
@@ -61,6 +69,8 @@ src/bi_trading/
     main_window.py                  the terminal: window, top bar, feed wiring
     strategy_bar.py, trade_form.py  the bar under the charts and the trade form
     syntax.py, autocomplete.py      editor highlighting and completion
+    ml/            the ML strategy builder and the model builder
+      ml_builder.py, model_builder.py, ml_style.py, workers.py (training thread)
     hub/           the hub shell
       main_hub.py        rail, in-place views, feed wiring
       hub_widgets.py     the hub's small builders and self-painted widgets

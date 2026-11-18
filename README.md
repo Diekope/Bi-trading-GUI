@@ -19,10 +19,11 @@ extras:
 ```sh
 uv sync --extra venues                  # Hyperliquid / Polymarket SDKs, to place orders
 uv sync --extra native                  # the Rust backtest walk (needs a Rust toolchain)
-uv sync --extra venues --extra native   # both; `uv sync` is exact, so name every extra
+uv sync --extra ml                      # scikit-learn + torch, to train models in the ML builder
+uv sync --extra venues --extra native --extra ml   # all; `uv sync` is exact, so name every extra
 ```
 
-Each view can also run on its own: `bi-trading` (terminal), `bi-trading-strat`
+The hub's views are Home, Live, Builder, Backtest, ML, Logs and Settings. Each view can also run on its own: `bi-trading` (terminal), `bi-trading-strat`
 (backtest), `bi-trading-builder` (strategy builder).
 
 ## Orders are dry-run by default
@@ -41,6 +42,7 @@ Details: [docs/configuration.md](docs/configuration.md).
 | Strategy builder | Drag-and-drop formula builder, rules, code view, saved strategies | [docs/strategy-builder.md](docs/strategy-builder.md) |
 | Formulas | The entry/exit formula language and its evaluator | [docs/formulas.md](docs/formulas.md) |
 | Backtest | Candle store and download, run controls, results, playback | [docs/backtest.md](docs/backtest.md) |
+| ML strategies | Train a model (boosting, forest, MLP or your own network), trade its P(up) as `model_p` | [docs/ml.md](docs/ml.md) |
 | Logs | The trading record: orders, fills, signals, warnings, with the why | [docs/logs.md](docs/logs.md) |
 | Configuration | Settings, trading safety, saved state, logging | [docs/configuration.md](docs/configuration.md) |
 | Architecture | Why Python, source layout, data sources | [docs/architecture.md](docs/architecture.md) |

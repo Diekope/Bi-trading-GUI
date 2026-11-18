@@ -53,6 +53,8 @@ class SavedRun:
     exit: str = ""
     side: str = "long"
     short_entry: str = ""
+    model: str = ""           # the ML model behind `model_p`, when the rules use one
+    model_stamp: float = 0.0  # when that model was trained, to notice a retrain
     params: dict = field(default_factory=dict)
     trades: list = field(default_factory=list)
     strategy_curve: list = field(default_factory=list)
@@ -71,6 +73,8 @@ class SavedRun:
             "exit": self.exit,
             "side": self.side,
             "short_entry": self.short_entry,
+            "model": self.model,
+            "model_stamp": self.model_stamp,
             "params": dict(self.params),
             "trade_count": self.trade_count or len(self.trades),
         }
@@ -122,6 +126,8 @@ def _from_index(item: dict) -> SavedRun | None:
         exit=str(item.get("exit", "")),
         side=side,
         short_entry=str(item.get("short_entry", "")),
+        model=str(item.get("model", "") or ""),
+        model_stamp=float(item.get("model_stamp", 0.0) or 0.0),
         params=dict(item.get("params", {}) or {}),
         trades=inline,
         trade_count=int(item.get("trade_count", len(inline)) or 0),

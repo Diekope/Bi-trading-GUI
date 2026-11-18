@@ -96,7 +96,7 @@ TEMPLATE = {
         "live_orders": False,
     },
     "general": {
-        "_comment": "start_page = home | live | builder | backtest; an empty data_folder uses data/candles in the repo",
+        "_comment": "start_page = home | live | builder | backtest | ml; an empty data_folder uses data/candles in the repo",
         "start_page": "home",
         "data_folder": "",
     },
@@ -279,7 +279,7 @@ class TradingDefaults:
 class GeneralSettings:
     """The start page and where the downloaded candles live."""
 
-    start_page: str = "home"           # home | live | builder | backtest
+    start_page: str = "home"           # home | live | builder | backtest | ml
     data_folder: str = ""              # empty = data/candles in the repo
 
     @classmethod
@@ -307,7 +307,7 @@ class GeneralSettings:
         )
 
 
-START_PAGES = ("home", "live", "builder", "backtest")
+START_PAGES = ("home", "live", "builder", "backtest", "ml")
 
 # Sub-sections with their own loader; the top-level numeric pass skips them.
 NESTED_SECTIONS = ("backtest", "trading", "general")

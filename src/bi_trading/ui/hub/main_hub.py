@@ -126,6 +126,7 @@ SECTIONS: tuple[tuple[str, str], ...] = (
     ("live", "Live"),
     ("builder", "Strategy builder"),
     ("backtest", "Backtest engine"),
+    ("ml", "ML strategy builder"),
 )
 
 # A venue round trip slower than this (ms) is logged as a warning.
@@ -259,7 +260,7 @@ class MainHubWindow(QMainWindow):
         store().changed.connect(self._refresh_position)
 
         start = Settings.load().general.start_page
-        start = start if start in ("live", "builder", "backtest") else "home"
+        start = start if start in ("live", "builder", "backtest", "ml") else "home"
         self._open(start)
 
         # Cmd+1…4 jump between the views, Cmd+, opens Settings.
@@ -269,6 +270,7 @@ class MainHubWindow(QMainWindow):
             ("Ctrl+3", "builder"),
             ("Ctrl+4", "backtest"),
             ("Ctrl+5", "logs"),
+            ("Ctrl+6", "ml"),
             ("Ctrl+,", "settings"),
         ):
             QShortcut(QKeySequence(keys), self).activated.connect(
@@ -297,6 +299,7 @@ class MainHubWindow(QMainWindow):
 
         if key == "home":
             self._refresh_strategies()
+            self._refresh_models()
             self._refresh_stats()
             self.stack.setCurrentWidget(self.home)
         else:
@@ -344,7 +347,34 @@ class MainHubWindow(QMainWindow):
 
             backtest = StratWindow()
             backtest.open_builder = lambda: self._open("builder")  # type: ignore[method-assign]
+            if strategy:
+                backtest.pick_strategy(strategy, run=True)
             return backtest
+        if key == "ml":
+            from bi_trading.ui.ml.ml_builder import MLBuilderView
+
+            ml = MLBuilderView()
+            ml.open_builder.connect(lambda name: self._open("builder", name or None))
+            ml.open_backtest.connect(lambda name: self._open("backtest", name))
+            ml.open_model_builder.connect(lambda name: self._open("model", name or None))
+            if strategy:
+                ml.load_saved(strategy)
+            return ml
+        if key == "model":
+            from bi_trading.ui.ml.model_builder import ModelBuilderView
+
+            model = ModelBuilderView()
+            if strategy:
+                model.load(strategy)
+
+            def back(name: str = "") -> None:
+                self._open("ml")
+                if name and isinstance(self._view, QWidget) and hasattr(self._view, "use_architecture"):
+                    self._view.use_architecture(name)  # type: ignore[attr-defined]
+
+            model.closed.connect(back)
+            model.use_requested.connect(back)
+            return model
         if key == "logs":
             from bi_trading.ui.hub.logs_view import LogsView
 
@@ -361,6 +391,7 @@ class MainHubWindow(QMainWindow):
         return None
 
     def _highlight(self, key: str) -> None:
+        key = "ml" if key == "model" else key  # the model builder lives under ML
         for name, buttons in self._nav_buttons.items():
             active = name == key
             for button in buttons:
@@ -813,6 +844,7 @@ class MainHubWindow(QMainWindow):
         row.addWidget(self._live_card(), 1)
         row.addWidget(self._builder_card(), 1)
         row.addWidget(self._backtest_card(), 1)
+        row.addWidget(self._ml_card(), 1)
         return row
 
     # -- part cards --------------------------------------------------------
@@ -963,7 +995,7 @@ class MainHubWindow(QMainWindow):
         for strategy in saved[:4]:
             badge, tone = _pnl_badge(
                 strategy.entry, strategy.exit, strategy.timeframe,
-                strategy.side, strategy.short_entry,
+                strategy.side, strategy.short_entry, strategy.model,
             )
             row = StrategyRow(strategy.name, badge, tone)
             row.clicked.connect(self._open_saved)
@@ -994,6 +1026,49 @@ class MainHubWindow(QMainWindow):
 
         outer.addLayout(self._actions("backtest", "Open engine", ("Run",)))
         return frame
+
+    def _ml_card(self) -> QFrame:
+        frame, outer = self._part(
+            "ML strategies",
+            "Train a model on the candles, then trade what it predicts.",
+        )
+        body = _body_of(outer)
+        self._model_box = QVBoxLayout()
+        self._model_box.setContentsMargins(0, 0, 0, 0)
+        self._model_box.setSpacing(4)
+        body.addLayout(self._model_box)
+        body.addStretch(1)
+        self._refresh_models()
+        outer.addLayout(self._actions("ml", "Open ML builder", ()))
+        return frame
+
+    def _refresh_models(self) -> None:
+        """The saved ML strategies, each with its model's return on its test part."""
+        box = getattr(self, "_model_box", None)
+        if box is None:
+            return
+        while box.count():
+            item = box.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        from bi_trading.state import strategies
+
+        saved = [s for s in reversed(strategies.load()) if s.model]
+        if not saved:
+            box.addWidget(_label("no ML strategies yet", "monoMuted"))
+            return
+        for strategy in saved[:4]:
+            badge, tone = _pnl_badge(
+                strategy.entry, strategy.exit, strategy.timeframe,
+                strategy.side, strategy.short_entry, strategy.model,
+            )
+            row = StrategyRow(strategy.name, badge, tone)
+            row.clicked.connect(lambda name: self._open("ml", strategy=name))
+            box.addWidget(row)
+        if len(saved) > 4:
+            box.addWidget(_label(f"+{len(saved) - 4} more", "monoMuted"))
 
     @staticmethod
     def _outcome_tile(

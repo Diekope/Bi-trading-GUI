@@ -218,6 +218,8 @@ class StrategyListTile(Card):
         for strategy, draft_flag in entries:
             if draft_flag:
                 badge, colour = DRAFT_BADGE, "muted"
+            elif strategy.model:
+                badge, colour = self._model_badge(strategy.model)
             else:
                 badge, colour = _badge(
                     strategy_pnl(
@@ -240,6 +242,17 @@ class StrategyListTile(Card):
             self.rows.append(row)
             insert_at += 1
 
+    @staticmethod
+    def _model_badge(model: str) -> tuple[str, str]:
+        """An ML strategy is scored by its model's test return, not on the preview."""
+        from bi_trading.ml.store import model_summary
+
+        summary = model_summary(model)
+        if summary is None:
+            return "ML", "muted"
+        text, colour = _badge(summary["test_return"] / 100.0)
+        return f"ML {text}", colour
+
     def _is_saved(self, candidate: SavedStrategy) -> bool:
         """Is this draft exactly one of the saved strategies?"""
         for item in self._saved:
@@ -247,13 +260,14 @@ class StrategyListTile(Card):
                 continue
             if (
                 item.timeframe, item.entry, item.exit, item.side,
-                item.short_entry,
+                item.short_entry, item.model,
             ) == (
                 candidate.timeframe,
                 candidate.entry,
                 candidate.exit,
                 candidate.side,
                 candidate.short_entry,
+                candidate.model,
             ):
                 return True
         return False

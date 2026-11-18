@@ -224,6 +224,8 @@ class BacktestSession:
     random_curve: list[float] = field(default_factory=list)
     low: float = 0.0
     high: float = 0.0
+    # What the ML model behind `model_p` did for this span, or why it could not.
+    model_note: str = ""
     # When the span is held in memory, the core can jump the walk to a bar.
     bars: list | None = None
     span: ColumnSpan | None = None
@@ -648,6 +650,38 @@ def _walk_settings(params: dict) -> dict:
 CORE_MAX = 12_000_000
 
 
+def _with_model(columns: dict, span: ColumnSpan, model: str, resolution: str) -> tuple[dict, str]:
+    """The span's columns plus `model_p`, the saved model's P(up) for every bar.
+
+    Bars the model could have learned from carry no call (NaN), so a rule on
+    `model_p` trades only on bars the model had not seen. When the model cannot
+    be used, every bar is unknown and the note says why.
+    """
+    import numpy as np
+
+    try:
+        from bi_trading.ml.nets import MissingBackend
+        from bi_trading.ml.store import load_model, scored
+        from bi_trading.ml.train import MLError
+
+        trained = load_model(model)
+        p = scored(model, columns, span.stamps, resolution)
+        count = int(np.isfinite(p).sum())
+        if not count:
+            note = f"model {model} has no call on this span: backtest the years after {_day(trained.test_start)}"
+        else:
+            note = f"model {model} scores {count:,} bars (from {_day(trained.test_start)})"
+        return {**columns, "model_p": p}, note
+    except (MLError, MissingBackend, ImportError) as exc:
+        return {**columns, "model_p": np.full(span.length, np.nan)}, str(exc)
+
+
+def _day(stamp: int) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(stamp / 1000, tz=UTC).strftime("%Y-%m-%d") if stamp else "its start"
+
+
 def build_session(
     years: list[int],
     params: dict,
@@ -659,6 +693,7 @@ def build_session(
     exit_formula=None,
     side: str = "long",
     short_entry_formula=None,
+    model: str = "",
 ) -> BacktestSession:
     """A run over the whole span.
 
@@ -712,6 +747,8 @@ def build_session(
             from bi_trading.engine.formula_eval import entry_signals
 
             columns = span_columns(span)
+            if model:
+                columns, session.model_note = _with_model(columns, span, model, resolution)
             indices = set(
                 entry_signals(
                     entry_formula, columns, fields or ENTRY_FIELDS, warmup

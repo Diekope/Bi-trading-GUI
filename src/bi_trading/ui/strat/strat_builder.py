@@ -152,6 +152,8 @@ class ConfirmDialog(QDialog):
 class StrategyBuilderWindow(QMainWindow):
     """Two rails, then a compact strategy tile over the entry and exit rules."""
 
+    _model = ""  # the saved ML model behind the loaded strategy's `model_p`
+
     entry_mode_changed = Signal(str)
     entry_formula_changed = Signal()
     exit_mode_changed = Signal(str)
@@ -410,6 +412,7 @@ class StrategyBuilderWindow(QMainWindow):
                 exit=self.exit_formula(),
                 side=self.side_key(),
                 short_entry=self.short_entry_formula(),
+                model=self._model_link(),
             )
         )
         self.draft.setText(f"saved “{name}” · {len(saved)} kept")
@@ -426,7 +429,14 @@ class StrategyBuilderWindow(QMainWindow):
             exit=self.exit_formula(),
             side=self.side_key(),
             short_entry=self.short_entry_formula(),
+            model=self._model_link(),
         )
+
+    def _model_link(self) -> str:
+        """The ML model the rules read, kept only while a rule still names
+        `model_p`: the strategy was made in the ML builder and edited here."""
+        rules = self.entry_formula() + self.short_entry_formula()
+        return self._model if "model_p" in rules else ""
 
     def side_key(self) -> str:
         """`long`, `short` or `both`, as the strategy stores it."""
@@ -471,7 +481,12 @@ class StrategyBuilderWindow(QMainWindow):
         dialog = ConfirmDialog(name, self)
         dialog.exec()
         if dialog.choice == "delete":
+            model = next((s.model for s in strategies.load() if s.name == name), "")
             strategies.remove(name)
+            if model and not any(s.model == model for s in strategies.load()):
+                from bi_trading.ml.store import remove_model
+
+                remove_model(model)
             self.reset_draft()
         elif dialog.choice == "reset":
             self.reset_draft()
@@ -492,6 +507,7 @@ class StrategyBuilderWindow(QMainWindow):
         self.entry.set_text(found.entry)
         self.short.set_text(found.short_entry)
         self.exit.set_text(found.exit)
+        self._model = found.model
         self._describe_draft()
         self._sync_report()
         self._refresh_saved()

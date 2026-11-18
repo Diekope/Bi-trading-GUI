@@ -43,6 +43,9 @@ class SavedStrategy:
     # The condition that opens a short, for a strategy that goes both ways;
     # then `entry` opens the longs. Empty for a long or a short strategy.
     short_entry: str = ""
+    # The saved ML model whose P(up) the rules read as `model_p`; empty when
+    # the strategy does not use one.
+    model: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -52,6 +55,7 @@ class SavedStrategy:
             "exit": self.exit,
             "side": self.side,
             "short_entry": self.short_entry,
+            "model": self.model,
         }
 
 
@@ -84,6 +88,7 @@ def load() -> list[SavedStrategy]:
                 exit=str(item.get("exit", "")),
                 side=_side(item.get("side")),
                 short_entry=str(item.get("short_entry", "")),
+                model=str(item.get("model", "") or ""),
             )
         )
     return out
@@ -103,6 +108,7 @@ def save(strategy: SavedStrategy) -> list[SavedStrategy]:
             exit=strategy.exit,
             side=_side(strategy.side),
             short_entry=strategy.short_entry,
+            model=strategy.model,
         )
     )
     _write(kept)

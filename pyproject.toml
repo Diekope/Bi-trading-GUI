@@ -24,9 +24,26 @@ venues = [
 # The Rust walk. Optional because it needs a Rust toolchain to build; the app
 # runs the same walk in Python without it. `uv sync --extra native` builds it.
 native = ["bi-trading-core"]
+# The ML builder: models are trained and run with scikit-learn, and the model
+# builder's neural layers (LSTM, GRU, Conv1D, attention) with torch. Kept out of
+# the default install for the same reason as the venue SDKs.
+ml = [
+    "scikit-learn>=1.5",
+    "scipy>=1.11",
+    "torch>=2.4",
+    "joblib>=1.4",
+]
 
 [tool.uv.sources]
 bi-trading-core = { path = "rust/bi_trading_core" }
+# Linux gets the CPU build of torch: the default wheel drags in the CUDA libraries
+# (gigabytes) a CI runner or a laptop has no use for. macOS wheels are CPU already.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 bi-trading = "bi_trading.__main__:main"

@@ -56,6 +56,16 @@
     </ul>
   </section>
   <section>
+    <h2>ML</h2>
+    <ul>
+    <li data-p="med" data-id="-auto-bet-from-model-p-and-min-edge-live-"><input type="checkbox"><span><b>Auto-bet from <code>model_p</code>, and Min edge.</b> Live auto-bet is the Bollinger signal only. It needs a rolling window of live bars at the model&#x27;s timeframe, a score, and the comparison with the Polymarket price that *Min edge vs market price* describes (saved with the model, unused). It touches the real order path, so it was left out on purpose until it is asked for.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-walk-forward-for-custom-networks-only-built"><input type="checkbox"><span><b>Walk-forward for custom networks.</b> Only built-in models retrain through time; a torch network would need a warm start per stretch to stay tractable.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-other-markets-training-reads-the-btc-store-"><input type="checkbox"><span><b>Other markets.</b> Training reads the BTC store only; Hyperliquid candles for other coins would need their own history.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-compare-page-with-a-model-the-builder-s-com"><input type="checkbox"><span><b>Compare page with a model.</b> The builder&#x27;s compare page runs the rule on the preview candles, where <code>model_p</code> is unknown, so a model strategy shows no trades there.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-code-mode-in-the-model-builder-it-shows-the"><input type="checkbox"><span><b>Code mode in the model builder.</b> It shows the PyTorch module read-only; a blank, editable code model is not offered.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
     <h2>Quality</h2>
     <ul>
     <li data-p="low" data-id="-goldens-for-the-screenshot-tests-on-linux-"><input type="checkbox"><span><b>Goldens for the screenshot tests on Linux.</b> <code>tests/golden/</code> was drawn on macOS. The comparison is coarse (8px blocks) so another system&#x27;s fonts should pass, but CI has never run it: if it fails there, redraw the goldens on that system (<code>UPDATE_GOLDEN=1</code>) and keep both sets.</span><span class="tag low">Low</span></li>
