@@ -42,6 +42,7 @@ from bi_trading.data.polymarket_data import (
     parse_last_trade,
     parse_market,
     parse_price_changes,
+    resolved_side,
 )
 from bi_trading.venues.runner import AsyncRunner
 
@@ -69,6 +70,15 @@ MAX_BACKOFF = 8.0
 FLUSH_EVERY = 0.1       # UI books refresh at most 10x/s; the wire is much faster
 CLOCK_POLL = 0.5        # how often the socket watchdog re-reads the clock
 LATENCY_EVERY = 5.0     # websocket ping/pong round trip, seconds between probes
+
+
+async def fetch_winner(slug: str) -> str | None:
+    """The side Polymarket settled `slug` on (`up` / `down`), or None if it has
+    not settled it yet. Public endpoint, no key."""
+    async with httpx.AsyncClient(timeout=12.0) as http:
+        response = await http.get(f"{GAMMA_URL}/markets", params={"slug": slug})
+        response.raise_for_status()
+        return resolved_side(response.json())
 
 
 class PolymarketFeed(QObject):

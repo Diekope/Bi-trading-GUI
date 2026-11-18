@@ -206,6 +206,16 @@ class PolymarketVenue:
                     max_price=order.price,
                     order_type="FAK",
                 )
+            elif order.market:
+                if order.side != "sell":
+                    raise VenueError("a market order here is a dollar buy or a share sell")
+                result = await self._client.place_market_order(
+                    token_id=token,
+                    side="SELL",
+                    shares=order.size,
+                    min_price=order.price,
+                    order_type="FAK",
+                )
             else:
                 result = await self._client.place_limit_order(
                     token_id=token,
@@ -235,11 +245,14 @@ class PolymarketVenue:
 def _ack(result: Any, order: OrderRequest) -> OrderAck:
     """The SDK's accepted-or-rejected answer as an `OrderAck`."""
     if getattr(result, "ok", False):
+        shares, dollars = _filled(result, order)
         return OrderAck(
             venue_order_id=str(getattr(result, "order_id", "")),
             client_id=order.client_id,
             accepted=True,
-            detail=_detail(result),
+            detail=_detail(result, order),
+            shares=shares,
+            dollars=dollars,
         )
     code = str(getattr(result, "code", ""))
     message = getattr(result, "message", None)
@@ -251,13 +264,28 @@ def _ack(result: Any, order: OrderRequest) -> OrderAck:
     )
 
 
-def _detail(result: Any) -> str:
+def _filled(result: Any, order: OrderRequest) -> tuple[float, float]:
+    """`(shares, dollars)` that changed hands. The SDK's *making* side is what
+    the order gave up and *taking* what it got, so a buy gives dollars for
+    shares and a sell gives shares for dollars."""
+    making = float(getattr(result, "making_amount", 0) or 0)
+    taking = float(getattr(result, "taking_amount", 0) or 0)
+    if making <= 0 or taking <= 0:
+        return 0.0, 0.0
+    return (taking, making) if order.side == "buy" else (making, taking)
+
+
+def _detail(result: Any, order: OrderRequest | None = None) -> str:
     """`matched · 3.92 shares for $2.00`, or `resting` for an order on the book."""
     status = str(getattr(result, "status", "") or "accepted")
-    spent = float(getattr(result, "making_amount", 0) or 0)
-    shares = float(getattr(result, "taking_amount", 0) or 0)
+    if order is None:
+        spent = float(getattr(result, "making_amount", 0) or 0)
+        shares = float(getattr(result, "taking_amount", 0) or 0)
+    else:
+        shares, spent = _filled(result, order)
     if spent > 0 and shares > 0:
-        return f"{status} · {shares:g} shares for ${spent:,.2f}"
+        word = "for" if order is None or order.side == "buy" else "→"
+        return f"{status} · {shares:g} shares {word} ${spent:,.2f}"
     return status
 
 

@@ -102,6 +102,9 @@ class OrderRequest:
     # Dollars to spend, for a marketable buy that takes whatever is on offer up
     # to `price`. When set, `size` is ignored: the venue works out the shares.
     notional: float | None = None
+    # Take what the book offers right now (fill-and-kill) instead of resting.
+    # For a sell, `size` is the shares to sell and `price` the lowest it takes.
+    market: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +117,10 @@ class OrderAck:
     reason: str | None = None
     # What happened, in a line: "matched · 3.92 shares for $2.00".
     detail: str = ""
+    # What the venue says changed hands: shares bought or sold, dollars spent
+    # or received. Zero when it does not say (a resting order, Hyperliquid).
+    shares: float = 0.0
+    dollars: float = 0.0
 
 
 @runtime_checkable

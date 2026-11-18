@@ -22,6 +22,8 @@ another sheet of the same desk rather than a separate application.
 
 from __future__ import annotations
 
+from functools import partial
+
 import sys
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
@@ -49,8 +51,9 @@ from bi_trading.state import strategies
 from bi_trading.state.strategies import SavedStrategy
 from bi_trading.ui.strat.strat_report import ReportTile
 from bi_trading.ui.strat.strat_saved import StrategyListTile
+from bi_trading.ui.shortcuts import bind, bind_help
 from bi_trading.ui.strat.strat_rules import RulesSwitcher, RulesTile
-from bi_trading.ui.theme import CANVAS, CARD_GAP, apply_dark_theme
+from bi_trading.ui.theme import CANVAS, CARD_GAP, apply_theme
 
 # The three columns, as a share of the width the tiles share between them.
 COLUMN_SHARES = (0.21, 0.79)
@@ -360,6 +363,10 @@ class StrategyBuilderWindow(QMainWindow):
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_button.setToolTip("keep this strategy under its name")
         self.save_button.clicked.connect(self.save_draft)
+        bind(self, "Ctrl+S", self.save_draft)
+        bind(self, "Ctrl+N", self.reset_draft)
+        for index, key in enumerate(("Alt+1", "Alt+2", "Alt+3")):
+            bind(self, key, partial(self.rules._pick_mode, index))
 
         row.addWidget(self.delete_button)
         row.addWidget(self.reset_button)
@@ -653,9 +660,14 @@ def run(argv: list[str] | None = None) -> int:
     QApplication.setOrganizationName("bi-trading")
 
     app = QApplication(list(sys.argv if argv is None else argv))
-    apply_dark_theme(app)
+    apply_theme(app)
 
     window = StrategyBuilderWindow()
+    from bi_trading.ui.layout_memory import remember_window
+
+    remember_window(window, "builder")
+
+    bind_help(window, "Builder")
     window.show()
     window.raise_()
     window.activateWindow()

@@ -400,7 +400,7 @@ class RulesTile(Card):
             return
         while self.code_values_layout.count():
             item = self.code_values_layout.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()

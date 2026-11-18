@@ -24,6 +24,7 @@ __all__ = [
     "exit_context",
     "fresh_state",
     "random_entries",
+    "random_entries_chunk",
     "walk",
     "walk_chunk",
 ]
@@ -33,12 +34,14 @@ DEFAULT_HOLD = 7
 
 try:  # the extension, if it was built
     from bi_trading_core import random_entries as _native_random_entries  # type: ignore
+    from bi_trading_core import random_entries_chunk as _native_random_chunk  # type: ignore
     from bi_trading_core import walk_chunk as _native_walk_chunk  # type: ignore
 
     _NATIVE = True
 except ImportError:  # pragma: no cover - depends on the build
     _native_walk_chunk = None
     _native_random_entries = None
+    _native_random_chunk = None
     _NATIVE = False
 
 
@@ -81,41 +84,75 @@ def random_entries(
         )
     return _python_random_entries(
         highs, lows, closes, draws, tp, sl, max_hold, chance, short
+    )[0]
+
+
+def random_entries_chunk(
+    highs, lows, closes, draws, tp=2.0, sl=1.0, max_hold=DEFAULT_HOLD,
+    chance=0.03, short=False, offset=0, state=None,
+):
+    """`random_entries` for one piece of a longer span, carrying its state.
+
+    `offset` is the piece's first bar in the whole span; `state` is what the
+    piece before returned (None for the first). `draws` are the next uniforms of
+    the stream, at least one per bar. Returns `(entries, state)`; the state's
+    last item says how many draws were used, so the caller knows where the next
+    piece's draws begin (it counts the draws *this* piece used).
+    """
+    if _NATIVE:
+        import numpy as np
+
+        entries, end = _native_random_chunk(
+            np.ascontiguousarray(highs, dtype=float),
+            np.ascontiguousarray(lows, dtype=float),
+            np.ascontiguousarray(closes, dtype=float),
+            np.ascontiguousarray(draws, dtype=float),
+            tp, sl, max_hold, chance, bool(short), int(offset),
+            None if state is None else tuple(state),
+        )
+        return list(entries), end
+    return _python_random_entries(
+        highs, lows, closes, draws, tp, sl, max_hold, chance, short, offset, state
     )
 
 
 def _python_random_entries(
-    highs, lows, closes, draws, tp, sl, max_hold, chance, short=False
-) -> list[bool]:
+    highs, lows, closes, draws, tp, sl, max_hold, chance, short=False,
+    offset=0, state=None,
+):
     n = len(closes)
     entries = [False] * n
-    in_position = False
-    entry_price = 0.0
-    entry_index = 0
-    drawn = 0
-    for index in range(1, n):
+    in_position, entry_price, entry_index, _ = state or (False, 0.0, 0, 0)
+    drawn = 0   # this piece's own draws; the caller adds them up
+    for local in range(n):
+        index = offset + local
+        if index == 0:
+            continue
         if in_position:
             if short:
                 target = entry_price * (1.0 - tp / 100.0)
                 stop = entry_price * (1.0 + sl / 100.0)
-                hit_tp = tp > 0 and lows[index] <= target
-                hit_sl = sl > 0 and highs[index] >= stop
+                hit_tp = tp > 0 and lows[local] <= target
+                hit_sl = sl > 0 and highs[local] >= stop
             else:
                 target = entry_price * (1.0 + tp / 100.0)
                 stop = entry_price * (1.0 - sl / 100.0)
-                hit_tp = tp > 0 and highs[index] >= target
-                hit_sl = sl > 0 and lows[index] <= stop
+                hit_tp = tp > 0 and highs[local] >= target
+                hit_sl = sl > 0 and lows[local] <= stop
             if hit_tp or hit_sl or (max_hold > 0 and index - entry_index >= max_hold):
                 in_position = False
         else:
-            draw = draws[drawn] if drawn < len(draws) else 1.0
-            drawn += 1
+            if drawn < len(draws):
+                draw = draws[drawn]
+                drawn += 1
+            else:
+                draw = 1.0
             if draw < chance:
-                entries[index] = True
+                entries[local] = True
                 in_position = True
-                entry_price = closes[index]
+                entry_price = closes[local]
                 entry_index = index
-    return entries
+    return entries, (in_position, entry_price, entry_index, drawn)
 
 
 # The exit rule, flattened for the native stack machine: (opcode, argument).

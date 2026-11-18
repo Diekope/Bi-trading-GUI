@@ -58,6 +58,7 @@ from bi_trading.state.settings import (
 )
 
 # The hub's palette, imported so the view matches it exactly.
+from bi_trading.ui.venue_icons import venue_mark  # noqa: E402
 from bi_trading.ui.palette import (  # noqa: E402
     ACCENT,
     AMBER_DOT,
@@ -142,7 +143,7 @@ QPushButton#setGhost {{
 QPushButton#setGhost:hover {{ border-color: #4a3b1a; color: {TEXT}; }}
 QPushButton#setGhost:disabled {{ color: #5d5f66; }}
 
-QCheckBox#setCheck {{ color: {SOFT}; font-size: 13px; spacing: 8px; }}
+QCheckBox#setCheck {{ color: {SOFT}; font-size: 13px; spacing: 8px; background: transparent; }}
 QCheckBox#setCheck::indicator {{
     width: 14px; height: 14px; border: 1px solid #3a3b40;
     border-radius: 3px; background: {PANEL};
@@ -157,7 +158,6 @@ from bi_trading.ui.hub.settings_widgets import (  # noqa: E402
     _accent,
     _button,
     _check,
-    _dot,
     _field,
     _fill_pill,
     _grid,
@@ -283,7 +283,7 @@ class SettingsView(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(10)
         if dot is not None:
-            header.addWidget(_dot(dot))
+            header.addWidget(venue_mark(dot, 18))
         header.addWidget(_label(title.upper(), "setH2"))
         header.addStretch(1)
         body.addLayout(header)

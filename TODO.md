@@ -7,16 +7,13 @@ the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
 ## Backtest engine
-- [low] **Use the chunked walk for streamed spans.** `core.walk_chunk` can now
-  walk a long span in pieces, carrying the book from one piece to the next
-  (tested equal to one whole walk, native and Python). What is left is the
-  session side: spans over `CORE_MAX` (12M bars) still step in Python because
-  `adopt` wants the whole span's stamps and candles, and a formula strategy
-  cannot be chunked (an indicator needs its look-back). Out of reach with
-  today's data (BTC 1m since 2017 is about 5M bars).
+- [low] **Formula strategies on spans over `CORE_MAX`.** The two built-in rules now
+  walk a long span in pieces (see the backtest docs), but a formula strategy still
+  loads the whole span, because an indicator needs its look-back: a piece would have
+  to be handed the last N bars of the one before it, N being the longest window the
+  formula uses. Out of reach with today's data (BTC 1m since 2017 is about 5M bars).
 
 ## Results & visualisation
-- [med] **Overlay a saved run's curve** on the current one.
 - [low] **Export trades to CSV**.
 - [low] **A Compare part in the backtest window** — it lives only in the builder.
 - [low] **Real candles in the trade detail** (a tiny candle strip) instead of the
@@ -30,17 +27,35 @@ log and the run log all exist.
 - [med] **Open question:** is the entry rule a field of a run, or a separately saved,
   named strategy picked before starting? The answer decides the data model.
 
-## Workflow & feel
-- [low] **Remember window sizes** (the splitters) between sessions.
-- [low] **Keyboard shortcuts** for Run / Pause / Restart and the timeframe pills.
-- [low] **A light theme.**
+## Logs
+- [low] **Polymarket holdings from the venue.** Sell works on the shares this session
+  bought (counted from the fills); read the wallet's positions so a restart, or a bet
+  placed elsewhere, can be sold from here too.
+- [low] **Auto-sell.** Auto-bet holds to settlement; let a strategy's exit rule (or a
+  take profit) sell early through the same fast path.
+- [low] **Auto-bet beyond UP.** It bets UP on a mean-reversion signal; let a strategy
+  choose the side, and size the stake from the strategy rather than the bar.
+- [low] **Hyperliquid fills.** Its orders log as `ACCEPTED`, never `FILLED`, because
+  the answer carries no match. Read the fills (or user events) to log them.
+- [low] **Archive during a session.** Older rows move to Parquet only at launch, so
+  a very long session keeps appending to one JSON file until the next start.
+- [low] **Strategy stats beyond today.** The strategy filter and its figures are for
+  today; add a range (week, all) and a per-strategy summary.
+
+## Trading speed
+- [med] **Fast buy and sell on Hyperliquid.** Possible: the warm, reused client already
+  covers it (it is shared by every venue), but the order itself is not as quick as
+  Polymarket's yet. It is a resting limit order (`Gtc`), sent through the SDK's
+  blocking call on a thread, and its answer carries no fill. To do: a marketable
+  order (`Ioc` at a price a little through the book, as Sell does on Polymarket), a
+  one-click **Close** that reads the open position from the venue and sells exactly
+  that (reduce-only), the fill (size and price) read from the answer so it logs
+  `FILLED`, and the same Sell/Close buttons in the terminal. Try it on the testnet
+  first (Settings → Accounts → Network).
+- [low] **A TESTNET badge** wherever orders can go out, so the network is never in doubt.
 
 ## Quality
-- [low] **Logos instead of color** for the polymarket and kalshi color dots.
-- [low] **Visual regression / screenshot tests** for the two windows.
-- [low] **Split the largest modules** (`strat_playback.py`, `formula_builder.py`,
-  `theme_qss.py`, `cards.py`).
-- [low] **Type-check the Qt widget modules.** mypy covers the engine, data, state
-  and venues; `bi_trading.ui.*` is excluded in `pyproject.toml` (Optional
-  layouts and items in the PySide6 stubs, and a few widgets that shadow a
-  QWidget method such as `self.size`). Clear them module by module.
+- [low] **Goldens for the screenshot tests on Linux.** `tests/golden/` was drawn on
+  macOS. The comparison is coarse (8px blocks) so another system's fonts should pass,
+  but CI has never run it: if it fails there, redraw the goldens on that system
+  (`UPDATE_GOLDEN=1`) and keep both sets.

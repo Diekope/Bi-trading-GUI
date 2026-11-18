@@ -71,7 +71,8 @@ and are clamped on the way in — an unknown `sizing` mode falls back to
 `balance`. Numeric fields take a dot as the decimal mark whatever the system
 locale, and are bounded so a percentage cannot exceed the whole book.
 
-The right column's tiles **share its whole height** — the inputs take the most,
+The right column's tiles **share its whole height** (when the window is shorter than
+the tiles need, about 600px, the column scrolls instead of squeezing them) — the inputs take the most,
 the small tiles the least — so they always fill it and never scroll. The
 results tile spans the window's full width below.
 
@@ -128,6 +129,15 @@ trades and curves go straight back on screen, so every result and trade is
 there at once with no walk. Only when they do not fit the span (another
 length, or no trades stored) is it walked again, on a worker thread.
 
+**Overlay.** *Overlay*, under the run picker, lays a saved run's strategy curve over
+the current one — a teal dash-dot line with its own legend entry
+(`overlay: <name> +x.xx%`) — so two runs, or the same strategy under two sets of
+parameters, can be read together. Both are drawn as return from their own start and
+stretched to the same width, so runs of different lengths compare by how far
+through each one is; the scale widens to fit the overlay. Picking another run
+moves it; *Remove overlay* takes it off. A run saved without curves says so
+instead.
+
 The bar loop has a **native core** in Rust (`rust/bi_trading_core`, a PyO3
 extension wrapped by `bi_trading.engine.core`). A span small enough to hold in memory
 (≤ `CORE_MAX`, 12M bars) is loaded and its entries worked out up front, so the
@@ -135,9 +145,17 @@ walk and every seek are a slice plus one native pass — **Finish** and a jump
 are instant. The native pass does everything the Python one does: long and
 short, both ways at once, risk sizing, the trailing take profit, and the exit
 rule, which is compiled to a small program the core runs bar by bar
-(`compile_exit`). A longer span is streamed off disk and stepped in Python. (`walk_chunk` can walk a
-span in pieces, carrying the open position across them; it is tested equal to one
-whole walk but not yet wired into the streamed session.) When the
+(`compile_exit`). A longer span is **walked in pieces**: read a year at a time, each piece handed to
+the same native walk with the book carried over from the last (`walk_chunk`), so a
+trade can open in one year and close in the next and the result is the same as one
+walk over everything. The running figures (peak, drawdown, Sharpe) are accumulated
+piece by piece, the curves keep one point a tick, and only the last bars are kept for
+the picture, so memory stays flat however long the span. Finish and a jump work on
+such a span as they do on a short one, off the main thread. This covers the two built-in
+rules; a **formula** strategy always loads the span whole (an indicator needs its
+look-back). Tested equal to the whole walk on a decade of minutes (same trades, same
+figures). A run that is only played (Run) still steps in Python.
+When the
 extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so
 nothing depends on it. Build and install it with `uv sync --extra native`
 (uv rebuilds it when `rust/bi_trading_core/src` changes).

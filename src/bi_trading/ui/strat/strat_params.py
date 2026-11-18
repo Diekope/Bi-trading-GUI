@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QSizePolicy,
@@ -97,7 +98,13 @@ class ParamsTile(Card):
 
         title = QLabel("BACKTEST VALUE")
         title.setObjectName("tileTitle")
-        self.body.addWidget(title)
+        # The venue's costs are a preset for two of the fields below, so the
+        # pick sits beside the title instead of taking a grid row of its own.
+        self._title_row = QHBoxLayout()
+        self._title_row.setContentsMargins(0, 0, 0, 0)
+        self._title_row.addWidget(title)
+        self._title_row.addStretch(1)
+        self.body.addLayout(self._title_row)
 
         self.initial_capital = self._field(
             defaults.initial_capital, 0.0, 1e12
@@ -147,9 +154,8 @@ class ParamsTile(Card):
         self.venue = QComboBox()
         self.venue.setObjectName("venueSelect")
         self.venue.addItems([CUSTOM_VENUE, *self._venues])
-        self.venue.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        self.venue.setFixedWidth(128)
+        self._title_row.addWidget(self.venue)
         self.venue.setToolTip(
             "Fill the fee and slippage with a venue's costs. Edit the presets "
             "under backtest.venues in settings.json."
@@ -167,7 +173,6 @@ class ParamsTile(Card):
             _Element("Warm-up (bars)", self.warmup_field),
             _Element("Dynamic TP", self.dynamic_tp),
             _Element("Reverse % to close", self.reverse_field),
-            _Element("Venue costs", self.venue),
         ]
         self.position_element = self._elements[2]
         self.reverse_element = self._elements[11]
@@ -303,7 +308,8 @@ class ParamsTile(Card):
         caption, low, high = SIZING[mode]
         self.position_element.set_caption(caption)
         validator = self.position.validator()
-        validator.setRange(low, high)
+        if isinstance(validator, QDoubleValidator):
+            validator.setRange(low, high)
         value = _number(self.position.text())
         if value is not None:
             self.position.setText(_format(max(low, min(high, value))))

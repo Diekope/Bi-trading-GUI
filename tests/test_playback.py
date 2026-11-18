@@ -457,7 +457,7 @@ def test_the_results_curve_paints_before_any_run(app: QApplication) -> None:
 
 
 def test_the_loaded_span_is_memoised(monkeypatch) -> None:
-    from bi_trading.ui.strat import strat_playback
+    from bi_trading.ui.strat import playback_data as strat_playback
 
     _write(2021, 20)
     calls = {"n": 0}
@@ -731,3 +731,135 @@ def test_the_live_bar_holds_its_signal_while_warming_up(app: QApplication) -> No
     bar.set_reading(95.0, 100.0, warming=True)
     assert bar.signal_label.text() == "WARM-UP"
     bar.close()
+
+
+# -- a span too long to hold, walked in pieces -----------------------------
+
+
+def _wander(years: list[int], per_year: int = 700) -> None:
+    """A random walk on disk, a year at a time, so trades cross year ends."""
+    import random as dice
+
+    rng = dice.Random(11)
+    price = 100.0
+    for year in years:
+        rows = []
+        for index in range(per_year):
+            price *= 1.0 + rng.uniform(-0.012, 0.012)
+            rows.append(
+                (index * 60_000, price, price * 1.006, price * 0.994, price, 1.0)
+            )
+        append_rows(candle_file(year), rows)
+
+
+_PARAMS = {
+    "initial_capital": 10_000.0, "tp": 6.0, "sl": 6.0, "hold": 40, "position": 50.0,
+    "sizing": "balance", "cash": 8_000.0, "fee": 0.06, "slippage": 0.01,
+    "warmup": 30,
+}
+
+
+@pytest.mark.parametrize("rule", ["bollinger", "random"])
+@pytest.mark.parametrize("resolution", ["1m", "5m"])
+def test_a_chunked_walk_equals_the_whole_one(
+    rule, resolution, monkeypatch
+) -> None:
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    years = [2019, 2020, 2021]
+    _wander(years)
+    whole = sp.build_session(years, _PARAMS, rule, resolution)
+    assert whole.span is not None and not whole._chunk_ready()
+    whole.seek(whole.total)
+
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)        # now the span is "too long"
+    chunked = sp.build_session(years, _PARAMS, rule, resolution)
+    assert chunked.span is None and chunked._chunk_ready()
+    chunked.seek(chunked.total)
+
+    for name in ("strategy", "random"):
+        a, b = getattr(whole, name), getattr(chunked, name)
+        assert b.index == a.index == whole.total
+        assert b.trades_log == a.trades_log
+        assert b.trades == a.trades
+        if name == "random" or rule == "bollinger":     # a "random" strategy never trades here
+            assert b.trades >= 5, (name, b.trades)      # the comparison has something in it
+        assert b.fees == pytest.approx(a.fees)
+        assert (b.streak, b.best_win, b.worst_loss) == (a.streak, a.best_win, a.worst_loss)
+        assert b.equity == pytest.approx(a.equity)
+        assert b.max_drawdown == pytest.approx(a.max_drawdown)
+        assert b.max_gain == pytest.approx(a.max_gain)
+        assert b.sharpe == pytest.approx(a.sharpe)
+        assert b.peak == pytest.approx(a.peak)
+        assert b.recent() == a.recent()
+        assert list(b.markers) == list(a.markers)
+        assert b.first_close == a.first_close
+    # At least one trade opened in one year's piece and closed in the next.
+    year_end = 700 // sp.FACTOR[resolution] + (700 % sp.FACTOR[resolution] > 0)
+    crossing = [
+        row for row in chunked.random.trades_log + chunked.strategy.trades_log
+        if row[1] < year_end <= row[4] or row[1] < 2 * year_end <= row[4]
+    ]
+    if rule == "bollinger":
+        assert crossing, "no trade crossed a year boundary"
+    # The curves hold one point a tick, and agree with the whole run's at those ticks.
+    stride = chunked.strategy.stride
+    ticks = list(range(stride - 1, whole.total, stride))
+    if whole.total % stride:
+        ticks.append(whole.total - 1)
+    assert len(chunked.strategy_curve) == len(ticks) + 1
+    assert chunked.strategy_curve[1:] == pytest.approx([whole.strategy_curve[i] for i in ticks])
+    assert chunked.random_curve[1:] == pytest.approx([whole.random_curve[i] for i in ticks])
+    assert chunked.benchmark[1:] == pytest.approx([whole.benchmark[i] for i in ticks])
+    assert chunked.strategy_curve[0] == chunked.benchmark[0] == _PARAMS["initial_capital"]
+
+
+def test_a_chunked_seek_stops_where_asked_and_can_play_on(monkeypatch) -> None:
+    from bi_trading.ui.strat import playback_session
+    from bi_trading.ui.strat import strat_playback as sp
+
+    years = [2019, 2020]
+    _wander(years)
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    session = sp.build_session(years, _PARAMS, "bollinger", "1m")
+    reference = sp.build_session(years, _PARAMS, "bollinger", "1m")
+    for _ in range(900):
+        reference.strategy.step()
+
+    session.seek(900)
+    assert session.strategy.index == 900 and not session.strategy.done
+    assert session.strategy.trades == reference.strategy.trades
+    def core(play):  # what a trade is, without the stepped walk's own bookkeeping
+        return [(r[1], r[2], r[4], r[5], r[6], r[9], r[12]) for r in play.trades_log]
+
+    assert core(session.strategy) == core(reference.strategy)
+    # The run can be played on from the seek (as after a core seek, flat).
+    session.strategy.step()
+    assert session.strategy.index == 901
+
+
+def test_finish_on_a_span_too_long_to_hold_walks_it_in_pieces(
+    app: QApplication, monkeypatch
+) -> None:
+    import time
+
+    from bi_trading.ui.strat import playback_session
+
+    _wander([2019, 2020])
+    monkeypatch.setattr(playback_session, "CORE_MAX", 100)
+    tile = PlaybackTile()
+    tile.set_source([2019, 2020], "1m")
+    tile.restart(autoplay=False)
+    assert tile.session._chunk_ready()
+
+    tile.finish()
+    assert tile.run_button.isEnabled() is False          # off the main thread
+    deadline = time.time() + 10
+    while not tile.run_button.isEnabled() and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert tile.playback.done is True
+    assert tile.playback.trades > 0
+    assert "finished" in tile.note.text()
+    tile.close()

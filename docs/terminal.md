@@ -198,6 +198,20 @@ a second. All of them are folded into the held books and the tiles, but the
 price chart is painted from the `bbo` stream at its own pace, so a live column
 costs roughly the same as the candle feed instead of pinning a core.
 
+**Fast orders.** The first order used to pay for signing in (key derivation, a TLS
+handshake, a credentials round trip) every time. Now one signed-in client per venue is
+kept open and reused: the terminal signs in to Polymarket when it opens (if live orders
+are on and the venue is connected), so even the first bet goes straight out. A failed
+order throws the client away and the next one rebuilds it. The latency in the Logs
+details is the order's round trip alone.
+
+**Selling.** *Sell UP* / *Sell DOWN*, beside the bet buttons, sell every share held of
+that side at the best bids, now: a fill-and-kill market sell with a floor three cents
+under the bid. They light up (with the share count) once a bet has filled and stay
+available until the window ends. There is no confirm dialog, on purpose: a sell only
+closes what a bet opened, and it should be as quick as pressing the button. Shares are
+counted from this session's fills.
+
 ## Tuning the chart
 
 The feel of the Polymarket chart comes from `~/.config/bi-trading/settings.json`,

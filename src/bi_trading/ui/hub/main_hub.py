@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 # -- the mock's palette ------------------------------------------------------
 
+from bi_trading.ui.shortcuts import CONTEXT_OF_VIEW, bind_help  # noqa: E402
 from bi_trading.ui.palette import (  # noqa: E402
     ACCENT,
     AMBER_DOT,
@@ -137,6 +138,7 @@ VENUES: tuple[tuple[str, str, str], ...] = (
 )
 
 # Section icons live with the widgets they build; the rail re-uses them.
+from bi_trading.ui.venue_icons import has_logo, venue_mark  # noqa: E402
 from bi_trading.ui.hub.hub_widgets import (  # noqa: E402
     EquityCurve,
     ProgressBar,
@@ -171,6 +173,15 @@ def _money_short(value: float) -> str:
 
 
 # -- the window --------------------------------------------------------------
+
+
+def _body_of(outer: QVBoxLayout) -> QVBoxLayout:
+    """The layout of the card's body: the third thing in a `_part`."""
+    item = outer.itemAt(2)
+    widget = item.widget() if item is not None else None
+    layout = widget.layout() if widget is not None else None
+    assert isinstance(layout, QVBoxLayout)
+    return layout
 
 
 class MainHubWindow(QMainWindow):
@@ -248,7 +259,8 @@ class MainHubWindow(QMainWindow):
         store().changed.connect(self._refresh_position)
 
         start = Settings.load().general.start_page
-        self._open(start if start in ("live", "builder", "backtest") else "home")
+        start = start if start in ("live", "builder", "backtest") else "home"
+        self._open(start)
 
         # Cmd+1…4 jump between the views, Cmd+, opens Settings.
         for keys, target in (
@@ -259,9 +271,11 @@ class MainHubWindow(QMainWindow):
             ("Ctrl+5", "logs"),
             ("Ctrl+,", "settings"),
         ):
-            QShortcut(
-                QKeySequence(keys), self, activated=lambda t=target: self._open(t)
+            QShortcut(QKeySequence(keys), self).activated.connect(
+                lambda t=target: self._open(t)
             )
+
+        bind_help(self, lambda: CONTEXT_OF_VIEW.get(self._key, "Everywhere"))
 
         self._clock = QTimer(self)
         self._clock.setInterval(500)
@@ -437,7 +451,8 @@ class MainHubWindow(QMainWindow):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(2)
         tip = f"Round trip to {name}"
-        dot = _dot(color, 8)
+        # The venue's own mark where there is one, its coloured dot otherwise.
+        dot = venue_mark(key, 18) if has_logo(key) else _dot(color, 8)
         dot.setToolTip(tip)
         box.addWidget(dot, 0, Qt.AlignmentFlag.AlignHCenter)
         value = _label("—", "railMs")
@@ -617,7 +632,18 @@ class MainHubWindow(QMainWindow):
         title: str, value: str, sub: str
     ) -> tuple[QFrame, QLabel, QLabel]:
         frame, layout = _panel()
-        layout.addWidget(_label(title, "caption"))
+        caption = _label(title, "caption")
+        name = title.split(" ")[0]
+        if has_logo(name):  # a venue's card carries its mark beside the title
+            head = QHBoxLayout()
+            head.setContentsMargins(0, 0, 0, 0)
+            head.setSpacing(6)
+            head.addWidget(venue_mark(name, 14))
+            head.addWidget(caption)
+            head.addStretch(1)
+            layout.addLayout(head)
+        else:
+            layout.addWidget(caption)
         value_label = _label(value, "stat", rich=True)
         layout.addWidget(value_label)
         sub_label = _label(sub, "caption")
@@ -835,7 +861,7 @@ class MainHubWindow(QMainWindow):
             "Watch the Polymarket 5m market and the BTC chart, and place bets "
             "or trades.",
         )
-        body: QVBoxLayout = outer.itemAt(2).widget().layout()
+        body = _body_of(outer)
 
         tiles = QHBoxLayout()
         tiles.setContentsMargins(0, 0, 0, 0)
@@ -877,7 +903,7 @@ class MainHubWindow(QMainWindow):
             "Create strategies with blocks, formulas or code, and set their "
             "entry and exit rules.",
         )
-        body: QVBoxLayout = outer.itemAt(2).widget().layout()
+        body = _body_of(outer)
 
         body.addWidget(_label("STRATEGIES", "section"))
         self._strategy_box = QVBoxLayout()
@@ -953,7 +979,7 @@ class MainHubWindow(QMainWindow):
             "Replay a strategy on history, candle by candle, then review every "
             "result.",
         )
-        body: QVBoxLayout = outer.itemAt(2).widget().layout()
+        body = _body_of(outer)
 
         body.addWidget(EquityCurve())
         body.addWidget(_label("2017 → 2026 · 1m · 196,496 bars", "monoMuted"))
@@ -995,7 +1021,7 @@ class MainHubWindow(QMainWindow):
         from bi_trading.state.settings import save_window_geometry
 
         try:
-            geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+            geometry = bytes(self.saveGeometry().toBase64().data()).decode("ascii")
         except RuntimeError:  # a window that never showed has nothing to save
             geometry = ""
         if geometry:
@@ -1011,9 +1037,9 @@ def run(argv: list[str] | None = None) -> int:
 
     # The hub paints its own chrome, but the embedded views expect the app
     # theme; applying it keeps those sections looking like the rest of the app.
-    from bi_trading.ui.theme import apply_dark_theme
+    from bi_trading.ui.theme import apply_theme
 
-    apply_dark_theme(app)
+    apply_theme(app)
 
     window = MainHubWindow()
     window.show()

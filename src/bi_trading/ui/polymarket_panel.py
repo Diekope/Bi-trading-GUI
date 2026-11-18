@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, UTC
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -177,7 +177,9 @@ class OutcomeTile(QWidget):
 
         if self.selected:
             painter.setPen(QPen(QColor(self.accent), 1))
-            painter.drawLine(rect.left() + 4, rect.top(), rect.right() - 4, rect.top())
+            painter.drawLine(
+                QLineF(rect.left() + 4, rect.top(), rect.right() - 4, rect.top())
+            )
 
         pad = 8.0
         painter.setFont(mono_font(9, bold=True))
@@ -228,7 +230,7 @@ class OutcomeTile(QWidget):
         # What a winning share pays, from the price you would actually pay.
         # Only on a tile wide enough to carry it without clipping the quotes;
         # the selected outcome always has the numbers in the stats rows.
-        if room:
+        if room and earning is not None:
             multiple, _ = earning
             painter.setFont(mono_font(8, bold=True))
             painter.setPen(QColor(self.accent))
@@ -392,7 +394,7 @@ class PriceChart(QWidget):
             value = lo + (hi - lo) * step / 2.0
             y = bottom - (value - lo) / (hi - lo) * (bottom - top)
             painter.setPen(QPen(QColor(BORDER), 1))
-            painter.drawLine(left, y, right, y)
+            painter.drawLine(QLineF(left, y, right, y))
             painter.setPen(QColor(TEXT_FAINT))
             painter.drawText(
                 QRectF(0, y - 7, left - 4, 14),
@@ -415,7 +417,7 @@ class PriceChart(QWidget):
         while boundary <= end:
             x = x_of(boundary)
             painter.setPen(QPen(QColor(BORDER), 1))
-            painter.drawLine(x, bottom - 3, x, bottom)
+            painter.drawLine(QLineF(x, bottom - 3, x, bottom))
             if (
                 end - boundary >= 2 * FOCUS_MS
                 and x - last_label >= 44.0
@@ -502,7 +504,7 @@ class PriceChart(QWidget):
             if seg_end > seg_start:
                 painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
                 painter.drawLine(
-                    x_of(seg_start), target_y, x_of(seg_end), target_y
+                    QLineF(x_of(seg_start), target_y, x_of(seg_end), target_y)
                 )
                 if x_of(seg_end) - x_of(seg_start) > 70:
                     painter.setFont(mono_font(7))
@@ -554,7 +556,7 @@ class PriceChart(QWidget):
         pad = max((high - low) * 0.18, abs(target) * 0.00025, 1.0)
         lo = low - pad
         hi = high + pad
-        if self._lo is None:
+        if self._lo is None or self._hi is None:
             self._lo, self._hi = lo, hi
         else:
             self._lo += (lo - self._lo) * EASE_RANGE
@@ -1005,6 +1007,11 @@ class PolymarketPanel(Card):
         name = outcome.name if outcome is not None else "?"
         self.tape.add(trade, name)
 
+    @property
+    def btc_price(self) -> float | None:
+        """The latest reference BTC mid, if one has arrived."""
+        return self._btc
+
     def set_btc(self, price: float) -> None:
         """Reference BTC mid, forwarded from the Hyperliquid feed."""
         self._btc = float(price)
@@ -1078,6 +1085,7 @@ class PolymarketPanel(Card):
             return
         outcome = self.market.outcomes[self._selected]
         tile = self.up_tile if self._selected == 0 else self.down_tile
+        cost: float | None
         book = self.books.get(outcome.token_id)
         if book is not None and book.best_ask is not None:
             cost = book.best_ask

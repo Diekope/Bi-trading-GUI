@@ -191,8 +191,8 @@ class StrategyListTile(Card):
         self._draft = draft
 
         while self.rows_layout.count() > 1:
-            item = self.rows_layout.takeAt(0)
-            widget = item.widget()
+            taken = self.rows_layout.takeAt(0)
+            widget = taken.widget() if taken is not None else None
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
@@ -200,10 +200,10 @@ class StrategyListTile(Card):
 
         draft = self._draft
         named = draft is not None and bool(draft.name)
-        is_draft_row = named and not self._is_saved(draft)
+        is_draft_row = draft is not None and named and not self._is_saved(draft)
         self.selected_name = (
             draft.name
-            if named and any(item.name == draft.name for item in self._saved)
+            if draft is not None and named and any(item.name == draft.name for item in self._saved)
             else None
         )
 
@@ -234,7 +234,7 @@ class StrategyListTile(Card):
             else:
                 row.set_selected(
                     not is_draft_row
-                    and strategy.name == (draft.name if named else "")
+                    and strategy.name == (draft.name if draft is not None and named else "")
                 )
             self.rows_layout.insertWidget(insert_at, row)
             self.rows.append(row)

@@ -18,11 +18,14 @@ __all__ = [
     "ACCENT", "ACCENT_BG", "ACCENT_DIM", "BAND", "BORDER", "CANVAS", "CARD_GAP", "CARD_RADIUS", "DOWN", "DOWN_BG", "DOWN_DIM", "DOWN_SOFT", "DOWN_SOFT_BG", "PANEL", "PANEL_ALT", "TEXT", "TEXT_FAINT", "TEXT_MUTED", "UP",
     "STYLESHEET",
     "apply_dark_theme",
+    "apply_theme",
 ]
 
 
-def apply_dark_theme(app: QApplication) -> None:
-    """Apply palette and stylesheet to an application instance."""
+def apply_theme(app: QApplication) -> None:
+    """Apply palette and stylesheet to an application instance.
+
+    """
     # The design's two families ship with the package (see bi_trading.ui.fonts):
     # Inter for the interface, JetBrains Mono for the numbers. Register them
     # and make Inter the default face.
@@ -54,3 +57,7 @@ def apply_dark_theme(app: QApplication) -> None:
 
     app.setPalette(palette)
     app.setStyleSheet(STYLESHEET)
+
+
+# The name every entry point and test already uses.
+apply_dark_theme = apply_theme

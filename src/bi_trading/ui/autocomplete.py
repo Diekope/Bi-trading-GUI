@@ -99,6 +99,7 @@ class CodeEdit(QPlainTextEdit):
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         popup = self.completer.popup()
+        assert popup is not None
         if popup.isVisible():
             if event.key() in (
                 Qt.Key.Key_Return,
@@ -119,13 +120,10 @@ class CodeEdit(QPlainTextEdit):
             return
         if prefix != self.completer.completionPrefix():
             self.completer.setCompletionPrefix(prefix)
-            self.completer.popup().setCurrentIndex(
-                self.completer.completionModel().index(0, 0)
-            )
+            popup.setCurrentIndex(self.completer.completionModel().index(0, 0))
         rect = self.cursorRect()
         rect.setWidth(
-            self.completer.popup().sizeHintForColumn(0)
-            + self.completer.popup().verticalScrollBar().sizeHint().width()
+            popup.sizeHintForColumn(0) + popup.verticalScrollBar().sizeHint().width()
         )
         self.completer.complete(rect)
 

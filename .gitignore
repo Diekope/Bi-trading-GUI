@@ -20,3 +20,5 @@ rust/*/target/
 *.log
 events.jsonl
 events.parquet
+
+tests/golden/*.actual.png

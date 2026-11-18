@@ -516,6 +516,89 @@ def save_window_geometry(geometry: str, path: Path | str | None = None) -> None:
     save_raw(raw, path)
 
 
+# -- remembered layout --------------------------------------------------------
+#
+# Where the user left the splitters and the windows, kept in the settings file
+# under "layout" so a restart opens as it was left. Splitters are stored as
+# ratios, not pixels, so a different window size still gets the same split.
+
+
+def _layout_entry(group: str, name: str) -> object:
+    """`layout[group][name]` from the file, or None if any step is missing or odd."""
+    layout = load_raw().get("layout")
+    entries = layout.get(group) if isinstance(layout, dict) else None
+    return entries.get(name) if isinstance(entries, dict) else None
+
+
+def load_splitter(name: str) -> list[float]:
+    """The remembered split of one splitter as ratios, or an empty list."""
+    value = _layout_entry("splitters", name)
+    if isinstance(value, list) and value and all(
+        isinstance(item, (int, float)) and not isinstance(item, bool) and item > 0
+        for item in value
+    ):
+        return [float(item) for item in value]
+    return []
+
+
+def _save_layout_entry(
+    group: str, name: str, value: object, path: Path | str | None = None
+) -> None:
+    raw = load_raw(path)
+    layout = raw.get("layout")
+    layout = dict(layout) if isinstance(layout, dict) else {}
+    entries = layout.get(group)
+    entries = dict(entries) if isinstance(entries, dict) else {}
+    entries[name] = value
+    layout[group] = entries
+    raw["layout"] = layout
+    save_raw(raw, path)
+
+
+def save_splitter(name: str, sizes: list[int], path: Path | str | None = None) -> None:
+    """Remember a splitter's split; a zero-width pane (nothing to keep) is ignored."""
+    total = sum(sizes)
+    if total <= 0 or any(size <= 0 for size in sizes):
+        return
+    _save_layout_entry("splitters", name, [round(size / total, 4) for size in sizes], path)
+
+
+def load_window(name: str) -> str:
+    """A standalone window's saved geometry (base64), or an empty string."""
+    value = _layout_entry("windows", name)
+    return value if isinstance(value, str) else ""
+
+
+def save_window(name: str, geometry: str, path: Path | str | None = None) -> None:
+    _save_layout_entry("windows", name, geometry, path)
+
+
+def load_columns(name: str) -> list[int]:
+    """A table's remembered column widths in pixels, or an empty list."""
+    value = _layout_entry("columns", name)
+    if isinstance(value, list) and value and all(
+        isinstance(item, int) and not isinstance(item, bool) and item > 0
+        for item in value
+    ):
+        return list(value)
+    return []
+
+
+def save_columns(name: str, widths: list[int], path: Path | str | None = None) -> None:
+    if widths and all(width > 0 for width in widths):
+        _save_layout_entry("columns", name, [int(width) for width in widths], path)
+
+
+def load_choice(name: str) -> str:
+    """A remembered pick (a timeframe, say), or an empty string."""
+    value = _layout_entry("choices", name)
+    return value if isinstance(value, str) else ""
+
+
+def save_choice(name: str, value: str, path: Path | str | None = None) -> None:
+    _save_layout_entry("choices", name, value, path)
+
+
 def _number(value: object, fallback: float) -> float:
     if isinstance(value, bool):
         return float(fallback)

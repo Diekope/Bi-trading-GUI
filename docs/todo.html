@@ -47,13 +47,12 @@
   <section>
     <h2>Backtest engine</h2>
     <ul>
-    <li data-p="low" data-id="-use-the-chunked-walk-for-streamed-spans-co"><input type="checkbox"><span><b>Use the chunked walk for streamed spans.</b> <code>core.walk_chunk</code> can now walk a long span in pieces, carrying the book from one piece to the next (tested equal to one whole walk, native and Python). What is left is the session side: spans over <code>CORE_MAX</code> (12M bars) still step in Python because <code>adopt</code> wants the whole span&#x27;s stamps and candles, and a formula strategy cannot be chunked (an indicator needs its look-back). Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-formula-strategies-on-spans-over-core-max-"><input type="checkbox"><span><b>Formula strategies on spans over <code>CORE_MAX</code>.</b> The two built-in rules now walk a long span in pieces (see the backtest docs), but a formula strategy still loads the whole span, because an indicator needs its look-back: a piece would have to be handed the last N bars of the one before it, N being the longest window the formula uses. Out of reach with today&#x27;s data (BTC 1m since 2017 is about 5M bars).</span><span class="tag low">Low</span></li>
     </ul>
   </section>
   <section>
     <h2>Results &amp; visualisation</h2>
     <ul>
-    <li data-p="med" data-id="-overlay-a-saved-run-s-curve-on-the-current-o"><input type="checkbox"><span><b>Overlay a saved run&#x27;s curve</b> on the current one.</span><span class="tag med">Medium</span></li>
     <li data-p="low" data-id="-export-trades-to-csv-"><input type="checkbox"><span><b>Export trades to CSV</b>.</span><span class="tag low">Low</span></li>
     <li data-p="low" data-id="-a-compare-part-in-the-backtest-window-it-l"><input type="checkbox"><span><b>A Compare part in the backtest window</b> — it lives only in the builder.</span><span class="tag low">Low</span></li>
     <li data-p="low" data-id="-real-candles-in-the-trade-detail-a-tiny-can"><input type="checkbox"><span><b>Real candles in the trade detail</b> (a tiny candle strip) instead of the price line, and a candle sparkline per row.</span><span class="tag low">Low</span></li>
@@ -69,20 +68,27 @@
     </ul>
   </section>
   <section>
-    <h2>Workflow &amp; feel</h2>
+    <h2>Logs</h2>
     <ul>
-    <li data-p="low" data-id="-remember-window-sizes-the-splitters-betwee"><input type="checkbox"><span><b>Remember window sizes</b> (the splitters) between sessions.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-keyboard-shortcuts-for-run-pause-restart"><input type="checkbox"><span><b>Keyboard shortcuts</b> for Run / Pause / Restart and the timeframe pills.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-a-light-theme-"><input type="checkbox"><span><b>A light theme.</b></span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-polymarket-holdings-from-the-venue-sell-wor"><input type="checkbox"><span><b>Polymarket holdings from the venue.</b> Sell works on the shares this session bought (counted from the fills); read the wallet&#x27;s positions so a restart, or a bet placed elsewhere, can be sold from here too.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-auto-sell-auto-bet-holds-to-settlement-let"><input type="checkbox"><span><b>Auto-sell.</b> Auto-bet holds to settlement; let a strategy&#x27;s exit rule (or a take profit) sell early through the same fast path.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-auto-bet-beyond-up-it-bets-up-on-a-mean-rev"><input type="checkbox"><span><b>Auto-bet beyond UP.</b> It bets UP on a mean-reversion signal; let a strategy choose the side, and size the stake from the strategy rather than the bar.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-hyperliquid-fills-its-orders-log-as-accept"><input type="checkbox"><span><b>Hyperliquid fills.</b> Its orders log as <code>ACCEPTED</code>, never <code>FILLED</code>, because the answer carries no match. Read the fills (or user events) to log them.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-archive-during-a-session-older-rows-move-to"><input type="checkbox"><span><b>Archive during a session.</b> Older rows move to Parquet only at launch, so a very long session keeps appending to one JSON file until the next start.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-strategy-stats-beyond-today-the-strategy-fi"><input type="checkbox"><span><b>Strategy stats beyond today.</b> The strategy filter and its figures are for today; add a range (week, all) and a per-strategy summary.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Trading speed</h2>
+    <ul>
+    <li data-p="med" data-id="-fast-buy-and-sell-on-hyperliquid-possible-"><input type="checkbox"><span><b>Fast buy and sell on Hyperliquid.</b> Possible: the warm, reused client already covers it (it is shared by every venue), but the order itself is not as quick as Polymarket&#x27;s yet. It is a resting limit order (<code>Gtc</code>), sent through the SDK&#x27;s blocking call on a thread, and its answer carries no fill. To do: a marketable order (<code>Ioc</code> at a price a little through the book, as Sell does on Polymarket), a one-click <b>Close</b> that reads the open position from the venue and sells exactly that (reduce-only), the fill (size and price) read from the answer so it logs <code>FILLED</code>, and the same Sell/Close buttons in the terminal. Try it on the testnet first (Settings → Accounts → Network).</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-a-testnet-badge-wherever-orders-can-go-out-"><input type="checkbox"><span><b>A TESTNET badge</b> wherever orders can go out, so the network is never in doubt.</span><span class="tag low">Low</span></li>
     </ul>
   </section>
   <section>
     <h2>Quality</h2>
     <ul>
-    <li data-p="low" data-id="-logos-instead-of-color-for-the-polymarket-an"><input type="checkbox"><span><b>Logos instead of color</b> for the polymarket and kalshi color dots.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-visual-regression-screenshot-tests-for-the"><input type="checkbox"><span><b>Visual regression / screenshot tests</b> for the two windows.</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-split-the-largest-modules-strat-playback-p"><input type="checkbox"><span><b>Split the largest modules</b> (<code>strat_playback.py</code>, <code>formula_builder.py</code>, <code>theme_qss.py</code>, <code>cards.py</code>).</span><span class="tag low">Low</span></li>
-    <li data-p="low" data-id="-type-check-the-qt-widget-modules-mypy-cover"><input type="checkbox"><span><b>Type-check the Qt widget modules.</b> mypy covers the engine, data, state and venues; <code>bi_trading.ui.*</code> is excluded in <code>pyproject.toml</code> (Optional layouts and items in the PySide6 stubs, and a few widgets that shadow a QWidget method such as <code>self.size</code>). Clear them module by module.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-goldens-for-the-screenshot-tests-on-linux-"><input type="checkbox"><span><b>Goldens for the screenshot tests on Linux.</b> <code>tests/golden/</code> was drawn on macOS. The comparison is coarse (8px blocks) so another system&#x27;s fonts should pass, but CI has never run it: if it fails there, redraw the goldens on that system (<code>UPDATE_GOLDEN=1</code>) and keep both sets.</span><span class="tag low">Low</span></li>
     </ul>
   </section>
 </main>

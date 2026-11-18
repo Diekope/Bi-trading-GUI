@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -49,6 +49,8 @@ ICONS: dict[str, str] = {
         '2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
     ),
     "logs": '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+    "warn": '<path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.4h.01"/>',
+    "error": '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
     "quit": '<path d="M12 3v9"/><path d="M6.6 5.6a8 8 0 1 0 10.8 0"/>',
 }
 
@@ -175,9 +177,11 @@ class ProgressBar(QWidget):
         width, height = float(self.width()), float(self.height())
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(TRACK))
-        painter.drawRoundedRect(0, 0, width, height, 2, 2)
+        painter.drawRoundedRect(QRectF(0, 0, width, height), 2, 2)
         painter.setBrush(QColor(ACCENT))
-        painter.drawRoundedRect(0, 0, max(2.0, width * self.fraction), height, 2, 2)
+        painter.drawRoundedRect(
+            QRectF(0, 0, max(2.0, width * self.fraction), height), 2, 2
+        )
 
 
 class StrategyRow(QFrame):

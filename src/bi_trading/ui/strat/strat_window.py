@@ -14,7 +14,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QFrame,
     QMainWindow,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
@@ -95,9 +97,27 @@ class StratWindow(QMainWindow):
             column.setStretch(index, weight)
         self.right.setMinimumWidth(360)
         self.right.setMaximumWidth(480)
+        # The tiles need about 600px between them. Given less (the hub's 820px
+        # window leaves the row ~400) they used to be squeezed under their own
+        # contents; now the column keeps its height and scrolls instead.
+        self.right.setMinimumHeight(self.right.minimumSizeHint().height())
+        self.column_scroll = QScrollArea(self.splitter)
+        self.column_scroll.setObjectName("stratColumnScroll")
+        self.column_scroll.setWidget(self.right)
+        self.column_scroll.setWidgetResizable(True)
+        self.column_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.column_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.column_scroll.setStyleSheet(
+            "#stratColumnScroll, #stratColumnScroll > QWidget > QWidget"
+            " { background: transparent; }"
+        )
+        self.column_scroll.setMinimumWidth(360)
+        self.column_scroll.setMaximumWidth(500)
 
         self.splitter.addWidget(self.left)
-        self.splitter.addWidget(self.right)
+        self.splitter.addWidget(self.column_scroll)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
         self.splitter.setSizes([700, 460])
@@ -115,6 +135,11 @@ class StratWindow(QMainWindow):
         self.outer.setStretchFactor(1, 1)
         self.outer.setSizes([560, 400])
 
+        from bi_trading.ui.layout_memory import remember_splitter
+
+        remember_splitter(self.splitter, "backtest.columns")
+        remember_splitter(self.outer, "backtest.rows")
+
         layout.addWidget(self.outer, 1)
         self.setCentralWidget(canvas)
 
@@ -131,6 +156,7 @@ class StratWindow(QMainWindow):
         self.strategy.saved_picked.connect(self._apply_saved)
         self.save_run.save_requested.connect(self._save_run)
         self.load_run.load_requested.connect(self._load_run)
+        self.load_run.overlay_requested.connect(self._overlay_run)
         self._sync_playback()
         self._sync_params()
         self.left.set_strategy(self.strategy.rule())
@@ -181,6 +207,44 @@ class StratWindow(QMainWindow):
         )
         self.save_run.set_saved(name)
         self.load_run.refresh()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        """Space runs and pauses, R restarts, 1-6 pick the resolution.
+
+        Only keys the focused widget declined reach the window, so typing a
+        digit into a field never changes the resolution, and Space on a focused
+        button still presses that button.
+        """
+        if not event.modifiers():
+            key = event.key()
+            if key == Qt.Key.Key_Space:
+                self.left._on_run()
+                event.accept()
+                return
+            if key == Qt.Key.Key_R:
+                self.left.restart()
+                event.accept()
+                return
+            if Qt.Key.Key_1 <= key <= Qt.Key.Key_6:
+                if self.download.pick_resolution(key - Qt.Key.Key_1):
+                    event.accept()
+                    return
+        super().keyPressEvent(event)
+
+    def _overlay_run(self, name: str) -> None:
+        """Lay a saved run's strategy curve over the current run, or take it off."""
+        from bi_trading.state import runs
+
+        if not name:
+            self.results.set_overlay("", None)
+            return
+        strategy, _random = runs.read_curves(name)
+        if not strategy:
+            self.load_run.note.setText(f"{name} has no stored curve to overlay")
+            self.results.set_overlay("", None)
+            return
+        self.load_run.note.setText("")
+        self.results.set_overlay(name, strategy)
 
     def _load_run(self, name: str) -> None:
         from bi_trading.state import runs

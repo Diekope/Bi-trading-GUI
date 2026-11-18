@@ -66,6 +66,8 @@ class LoadRunTile(Card):
     """Pick a saved run and open it."""
 
     load_requested = Signal(str)
+    # Lay a saved run's curve over the current one; "" takes it off again.
+    overlay_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -86,16 +88,40 @@ class LoadRunTile(Card):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
+        self.overlay_button = QPushButton("Overlay")
+        self.overlay_button.setObjectName("overlayRun")
+        self.overlay_button.setCheckable(True)
+        self.overlay_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.overlay_button.setToolTip(
+            "Draw this run's curve over the current one, to compare them"
+        )
+        self.overlay_button.toggled.connect(self._on_overlay)
         row.addWidget(self.picker, 1)
         row.addWidget(self.button)
         self.body.addLayout(row)
+        # On its own line: three controls do not fit this tile's width.
+        second = QHBoxLayout()
+        second.setContentsMargins(0, 0, 0, 0)
+        second.addWidget(self.overlay_button)
+        second.addStretch(1)
+        self.body.addLayout(second)
 
         self.note = QLabel("")
         self.note.setObjectName("hintLabel")
         self.note.setWordWrap(True)
         self.body.addWidget(self.note)
 
+        self.picker.currentTextChanged.connect(self._on_pick)
         self.refresh()
+
+    def _on_overlay(self, on: bool) -> None:
+        self.overlay_button.setText("Remove overlay" if on else "Overlay")
+        self.overlay_requested.emit(self.picker.currentText() if on else "")
+
+    def _on_pick(self, _name: str) -> None:
+        """Picking another run while the overlay is on moves it to that run."""
+        if self.overlay_button.isChecked():
+            self.overlay_requested.emit(self.picker.currentText())
 
     def refresh(self) -> None:
         current = self.picker.currentText()
@@ -106,6 +132,7 @@ class LoadRunTile(Card):
         if index >= 0:
             self.picker.setCurrentIndex(index)
         self.button.setEnabled(self.picker.count() > 0)
+        self.overlay_button.setEnabled(self.picker.count() > 0)
         self.note.setText("" if self.picker.count() else "no saved runs yet")
 
 

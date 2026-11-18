@@ -202,8 +202,9 @@ def _pick_combo(parent, choices, placeholder: str = "", editable: bool = False):
         combo.setEditable(True)
         combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         combo.setCurrentText("")
-        if combo.lineEdit() is not None:
-            combo.lineEdit().setPlaceholderText(placeholder)
+        field = combo.lineEdit()
+        if field is not None:
+            field.setPlaceholderText(placeholder)
     else:
         combo.setCurrentIndex(0)  # the blank entry: nothing picked yet
     return combo
@@ -493,7 +494,7 @@ class ConditionGroup(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.choices = list(choices)
         self.rows: list[ConditionRow] = []
-        self._many = None
+        self._many: bool | None = None
 
         column = QVBoxLayout(self)
         column.setContentsMargins(10, 8, 10, 10)

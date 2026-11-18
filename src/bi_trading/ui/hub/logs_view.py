@@ -7,7 +7,7 @@ shared `EventLog` and keeps itself current while it is open.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -29,6 +29,9 @@ from PySide6.QtWidgets import (
 )
 
 from bi_trading.state.events import Event, EventLog, event_log
+from bi_trading.state.settings import load_columns, save_columns
+from bi_trading.ui.shortcuts import bind
+from bi_trading.ui.venue_icons import venue_pixmap
 from bi_trading.ui.palette import (
     ACCENT,
     AMBER_DOT,
@@ -65,11 +68,19 @@ BADGES = {
     "strategy": ("S", ACCENT, "#101114", "Strategy"),
 }
 
+# Level: (word, colour, icon). Info has no icon, as in the design.
 LEVEL_STYLE = {
-    "info": ("INFO", MUTED),
-    "warn": ("● WARN", AMBER_DOT),
-    "error": ("▼ ERROR", DOWN),
+    "info": ("INFO", MUTED, None),
+    "warn": ("WARN", AMBER_DOT, "warn"),
+    "error": ("ERROR", DOWN, "error"),
 }
+
+
+def _level_pixmap(icon: str, colour: str, size: int = 14):
+    """The level's stroke icon, from the same set as the rail's."""
+    from bi_trading.ui.hub.hub_widgets import _svg_icon
+
+    return _svg_icon(icon, colour, size).pixmap(size, size)
 
 # Origin chip: (text colour, border, fill).
 CHIPS = {
@@ -157,15 +168,17 @@ def _badge_pixmap(letter: str, fill: str, ink: str, size: int = 14):
 class _SourceDelegate(QStyledItemDelegate):
     """A coloured letter badge and the source's name."""
 
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> None:
         source = index.data(Qt.ItemDataRole.UserRole)
         letter, fill, ink, name = BADGES.get(source, BADGES["system"])
         if option.state & option.state.State_Selected:  # type: ignore[attr-defined]
             painter.fillRect(option.rect, QColor("#1d1b12"))
         rect = option.rect
         painter.save()
+        # A venue shows its own mark; strategy and system keep the letter badge.
+        mark = venue_pixmap(source, 14) if source in ("polymarket", "hyperliquid") else None
         painter.drawPixmap(rect.left() + 6, rect.top() + (rect.height() - 14) // 2,
-                           _badge_pixmap(letter, fill, ink))
+                           mark if mark is not None else _badge_pixmap(letter, fill, ink))
         painter.setPen(QColor(SOFT))
         painter.drawText(rect.adjusted(26, 0, 0, 0),
                          Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, name)
@@ -174,10 +187,36 @@ class _SourceDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class _LevelDelegate(QStyledItemDelegate):
+    """The level's icon (warn, error) and its word."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> None:
+        level = index.data(Qt.ItemDataRole.UserRole) or "info"
+        word, colour, icon = LEVEL_STYLE.get(level, LEVEL_STYLE["info"])
+        rect = option.rect
+        painter.save()
+        if option.state & option.state.State_Selected:  # type: ignore[attr-defined]
+            painter.fillRect(rect, QColor("#1d1b12"))
+        left = rect.left() + 6
+        if icon is not None:
+            painter.drawPixmap(left, rect.top() + (rect.height() - 14) // 2,
+                               _level_pixmap(icon, colour))
+            left += 19
+        font = QFont(painter.font())
+        font.setBold(icon is not None)
+        painter.setFont(font)
+        painter.setPen(QColor(colour))
+        painter.drawText(rect.adjusted(left - rect.left(), 0, 0, 0),
+                         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, word)
+        painter.setPen(QPen(QColor("#1f2024")))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        painter.restore()
+
+
 class _OriginDelegate(QStyledItemDelegate):
     """Manual / Auto as a small bordered chip; a dash when there is none."""
 
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> None:
         origin = index.data(Qt.ItemDataRole.UserRole) or ""
         rect = option.rect
         painter.save()
@@ -205,7 +244,7 @@ class _OriginDelegate(QStyledItemDelegate):
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.restore()
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> QSize:
         return QSize(78, 30)
 
 
@@ -241,6 +280,14 @@ class LogsView(QWidget):
         self._log.reloaded.connect(self.refresh)
         self.refresh()
 
+        # Keys that work anywhere in this view (see ui/shortcuts.py).
+        for keys in ("Ctrl+F", "/"):
+            bind(self, keys, self._focus_search)
+        bind(self, "Esc", self.search.clear)
+        bind(self, "Ctrl+P", self._toggle_pause)
+        bind(self, "Ctrl+E", self._export)
+        bind(self, "Ctrl+Shift+Backspace", self._log.clear)
+
     # -- building ----------------------------------------------------------
 
     def _stats(self) -> QHBoxLayout:
@@ -248,6 +295,7 @@ class LogsView(QWidget):
         row.setContentsMargins(4, 2, 4, 2)
         row.setSpacing(34)
         self._stat: dict[str, QLabel] = {}
+        self._stat_icon: dict[str, QLabel] = {}
         for key, caption in (
             ("orders", "Orders"), ("filled", "Filled"), ("rejected", "Rejected"),
             ("warnings", "Warnings"), ("pnl", "Day PnL"),
@@ -260,7 +308,20 @@ class LogsView(QWidget):
             value.setObjectName("logV")
             value.setTextFormat(Qt.TextFormat.RichText)
             box.addWidget(name)
-            box.addWidget(value)
+            if key in ("rejected", "warnings"):
+                # The level's own icon beside the count, shown while it is > 0.
+                line = QHBoxLayout()
+                line.setSpacing(5)
+                icon = QLabel()
+                icon.setFixedSize(14, 14)
+                icon.setVisible(False)
+                line.addWidget(icon)
+                line.addWidget(value)
+                line.addStretch(1)
+                box.addLayout(line)
+                self._stat_icon[key] = icon
+            else:
+                box.addWidget(value)
             row.addLayout(box)
             self._stat[key] = value
         row.addStretch(1)
@@ -339,15 +400,33 @@ class LogsView(QWidget):
         header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
-        for column, width in enumerate(WIDTHS):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+        # The columns can be dragged, and are kept where they are left (the last
+        # one takes what remains, so it is not saved).
+        remembered = load_columns("logs")
+        if len(remembered) != len(COLUMNS) - 1:
+            remembered = list(WIDTHS)
+        for column, width in enumerate(remembered):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
             self.table.setColumnWidth(column, width)
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
+        self._save_columns_timer = QTimer(self)
+        self._save_columns_timer.setSingleShot(True)
+        self._save_columns_timer.setInterval(400)
+        self._save_columns_timer.timeout.connect(self._save_columns)
+        header.sectionResized.connect(
+            lambda index, *_: index < len(COLUMNS) - 1 and self._save_columns_timer.start()
+        )
+        self.table.setItemDelegateForColumn(1, _LevelDelegate(self.table))
         self.table.setItemDelegateForColumn(2, _SourceDelegate(self.table))
         self.table.setItemDelegateForColumn(3, _OriginDelegate(self.table))
         self.table.itemSelectionChanged.connect(self._on_select)
         layout.addWidget(self.table)
         return panel
+
+    def _save_columns(self) -> None:
+        save_columns(
+            "logs", [self.table.columnWidth(i) for i in range(len(COLUMNS) - 1)]
+        )
 
     def _details_panel(self) -> QFrame:
         panel = QFrame()
@@ -362,10 +441,13 @@ class LogsView(QWidget):
 
         head = QHBoxLayout()
         head.setSpacing(8)
+        self._d_level_icon = QLabel()
+        self._d_level_icon.setFixedSize(14, 14)
         self._d_level = QLabel("")
         self._d_level.setFont(self._mono(bold=True))
         self._d_kind = QLabel("")
         self._d_kind.setFont(self._mono())
+        head.addWidget(self._d_level_icon)
         head.addWidget(self._d_level)
         head.addWidget(self._d_kind)
         head.addStretch(1)
@@ -460,6 +542,10 @@ class LogsView(QWidget):
         for name, pill in self._pills.items():
             pill.setChecked(name == key)
         self.refresh()
+
+    def _focus_search(self) -> None:
+        self.search.setFocus()
+        self.search.selectAll()
 
     def _toggle_pause(self) -> None:
         self._paused = not self._paused
@@ -562,27 +648,29 @@ class LogsView(QWidget):
             self._show_details(None)
 
     def _fill_row(self, row: int, event: Event) -> None:
-        glyph, colour = LEVEL_STYLE.get(event.level, LEVEL_STYLE["info"])
         cells = (
-            event.clock(), glyph, BADGES.get(event.source, BADGES["system"])[3],
-            event.origin, event.kind, event.message,
+            event.clock(), "", "", "", event.kind, event.message,
         )
+        roles = {1: event.level, 2: event.source, 3: event.origin}
         for column, text in enumerate(cells):
-            item = QTableWidgetItem(text if column not in (2, 3) else "")
-            item.setData(Qt.ItemDataRole.UserRole, event.source if column == 2 else event.origin)
-            item.setForeground(QColor(colour if column == 1 else SOFT))
-            if column == 1 and event.level != "info":
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
+            item = QTableWidgetItem(text)
+            if column in roles:  # drawn by the column's delegate
+                item.setData(Qt.ItemDataRole.UserRole, roles[column])
+            item.setForeground(QColor(SOFT))
             self.table.setItem(row, column, item)
 
     def _show_stats(self) -> None:
         counts = self._log.counts(self._strategy())
         self._stat["orders"].setText(f"{counts['orders']:,.0f}")
         self._stat["filled"].setText(f"{counts['filled']:,.0f}")
-        self._stat["rejected"].setText(self._tinted(counts["rejected"], DOWN, "▼"))
-        self._stat["warnings"].setText(self._tinted(counts["warnings"], AMBER_DOT, "●"))
+        for key, level in (("rejected", "error"), ("warnings", "warn")):
+            _, colour, icon = LEVEL_STYLE[level]
+            count = counts[key]
+            self._stat[key].setText(self._tinted(count, colour))
+            mark = self._stat_icon[key]
+            mark.setVisible(bool(count))
+            if count and icon is not None:
+                mark.setPixmap(_level_pixmap(icon, colour))
         pnl = counts["pnl"]
         if pnl:
             sign, tint = ("+", UP) if pnl > 0 else ("−", DOWN)
@@ -595,13 +683,10 @@ class LogsView(QWidget):
             self._stat["pnl"].setText("$0.00")
 
     @staticmethod
-    def _tinted(count: float, colour: str, glyph: str) -> str:
+    def _tinted(count: float, colour: str) -> str:
         if not count:
             return "0"
-        return (
-            f'<span style="color:{colour}"><span style="font-size:9px">{glyph}</span> '
-            f"{count:,.0f}</span>"
-        )
+        return f'<span style="color:{colour}">{count:,.0f}</span>'
 
     def _on_select(self) -> None:
         rows = self.table.selectionModel().selectedRows()
@@ -612,6 +697,7 @@ class LogsView(QWidget):
 
     def _show_details(self, event: Event | None) -> None:
         if event is None:
+            self._d_level_icon.clear()
             self._d_level.setText("")
             self._d_kind.setText("Select an event")
             for label in self._d_rows.values():
@@ -619,9 +705,13 @@ class LogsView(QWidget):
             for widget in (self._d_why_title, self._d_why, self._d_request_title, self._d_request):
                 widget.setVisible(False)
             return
-        glyph, colour = LEVEL_STYLE.get(event.level, LEVEL_STYLE["info"])
-        self._d_level.setText(glyph)
+        word, colour, icon = LEVEL_STYLE.get(event.level, LEVEL_STYLE["info"])
+        self._d_level.setText(word)
         self._d_level.setStyleSheet(f"color: {colour};")
+        if icon is None:
+            self._d_level_icon.clear()
+        else:
+            self._d_level_icon.setPixmap(_level_pixmap(icon, colour))
         self._d_kind.setText(event.kind)
         self._d_rows["time"].setText(event.clock())
         self._d_rows["source"].setText(BADGES.get(event.source, BADGES["system"])[3])

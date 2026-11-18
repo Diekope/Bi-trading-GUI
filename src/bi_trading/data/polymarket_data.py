@@ -188,6 +188,30 @@ def parse_market(payload: Any) -> PolymarketMarket | None:
     )
 
 
+def resolved_side(payload: Any) -> str | None:
+    """Which side Polymarket settled a market on, `up` or `down`, or None.
+
+    Reads Gamma's own record: a market that is `closed` whose outcome prices
+    have collapsed to 1 and 0. Until Polymarket has settled it (the prices are
+    still in between) this says None rather than guess.
+    """
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict) or not payload.get("closed"):
+        return None
+    names = [str(name).strip().lower() for name in _json_list(payload.get("outcomes"))]
+    prices = [_number(price) for price in _json_list(payload.get("outcomePrices"))]
+    if len(prices) < 2 or any(price is None for price in prices):
+        return None
+    won = [index for index, price in enumerate(prices) if price is not None and price >= 0.99]
+    if len(won) != 1:
+        return None
+    name = names[won[0]] if won[0] < len(names) else ""
+    if name in ("up", "down"):
+        return name
+    return "up" if won[0] == 0 else "down"
+
+
 # -- books ------------------------------------------------------------------
 
 

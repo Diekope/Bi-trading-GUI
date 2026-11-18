@@ -48,10 +48,15 @@ src/bi_trading/
 
   ui/              everything Qt
     theme.py           the terminal palette + the stylesheet it applies
-    theme_colors.py, theme_qss.py  the palette and the sheet, split out
+    theme_colors.py    the palette
+    theme_qss.py       the stylesheet, in five parts: its own base plus
+                       qss_builder.py, qss_rules.py, qss_forms.py, qss_hub.py
+    layout_memory.py   remembered splitters, windows, columns, timeframe
+    shortcuts.py       the keyboard list and its help overlay (? / F1)
     palette.py         the hub's palette (shared by the hub and Settings)
     fonts.py           the bundled Inter / JetBrains Mono, registered at startup
-    panels.py, cards.py             card chrome, the candle chart and market card
+    panels.py, cards.py             card chrome, the market card and its search
+    candle_chart.py, typefaces.py   the hand-painted candle chart; the two fonts
     polymarket_panel.py             outcome tiles, countdown, BTC/target chart, tape
     main_window.py                  the terminal: window, top bar, feed wiring
     strategy_bar.py, trade_form.py  the bar under the charts and the trade form
@@ -63,9 +68,14 @@ src/bi_trading/
       settings_widgets.py its builders and the venue connection tester
     strat/         the backtest + builder windows
       strat.py, strat_window.py, strat_tiles.py, strat_params.py,
-      strat_strategy.py, strat_results.py, strat_playback.py, strat_report.py,
+      strat_strategy.py, strat_results.py, strat_report.py,
+      strat_playback.py (the tile and its candle player), playback_data.py
+      (the bars: stream and columns), playback_walk.py (the stepped walk),
+      playback_session.py (the session, the chunked walk),
+      playback_control.py (the tile's run/restart/setters, bound onto it),
       strat_compare.py, strat_builder.py, strat_rules.py, strat_conditions.py,
-      strat_saved.py, strat_runs.py, formula_builder.py
+      strat_saved.py, strat_runs.py, formula_builder.py, formula_chips.py,
+      formula_panels.py (the builder's cards, bound onto it)
 
   venues/          order placement adapters
     base.py, hyperliquid.py, polymarket.py, runner.py

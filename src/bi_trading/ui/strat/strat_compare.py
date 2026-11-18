@@ -20,6 +20,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -499,7 +500,7 @@ class ComparePage(QWidget):
     def _build_table(self) -> None:
         while self.table.count():
             item = self.table.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
@@ -539,7 +540,9 @@ class ComparePage(QWidget):
         value.setAlignment(Qt.AlignmentFlag.AlignRight)
         row.addWidget(key, 1)
         row.addWidget(value, 0)
-        parent.layout().addLayout(row)
+        parent_layout = parent.layout()
+        assert isinstance(parent_layout, QBoxLayout)
+        parent_layout.addLayout(row)
         return value
 
     # -- the data ----------------------------------------------------------

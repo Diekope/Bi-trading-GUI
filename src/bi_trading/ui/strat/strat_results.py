@@ -49,6 +49,8 @@ from bi_trading.ui.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, TEXT_MUT
 STRATEGY_COLOUR = ACCENT
 RANDOM_COLOUR = BAND
 HOLD_COLOUR = TEXT_MUTED
+# A saved run laid over the current one: its strategy curve, in teal.
+OVERLAY_COLOUR = "#4dd0c8"
 
 # Never let the scale collapse to a flat line around zero.
 MIN_SPAN = 0.4  # percent
@@ -62,12 +64,23 @@ def _returns(curve: list[float]) -> list[float]:
     return [(value / first - 1.0) * 100.0 for value in curve]
 
 
+def _resample(curve: list[float], count: int) -> list[float]:
+    """`curve` cut to at most `count` points, keeping its shape (and its ends)."""
+    if len(curve) <= count or count < 2:
+        return list(curve)
+    last = len(curve) - 1
+    return [curve[round(i * last / (count - 1))] for i in range(count)]
+
+
 class LiveCurve(QWidget):
     """The run's three curves, revealed up to wherever the walk has reached."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.session = None
+        # A saved run's strategy curve, as returns in percent, drawn over the
+        # current one; empty when none is laid on.
+        self.overlay: list[float] = []
         self.message = "run the backtest to see the curves"
         self.setMinimumHeight(80)
         self.setSizePolicy(
@@ -105,9 +118,10 @@ class LiveCurve(QWidget):
         strategy = _returns(session.strategy_curve)
         random_buy = _returns(session.random_curve)
         hold = _returns(session.benchmark)
-        # The scale follows the two strategies; buy and hold may run past it.
-        low = min(strategy + random_buy + [0.0])
-        high = max(strategy + random_buy + [0.0])
+        # The scale follows the two strategies and an overlaid run; buy and hold
+        # may run past it.
+        low = min(strategy + random_buy + self.overlay + [0.0])
+        high = max(strategy + random_buy + self.overlay + [0.0])
         span = max(high - low, MIN_SPAN)
         low -= span * PAD
         high += span * PAD
@@ -134,10 +148,14 @@ class LiveCurve(QWidget):
                 f"{value:+,.2f}%",
             )
 
-        # Buy and hold first, then random-buy, then the strategy on top.
+        # Buy and hold first, then random-buy, the overlaid run, and the
+        # strategy on top. The overlay is stretched to the same width, so two
+        # runs of different length are read by how far through each one is.
         for curve, colour, style, width_pt in (
             (hold, HOLD_COLOUR, Qt.PenStyle.DashLine, 1.0),
             (random_buy, RANDOM_COLOUR, Qt.PenStyle.SolidLine, 1.2),
+            (_resample(self.overlay, 2 * int(right - left)), OVERLAY_COLOUR,
+             Qt.PenStyle.DashDotLine, 1.4),
             (strategy, STRATEGY_COLOUR, Qt.PenStyle.SolidLine, 1.6),
         ):
             if len(curve) < 2:
@@ -269,12 +287,14 @@ class ResultsTile(Card):
             ("strategy", "strategy"),
             ("random", "random buy"),
             ("hold", "buy & hold"),
+            ("overlay", ""),
         ):
             label = QLabel(caption)
             label.setObjectName(f"legend_{key}")
             label.setFont(mono_font(8, bold=True))
             legend.addWidget(label)
             self.legend[key] = label
+        self.legend["overlay"].setVisible(False)
         legend.addStretch(1)
         left.addLayout(legend)
         body.addLayout(left, 1)
@@ -365,6 +385,20 @@ class ResultsTile(Card):
         self.trades_page.set_session(session)
         self.note.setText("return since the start, read as the loop walks")
         self.refresh()
+
+    def set_overlay(self, name: str, curve: list[float] | None) -> None:
+        """Lay a saved run's strategy curve over the current one; none clears it."""
+        label = self.legend["overlay"]
+        if not name or not curve:
+            self.curve.overlay = []
+            label.setVisible(False)
+        else:
+            self.curve.overlay = _returns(list(curve))
+            gained = self.curve.overlay[-1]
+            label.setText(f"overlay: {name} {gained:+,.2f}%")
+            label.setStyleSheet(f"color: {OVERLAY_COLOUR};")
+            label.setVisible(True)
+        self.curve.update()
 
     def clear_session(self) -> None:
         self.curve.set_session(None)

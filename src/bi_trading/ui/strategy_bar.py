@@ -29,6 +29,7 @@ class StrategyBar(Card):
     """ARMED chip, the strategy's current reading, size and the two bets."""
 
     bet = Signal(str)  # "up" | "down"
+    sell = Signal(str)  # "up" | "down": sell what is held of that side
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -70,11 +71,13 @@ class StrategyBar(Card):
         self.auto.setCursor(Qt.CursorShape.PointingHandCursor)
         row.addWidget(self.auto)
 
-        self.size = QLineEdit("$20")
-        self.size.setObjectName("numberEdit")
-        self.size.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.size.setFixedWidth(80)
-        row.addWidget(self.size)
+        self.size_field = QLineEdit("$20")
+        self.size_field.setObjectName("numberEdit")
+        self.size_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.size_field.setFixedWidth(80)
+        row.addWidget(self.size_field)
+        # The name the rest of the app uses; it shadows QWidget.size().
+        self.size = self.size_field  # type: ignore[method-assign,assignment]
 
         self.bet_up = QPushButton("Bet UP —")
         self.bet_up.setObjectName("betUp")
@@ -87,12 +90,35 @@ class StrategyBar(Card):
         row.addWidget(self.bet_up)
         row.addWidget(self.bet_down)
 
+        # Selling takes whatever is held of a side at the best bids, at once.
+        self.sell_up = self._sell_button("up")
+        self.sell_down = self._sell_button("down")
+        row.addWidget(self.sell_up)
+        row.addWidget(self.sell_down)
+
         self.body.addLayout(row)
 
         self.status = QLabel("")
         self.status.setObjectName("gl")
         self.status.setWordWrap(True)
         self.body.addWidget(self.status)
+
+    def _sell_button(self, side: str) -> QPushButton:
+        button = QPushButton(f"Sell {side.upper()}")
+        button.setObjectName("ghostButton")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setEnabled(False)
+        button.setToolTip(f"Sell the {side.upper()} shares you hold, now")
+        button.clicked.connect(lambda: self.sell.emit(side))
+        return button
+
+    def set_held(self, up: float, down: float) -> None:
+        """Show how many shares of each side are held; Sell needs some."""
+        for button, side, shares in (
+            (self.sell_up, "UP", up), (self.sell_down, "DOWN", down)
+        ):
+            button.setEnabled(shares > 0)
+            button.setText(f"Sell {side} {shares:g}" if shares > 0 else f"Sell {side}")
 
     def set_status(self, text: str, tone: str = "info") -> None:
         self.status.setText(text)
@@ -146,7 +172,7 @@ class StrategyBar(Card):
         return self.picker.currentText()
 
     def bet_size(self) -> str:
-        return self.size.text().strip()
+        return self.size_field.text().strip()
 
     def auto_bet(self) -> bool:
         return self.auto.isChecked()

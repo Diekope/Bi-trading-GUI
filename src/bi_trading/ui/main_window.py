@@ -12,8 +12,9 @@ card, and each card collapses its search row once a market is loaded.
 from __future__ import annotations
 
 import logging
+import time
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -37,8 +38,10 @@ from bi_trading.data.market_data import (
 from bi_trading.data.polymarket_data import PolymarketMarket, window_price_points
 from bi_trading.data.polymarket_feed import PolymarketFeed
 from bi_trading.ui.polymarket_panel import VIEW_MS, PolymarketPanel
+from bi_trading.state.settings import load_choice, save_choice
 from bi_trading.ui.strategy_bar import StrategyBar
 from bi_trading.ui.theme import CANVAS, CARD_GAP
+from bi_trading.venues.runner import AsyncRunner
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +54,7 @@ OK_MS = 300.0
 # order is on its way. A bet fills at the best offers, never above this.
 BET_ROOM = 0.03
 MIN_STAKE = 1.0
+SETTLE_EVERY_MS = 15_000   # how often finished real bets ask Polymarket for their result
 
 
 def _bet_cap(ask: float, tick: float = 0.01) -> float:
@@ -59,6 +63,22 @@ def _bet_cap(ask: float, tick: float = 0.01) -> float:
     tick = tick if tick and tick > 0 else 0.01
     cap = min(0.99, ask + BET_ROOM)
     return round(round(cap / tick) * tick, 4)
+
+
+def _winner_of(future) -> str:
+    """A settlement lookup's answer, or "" if it failed or is not out yet."""
+    try:
+        return future.result() or ""
+    except Exception:  # a network blip: the next tick asks again
+        return ""
+
+
+def _sell_floor(bid: float, tick: float = 0.01) -> float:
+    """The lowest price a sell accepts: the bid less `BET_ROOM`, on the tick grid,
+    and never under one tick."""
+    tick = tick if tick and tick > 0 else 0.01
+    floor = max(tick, bid - BET_ROOM)
+    return round(round(floor / tick) * tick, 4)
 
 
 def _stake(text: str) -> float:
@@ -71,6 +91,8 @@ def _stake(text: str) -> float:
 
 
 class MainWindow(QMainWindow):
+    _settled = Signal(str, str)   # a window and the side Polymarket settled it on
+
     def __init__(
         self,
         autostart: bool = True,
@@ -154,6 +176,9 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([560, 560])
+        from bi_trading.ui.layout_memory import remember_splitter
+
+        remember_splitter(self.splitter, "terminal.columns")
 
         layout.addWidget(self.splitter, 1)
 
@@ -164,7 +189,24 @@ class MainWindow(QMainWindow):
         self._warmup = _read_warmup()
         self._signal_on = False  # the strategy's signal last tick, to log a change
         self.strategy_bar.bet.connect(self._place_bet)
+        self.strategy_bar.sell.connect(self._sell)
         self._bet_wired = False
+        # Auto-bet starts from the setting (off by default) and bets on its own
+        # only while the box is ticked; see state/autobet.py for the rules.
+        from bi_trading.state.autobet import AutoBet
+        from bi_trading.state.events import event_log
+
+        self._autobet = AutoBet(event_log())
+        self._official: dict[str, str] = {}     # window -> the side Polymarket settled on
+        self._asked: set[str] = set()           # windows being asked about right now
+        self._settler: AsyncRunner | None = None
+        self._settle_timer = QTimer(self)
+        self._settle_timer.setInterval(SETTLE_EVERY_MS)
+        self._settle_timer.timeout.connect(self._settle_real)
+        self._settle_timer.start()
+        self._settled.connect(self._on_settled)
+        self.strategy_bar.auto.setChecked(_read_auto_bet())
+        self.strategy_bar.auto.toggled.connect(self._on_auto_toggled)
         layout.addWidget(self.strategy_bar)
         self.setCentralWidget(canvas)
         self.installEventFilter(self)
@@ -174,6 +216,8 @@ class MainWindow(QMainWindow):
         self.main_card = self._new_card("BTC", closable=False)
         self.stack.addWidget(self.main_card)
         self.cards.append(self.main_card)
+        # The timeframe it was left on, and kept from now on.
+        self.main_card.restore_interval(load_choice("terminal.timeframe"))
 
         # -- feed --
         self.feed = feed if feed is not None else MarketFeed(self)
@@ -232,6 +276,8 @@ class MainWindow(QMainWindow):
     # -- card events -------------------------------------------------------
 
     def _on_interval_changed(self, card: MarketCard) -> None:
+        if card is self.main_card:
+            save_choice("terminal.timeframe", card.interval)
         self._sync_watches()
 
     # -- feed --------------------------------------------------------------
@@ -268,10 +314,50 @@ class MainWindow(QMainWindow):
             self.polymarket.set_btc(mid)
 
     def _on_polymarket_market(self, market: PolymarketMarket) -> None:
+        # A new window: settle the bets of the one that just ended, from BTC
+        # against that window's opening target (read before the panel rolls).
+        self._resolve_bets(market.slug)
         self.polymarket.set_market(market)
+        if self._bet_wired:
+            self._show_held()
         # The window's bars give the chart its target (the open) and fill the
         # left of the line before live sampling begins.
         self.feed.request_window("BTC", market.start_ms, VIEW_MS)
+
+    def _resolve_bets(self, current_slug: str) -> None:
+        self._autobet.resolve(
+            current_slug, self.polymarket.btc_price, self.polymarket.target,
+            self._official, int(time.time() * 1000),
+        )
+
+    def _settle_real(self) -> None:
+        """Ask Polymarket how its finished windows settled, for the real bets
+        still waiting on it. Public data, so it needs no key and no arming."""
+        market = self.polymarket.market
+        slug = market.slug if market is not None else ""
+        pending = [w for w in self._autobet.awaiting(slug) if w not in self._asked]
+        if not pending:
+            if self._autobet.open:
+                self._resolve_bets(slug)    # the grace period may have run out
+            return
+        if self._settler is None:
+            self._settler = AsyncRunner("settle").start()
+        from bi_trading.data.polymarket_feed import fetch_winner
+
+        for window in pending:
+            self._asked.add(window)
+            future = self._settler.submit(fetch_winner(window))
+            def deliver(done, window: str = window) -> None:
+                self._settled.emit(window, _winner_of(done))
+
+            future.add_done_callback(deliver)
+
+    def _on_settled(self, window: str, side: str) -> None:
+        self._asked.discard(window)
+        if side:
+            self._official[window] = side
+            market = self.polymarket.market
+            self._resolve_bets(market.slug if market is not None else "")
 
     def _on_window_candles(self, series: CandleSeries) -> None:
         market = self.polymarket.market
@@ -311,7 +397,10 @@ class MainWindow(QMainWindow):
                 "auto", strategy="Bollinger reversion",
                 why=["close < band", f"close {close:,.1f} · band {band:,.1f}", "→ TRUE"],
             )
+        rose = holds and not self._signal_on
         self._signal_on = holds
+        if rose and bar.auto_bet():
+            self._auto_bet()
         bar.set_bets(
             self.polymarket.up_tile.price, self.polymarket.down_tile.price
         )
@@ -377,7 +466,7 @@ class MainWindow(QMainWindow):
             return
         if trading.max_stake > 0 and stake > trading.max_stake:
             stake = trading.max_stake
-            bar.size.setText(f"${stake:,.0f}")
+            bar.size_field.setText(f"${stake:,.0f}")
         if stake < MIN_STAKE:
             bar.set_status(f"the smallest bet is ${MIN_STAKE:g}")
             return
@@ -416,11 +505,141 @@ class MainWindow(QMainWindow):
         )
         bar.set_status("sending…")
         svc = service()
-        if not self._bet_wired:
-            svc.placed.connect(self._on_bet_placed)
-            svc.failed.connect(self._on_bet_failed)
-            self._bet_wired = True
-        svc.submit("polymarket", order, config_for("polymarket"))  # a manual bet
+        self._hook_service(svc)
+        svc.submit("polymarket", order, config_for("polymarket") or {})  # a manual bet
+
+    def _hook_service(self, svc) -> None:
+        """Listen to the order service once."""
+        if self._bet_wired:
+            return
+        svc.placed.connect(self._on_bet_placed)
+        svc.failed.connect(self._on_bet_failed)
+        svc.filled.connect(self._on_filled)
+        svc.holdings_changed.connect(self._show_held)
+        self._bet_wired = True
+
+    def _on_filled(self, venue: str, token: str, side: str, shares: float, dollars: float) -> None:
+        if venue == "polymarket" and side == "buy":
+            self._autobet.fill(token, shares, dollars)
+
+    def _show_held(self) -> None:
+        from bi_trading.state.orders import service
+
+        market = self.polymarket.market
+        if market is None or len(market.outcomes) < 2 or not market.is_open():
+            self.strategy_bar.set_held(0.0, 0.0)
+            return
+        svc = service()
+        self.strategy_bar.set_held(
+            svc.held(market.outcomes[0].token_id),
+            svc.held(market.outcomes[1].token_id),
+        )
+
+    def _sell(self, side: str) -> None:
+        """Sell everything held of a side, at once, at the best bids.
+
+        No confirm dialog: a sell only ever closes what a bet opened, and the
+        point of it is speed. The floor is a few cents under the bid, so a book
+        that moves a little still fills it.
+        """
+        from bi_trading.state.orders import config_for, service
+        from bi_trading.venues.base import Instrument, OrderRequest
+
+        bar = self.strategy_bar
+        market = self.polymarket.market
+        if market is None or len(market.outcomes) < 2 or not market.is_open():
+            bar.set_status("nothing to sell in this window")
+            return
+        outcome = market.outcomes[0 if side == "up" else 1]
+        svc = service()
+        shares = svc.held(outcome.token_id)
+        config = config_for("polymarket")
+        if shares <= 0 or config is None:
+            bar.set_status(f"no {side.upper()} shares held")
+            return
+        book = self.polymarket.books.get(outcome.token_id)
+        bid = book.best_bid if book is not None and book.best_bid is not None else outcome.best_bid
+        tick = market.tick_size or 0.01
+        floor = _sell_floor(float(bid) if bid else 0.0, tick)
+        order = OrderRequest(
+            instrument=Instrument(
+                venue="polymarket", symbol=outcome.token_id, tick=tick, size_step=0.01
+            ),
+            side="sell", price=floor, size=round(shares, 2), market=True,
+        )
+        bar.set_status("selling…")
+        self._hook_service(svc)
+        svc.submit("polymarket", order, config)
+
+    def _on_auto_toggled(self, on: bool) -> None:
+        from bi_trading.state.events import event_log
+
+        name = self.strategy_bar.strategy()
+        event_log().record(
+            "info", "strategy", "ARMED" if on else "DISARMED",
+            f"{name} armed · auto-bet on" if on else f"{name} auto-bet off",
+            "manual", name,
+        )
+
+    def _auto_bet(self) -> None:
+        """The signal fired with Auto-bet on: bet UP, within the rules.
+
+        Real only when live orders are armed and Polymarket is connected, with no
+        confirm dialog (it cannot wait for one); otherwise a paper bet.
+        """
+        import datetime
+
+        from bi_trading.state.autobet import Bet, plan
+        from bi_trading.state.events import event_log
+        from bi_trading.state.orders import armed, config_for, service
+        from bi_trading.state.settings import Settings
+
+        bar = self.strategy_bar
+        market = self.polymarket.market
+        if market is None or len(market.outcomes) < 2:
+            return
+        if not market.is_open() or not market.accepting_orders:
+            return
+        outcome = market.outcomes[0]            # a mean-reversion signal: UP
+        trading = Settings.load().trading
+        today = event_log().counts()["pnl"]
+        chosen = plan(
+            stake=_stake(bar.bet_size()), max_stake=trading.max_stake,
+            daily_loss_limit=trading.daily_loss_limit, today_pnl=today,
+            window=market.slug, last_window=self._autobet.last_window,
+            price=self._bet_price(outcome),
+        )
+        name = bar.strategy()
+        self._autobet.check_limit(
+            today, trading.daily_loss_limit, datetime.date.today().isoformat()
+        )
+        if not chosen.go:
+            bar.set_status(f"auto-bet skipped — {chosen.reason}")
+            return
+        price = self._bet_price(outcome) or 0.0
+        bet = Bet(market.slug, "up", price, chosen.stake, name,
+                  paper=True, end_ms=market.end_ms, token=outcome.token_id)
+        if not (armed() and config_for("polymarket") is not None):
+            self._autobet.place_paper(bet)
+            bar.set_status(f"auto-bet (paper): ${chosen.stake:,.2f} on UP", "ok")
+            return
+
+        from bi_trading.venues.base import Instrument, OrderRequest
+
+        tick = market.tick_size or 0.01
+        order = OrderRequest(
+            instrument=Instrument(
+                venue="polymarket", symbol=outcome.token_id, tick=tick, size_step=0.01
+            ),
+            side="buy", price=_bet_cap(price, tick), size=0.0, notional=chosen.stake,
+        )
+        bet.paper = False
+        self._autobet.track_real(bet)
+        bar.set_status("auto-bet sending…")
+        svc = service()
+        self._hook_service(svc)
+        svc.submit("polymarket", order, config_for("polymarket") or {},
+                   origin="auto", strategy=name)
 
     def _on_bet_placed(self, venue: str, summary: str) -> None:
         if venue == "polymarket":
@@ -515,8 +734,19 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        # Sign in to Polymarket now, when live orders are on, so the first bet
+        # does not pay for it. A no-op for a dry run.
+        from bi_trading.state.orders import armed
+
+        if armed():
+            from bi_trading.state.orders import service
+
+            service().warm("polymarket")
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._settle_timer.stop()
+        if self._settler is not None:
+            self._settler.stop()
         if self._owns_feed:
             self.feed.stop()
         if self._owns_polymarket:
@@ -532,3 +762,12 @@ def _read_warmup() -> int:
     except (OSError, ValueError, TypeError):  # a missing or unreadable file
         log.debug("could not read the warm-up setting", exc_info=True)
         return 0
+
+
+def _read_auto_bet() -> bool:
+    from bi_trading.state.settings import Settings
+
+    try:
+        return bool(Settings.load().trading.auto_bet)
+    except (OSError, ValueError, TypeError):
+        return False

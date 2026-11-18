@@ -95,7 +95,7 @@ def test_native_and_python_random_entries_agree() -> None:
     draws = [0.01, 0.9, 0.02, 0.9, 0.9, 0.01, 0.9, 0.9]
 
     native = core.random_entries(highs, lows, closes, draws, 2.0, 1.0, 90, 0.03)
-    python = core._python_random_entries(
+    python, _ = core._python_random_entries(
         highs, lows, closes, draws, 2.0, 1.0, 90, 0.03
     )
 
@@ -678,3 +678,56 @@ def test_a_trade_can_open_in_one_chunk_and_close_in_a_later_one() -> None:
     )
     (trade,) = second[0]
     assert (trade[0], trade[2], trade[7]) == (1, 8, "tp")  # whole-span indices
+
+
+def _random_series(size: int = 600):
+    import random
+
+    rng = random.Random(7)
+    closes, price = [], 100.0
+    for _ in range(size):
+        price *= 1.0 + rng.uniform(-0.01, 0.01)
+        closes.append(price)
+    highs = [c * 1.004 for c in closes]
+    lows = [c * 0.996 for c in closes]
+    draws = [rng.random() for _ in range(size)]
+    return highs, lows, closes, draws
+
+
+def _chunked_random(highs, lows, closes, draws, cuts, short=False, native=True):
+    """The baseline's entries walked in pieces, each fed only the draws it can use."""
+    import bi_trading.engine.core as c
+
+    saved = c._NATIVE
+    c._NATIVE = native and saved
+    try:
+        out, state, start, used = [], None, 0, 0
+        for stop in [*cuts, len(closes)]:
+            piece = slice(start, stop)
+            entries, state = c.random_entries_chunk(
+                highs[piece], lows[piece], closes[piece], draws[used:used + (stop - start)],
+                1.0, 0.5, 5, 0.1, short, start, state,
+            )
+            used += state[3]
+            out.extend(entries)
+            start = stop
+        return out
+    finally:
+        c._NATIVE = saved
+
+
+def test_random_entries_in_pieces_equal_one_whole_pass() -> None:
+    import pytest
+
+    highs, lows, closes, draws = _random_series()
+    for short in (False, True):
+        whole = core.random_entries(highs, lows, closes, draws, 1.0, 0.5, 5, 0.1, short)
+        assert any(whole)
+        for cuts in ([], [1], [100], [3, 17, 18, 400], list(range(50, 600, 50))):
+            for native in (False, True):
+                if native and not core.available():
+                    continue
+                assert _chunked_random(
+                    highs, lows, closes, draws, cuts, short, native
+                ) == whole, (short, cuts, native)
+    assert pytest is not None

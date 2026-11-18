@@ -69,12 +69,15 @@ class TradeForm(QWidget):
 
         size_label = QLabel("Size (USD)")
         size_label.setObjectName("gl")
-        self.size = QLineEdit(f"${defaults.size:,.0f}")
-        self.size.setObjectName("numberEdit")
-        self.size.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.size.textChanged.connect(self._refresh)
+        self.size_field = QLineEdit(f"${defaults.size:,.0f}")
+        self.size_field.setObjectName("numberEdit")
+        self.size_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.size_field.textChanged.connect(self._refresh)
+        # `size` is the name the rest of the app (and the tests) use for the
+        # field; it shadows QWidget.size(), which nothing here calls.
+        self.size = self.size_field  # type: ignore[method-assign,assignment]
         top.addWidget(size_label, 0, 0)
-        top.addWidget(self.size, 0, 1)
+        top.addWidget(self.size_field, 0, 1)
 
         shortcuts = QHBoxLayout()
         shortcuts.setContentsMargins(0, 0, 0, 0)
@@ -165,7 +168,7 @@ class TradeForm(QWidget):
     # -- values ------------------------------------------------------------
 
     def set_size_share(self, percent: int) -> None:
-        self.size.setText(f"${BASE_USD * percent / 100:,.0f}")
+        self.size_field.setText(f"${BASE_USD * percent / 100:,.0f}")
 
     def set_price(self, price: float | None) -> None:
         self.price = price
@@ -175,13 +178,13 @@ class TradeForm(QWidget):
         return int(self.leverage.value())
 
     def margin(self) -> float:
-        return _size(self.size.text()) / max(1, self.leverage.value())
+        return _size(self.size_field.text()) / max(1, self.leverage.value())
 
     def open_position(self, side: str) -> None:
         self._position = {
             "side": side,
             "leverage": self.leverage.value(),
-            "size": _size(self.size.text()),
+            "size": _size(self.size_field.text()),
             "entry": self.price,
         }
         store().set(self._position)
@@ -223,7 +226,7 @@ class TradeForm(QWidget):
         from bi_trading.state.settings import Settings
 
         price = self.price
-        usd = _size(self.size.text())
+        usd = _size(self.size_field.text())
         if not price or price <= 0:
             self._status("waiting for a price…")
             return
@@ -264,7 +267,7 @@ class TradeForm(QWidget):
             svc.placed.connect(self._on_placed)
             svc.failed.connect(self._on_failed)
             self._wired = True
-        svc.submit("hyperliquid", order, config_for("hyperliquid"))
+        svc.submit("hyperliquid", order, config_for("hyperliquid") or {})
 
     def _confirm(self, side: str, usd: float, price: float) -> bool:
         verb = "Buy" if side == "LONG" else "Sell"

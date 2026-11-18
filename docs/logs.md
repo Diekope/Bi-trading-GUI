@@ -42,6 +42,9 @@ user's own, and the figures above the table come from it.
 | `REJECTED` | the venue refused it, or the call failed; the reason is in the details |
 | `OPENED` / `CLOSED` | a paper position opens or closes; a close carries its PnL |
 | `SIGNAL` | the strategy's signal turns true (with why it did) |
+| `ARMED` / `DISARMED` | the Auto-bet box is ticked or cleared |
+| `RESOLVED` | an auto-bet's window ended; carries the bet's result (see Auto-bet) |
+| `LIMIT` | 70% of the daily loss limit is gone (once a day) |
 | `LATENCY` | a venue's round trip crosses 250 ms, and when it recovers |
 | `CONNECTION` | a feed connects, drops or reconnects |
 
@@ -64,3 +67,42 @@ how many there are:
   when you ask for older events or export.
 
 **Clear** removes both files.
+
+## Icons
+
+Where the app used coloured dots it now draws the venue's own mark — Hyperliquid's
+mint mark and Polymarket's — on the rail, the Home balance cards, the Settings
+headers and latency pills, and the Source column here. The files are in
+`src/bi_trading/ui/assets/venues/` (taken from each venue's site; they are the
+venues' trademarks, used only to say which venue a number belongs to).
+Polymarket's is black on transparent, so it is tinted white for the dark UI; if
+a file is missing the old dot is drawn. `src/bi_trading/ui/venue_icons.py` loads
+and caches them. Warnings and errors use a triangle and a crossed circle from
+the rail's stroke-icon set instead of the `●` and `▼` glyphs.
+
+## Auto-bet
+
+The **Auto-bet** box in the terminal's strategy bar (off by default; its starting
+state is the `auto_bet` setting) bets UP on its own when the strategy's signal turns
+true. The rules are in `src/bi_trading/state/autobet.py`:
+
+- One bet per five-minute window, however long the signal stays true.
+- The stake is the bar's size, capped at the **max stake**; never under $1.
+- Nothing once today's net result is down by the **daily loss limit**
+  (Settings → Trading defaults); a `LIMIT` warning at 70% of it.
+- A **real order** only when live orders are armed *and* Polymarket is connected,
+  with no confirm dialog (it cannot wait for one). Otherwise it is a **paper bet**:
+  nothing is sent, but it is logged and settled like a real one, so a strategy can
+  be judged without risk. Both carry the strategy's name, so the Strategy filter
+  shows its own orders and results.
+- When the window ends the bet is settled from BTC against the window's opening
+  target: UP wins at or above it. A share pays $1, so a win is
+  `stake / price − stake` and a loss is the stake. Polymarket settles on its own
+  price, so this is an estimate; a real bet's result is marked `≈ … · estimated`.
+  Results count towards the Day PnL, and towards the daily loss limit.
+- A **real** bet is not settled from BTC. The stake and price are the venue's own fill
+  (shares and dollars from its answer), and the result waits for **Polymarket's own
+  settlement**: every 15 seconds the terminal asks Gamma (public, no key) how each
+  finished window closed, and logs `RESOLVED … settled by Polymarket` once it says. Only
+  if that has not come 10 minutes after the window ended does the bet fall back to the
+  BTC estimate, marked `≈ … · estimated`. Paper bets are still settled from BTC.

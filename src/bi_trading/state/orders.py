@@ -25,7 +25,13 @@ from bi_trading.state.accounts import (
     polymarket_builder,
 )
 from bi_trading.venues import get_venue
-from bi_trading.venues.base import Instrument, OrderRequest, VenueError, friendly_message
+from bi_trading.venues.base import (
+    Instrument,
+    OrderRequest,
+    Venue,
+    VenueError,
+    friendly_message,
+)
 from bi_trading.venues.runner import AsyncRunner
 import contextlib
 
@@ -79,11 +85,78 @@ class OrderService(QObject):
     busy = Signal(str, bool)    # venue, in-flight?
     balance_ready = Signal(str, float)   # venue, free USDC
     balance_failed = Signal(str, str)    # venue, the reason
+    filled = Signal(str, str, str, float, float)  # venue, token, side, shares, dollars
+    holdings_changed = Signal()          # the shares held moved
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._runner = AsyncRunner("orders")
         self._runner.start()
+        # One signed-in client per venue, kept open: building it costs a key
+        # derivation, a handshake and a credentials round trip, which is most of
+        # what an order used to take. Touched only on the runner's loop.
+        self._adapters: dict[str, tuple[str, Venue]] = {}
+        # Shares held per Polymarket token, from the fills seen this session.
+        self._held: dict[str, float] = {}
+
+    # -- the warm client ---------------------------------------------------
+
+    async def _adapter(self, venue: str, config: dict) -> Venue:
+        """The venue's open client, built and connected once and then reused.
+
+        A different account (the config changed) replaces it.
+        """
+        key = repr(sorted(config.items(), key=lambda item: item[0]))
+        cached = self._adapters.get(venue)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        if cached is not None:
+            with contextlib.suppress(Exception):
+                await cached[1].close()
+            self._adapters.pop(venue, None)
+        adapter = get_venue(venue, **config)
+        await adapter.connect()
+        self._adapters[venue] = (key, adapter)
+        return adapter
+
+    async def _drop(self, venue: str) -> None:
+        """Forget a client that may have gone bad, so the next order rebuilds it."""
+        cached = self._adapters.pop(venue, None)
+        if cached is not None:
+            with contextlib.suppress(Exception):
+                await cached[1].close()
+
+    def warm(self, venue: str) -> None:
+        """Sign in ahead of the first order, so that one is as fast as the next.
+
+        Does nothing unless live orders are armed and the venue is connected.
+        """
+        config = config_for(venue)
+        if config is None or not armed():
+            return
+        self._runner.submit(self._warm(venue, config))
+
+    async def _warm(self, venue: str, config: dict) -> None:
+        try:
+            await self._adapter(venue, config)
+        except Exception as exc:  # a warm-up that fails just means a cold first order
+            log.info("%s warm-up failed: %s", venue, exc)
+
+    def held(self, token: str) -> float:
+        """Shares of a Polymarket token bought and not yet sold this session."""
+        return self._held.get(token, 0.0)
+
+    def _note_fill(self, venue: str, order: OrderRequest, ack) -> None:
+        if ack.shares <= 0:
+            return
+        token = order.instrument.symbol
+        sign = 1.0 if order.side == "buy" else -1.0
+        if venue == "polymarket":
+            self._held[token] = max(0.0, self._held.get(token, 0.0) + sign * ack.shares)
+            if self._held[token] < 1e-6:
+                self._held.pop(token, None)
+            self.holdings_changed.emit()
+        self.filled.emit(venue, token, order.side, ack.shares, ack.dollars)
 
     def submit(
         self, venue: str, order: OrderRequest, config: dict, origin: str = "manual",
@@ -109,20 +182,15 @@ class OrderService(QObject):
         self._runner.submit(self._fetch_balance(venue, config))
 
     async def _fetch_balance(self, venue: str, config: dict) -> None:
-        adapter = None
         try:
-            adapter = get_venue(venue, **config)
-            await adapter.connect()
+            adapter = await self._adapter(venue, config)
             balances = await adapter.balances()
             free = balances[0].free if balances else 0.0
             self.balance_ready.emit(venue, float(free))
         except Exception as exc:  # the SDKs raise a wide variety of types
             log.warning("%s balance check failed: %s", venue, exc)
+            await self._drop(venue)
             self.balance_failed.emit(venue, f"{type(exc).__name__}: {exc}"[:140])
-        finally:
-            if adapter is not None:
-                with contextlib.suppress(Exception):
-                    await adapter.close()
 
     async def _place(
         self, venue: str, order: OrderRequest, config: dict, origin: str = "manual",
@@ -130,14 +198,13 @@ class OrderService(QObject):
     ) -> None:
         from bi_trading.state.events import event_log
 
-        adapter = None
         started = time.perf_counter()
         try:
-            adapter = get_venue(venue, **config)
-            await adapter.connect()
+            adapter = await self._adapter(venue, config)
             ack = await adapter.submit(order)
             took = (time.perf_counter() - started) * 1000.0
             if ack.accepted:
+                self._note_fill(venue, order, ack)
                 log.info("%s order accepted: %s", venue, _summary(order, ack))
                 matched = ack.detail.startswith(("matched", "filled"))
                 event_log().record(
@@ -167,15 +234,23 @@ class OrderService(QObject):
                 origin, strategy,
                 request=[*_request_lines(order), f"error: {text[:240]}"],
             )
+            # The client may be what failed (a dropped connection, expired
+            # credentials): rebuild it for the next order rather than guess.
+            await self._drop(venue)
             self.failed.emit(venue, text[:240])
         finally:
-            if adapter is not None:
-                with contextlib.suppress(Exception):
-                    await adapter.close()
             self.busy.emit(venue, False)
 
     def shutdown(self) -> None:
+        # Sign the warm clients out before the loop goes, if it still can.
+        if self._adapters:
+            with contextlib.suppress(Exception):
+                self._runner.submit(self._close_all()).result(timeout=2.0)
         self._runner.stop()
+
+    async def _close_all(self) -> None:
+        for venue in list(self._adapters):
+            await self._drop(venue)
 
 
 def _request_text(order: OrderRequest) -> str:

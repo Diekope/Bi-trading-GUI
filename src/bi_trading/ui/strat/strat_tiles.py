@@ -124,7 +124,8 @@ class DownloadTile(Card):
 
         self.resolution = ResolutionPicker(self._defaults.timeframe)
         self.resolution.setToolTip(
-            "Bars are stored at 1m; this is what the run compacts them to"
+            "Bars are stored at 1m; this is what the run compacts them to "
+            "(keys 1-6 pick one)"
         )
         self.body.addWidget(self.resolution)
 
@@ -180,6 +181,14 @@ class DownloadTile(Card):
             int(self.end_year.currentText()),
             self.resolution.current(),
         )
+
+    def pick_resolution(self, index: int) -> bool:
+        """Choose the `index`th resolution, as clicking its pill would."""
+        button = self.resolution.group.button(index)
+        if button is None:
+            return False
+        button.click()
+        return True
 
     def set_span(self, start: int, end: int, resolution: str) -> None:
         """Point the picker at a saved run's span and resolution."""

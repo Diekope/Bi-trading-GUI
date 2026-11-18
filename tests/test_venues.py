@@ -354,3 +354,40 @@ def test_what_polymarket_said_is_kept_when_it_names_a_deposit_wallet() -> None:
     text = friendly_message(Exception("maker not allowed: use the deposit wallet flow"))
     assert "maker not allowed: use the deposit wallet flow" in text
     assert "blank" in text.lower()
+
+
+def test_a_sell_takes_the_bids_at_once_with_a_price_floor() -> None:
+    calls: list[dict] = []
+
+    class FakeClient:
+        async def place_market_order(self, **kwargs):
+            calls.append(kwargs)
+            return types.SimpleNamespace(
+                ok=True, order_id="0xsell", status="matched",
+                making_amount=4.0, taking_amount=2.1,   # gave 4 shares, got $2.10
+            )
+
+    order = OrderRequest(
+        instrument=Instrument(venue="polymarket", symbol=TOKEN, tick=0.01, size_step=0.01),
+        side="sell", price=0.49, size=4.0, market=True,
+    )
+    ack = asyncio.run(_venue_with(FakeClient()).submit(order))
+
+    assert calls == [
+        {"token_id": TOKEN, "side": "SELL", "shares": 4.0, "min_price": 0.49,
+         "order_type": "FAK"}
+    ]
+    assert (ack.shares, ack.dollars) == (4.0, 2.1)
+    assert ack.detail == "matched · 4 shares → $2.10"
+
+
+def test_a_buy_reports_the_shares_and_dollars_it_got() -> None:
+    class FakeClient:
+        async def place_market_order(self, **kwargs):
+            return types.SimpleNamespace(
+                ok=True, order_id="0xbet", status="matched",
+                making_amount=2.0, taking_amount=3.85,
+            )
+
+    ack = asyncio.run(_venue_with(FakeClient()).submit(_bet()))
+    assert (ack.shares, ack.dollars) == (3.85, 2.0)

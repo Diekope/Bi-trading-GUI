@@ -18,7 +18,7 @@ from bi_trading.state.accounts import (
     set_secret,
 )
 from bi_trading.state.settings import Settings, save_trading_defaults, TradingDefaults
-from bi_trading.venues.base import OrderAck, OrderRequest
+from bi_trading.venues.base import Instrument, OrderAck, OrderRequest
 
 
 @pytest.fixture
@@ -121,7 +121,7 @@ def test_the_service_places_and_reports(monkeypatch) -> None:
 
     assert seen and seen[0][0] == "hyperliquid"
     assert "Buy" in seen[0][1]
-    assert holder["venue"].connected and holder["venue"].closed
+    assert holder["venue"].connected and holder["venue"].closed  # signed out at shutdown, not after the order
     assert holder["venue"].placed == [order]
 
 
@@ -329,3 +329,108 @@ def test_a_failed_order_is_kept_in_the_log(monkeypatch, caplog) -> None:
         svc.shutdown()
 
     assert any("the wallet does not exist" in record.getMessage() for record in caplog.records)
+
+
+class _CountingVenue:
+    built = 0
+
+    def __init__(self) -> None:
+        type(self).built += 1
+        self.closed = False
+
+    async def connect(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def submit(self, order):
+        return OrderAck("oid", accepted=True, detail="matched · 2 shares for $1.00",
+                        shares=2.0, dollars=1.0)
+
+    async def balances(self):
+        return []
+
+
+def test_orders_reuse_one_signed_in_client(monkeypatch) -> None:
+    _CountingVenue.built = 0
+    monkeypatch.setattr(orders, "get_venue", lambda name, **kw: _CountingVenue())
+    svc = orders.OrderService()
+    order = OrderRequest(
+        instrument=orders.HL_BTC, side="buy", price=0.5, size=0.0, notional=1.0
+    )
+
+    async def three() -> None:
+        for _ in range(3):
+            await svc._place("polymarket", order, {"k": 1})
+
+    try:
+        asyncio.run(three())
+    finally:
+        svc.shutdown()
+
+    assert _CountingVenue.built == 1       # not one per order
+
+
+def test_a_new_account_replaces_the_client(monkeypatch) -> None:
+    _CountingVenue.built = 0
+    monkeypatch.setattr(orders, "get_venue", lambda name, **kw: _CountingVenue())
+    svc = orders.OrderService()
+
+    async def two() -> None:
+        first = await svc._adapter("polymarket", {"k": 1})
+        await svc._adapter("polymarket", {"k": 1})
+        await svc._adapter("polymarket", {"k": 2})
+        assert first.closed
+
+    try:
+        asyncio.run(two())
+    finally:
+        svc.shutdown()
+    assert _CountingVenue.built == 2
+
+
+def test_a_failure_rebuilds_the_client_next_time(monkeypatch) -> None:
+    _CountingVenue.built = 0
+    monkeypatch.setattr(orders, "get_venue", lambda name, **kw: _CountingVenue())
+    svc = orders.OrderService()
+    order = OrderRequest(
+        instrument=orders.HL_BTC, side="buy", price=0.5, size=0.0, notional=1.0
+    )
+
+    async def run() -> None:
+        await svc._place("polymarket", order, {})
+        adapter = svc._adapters["polymarket"][1]
+
+        async def boom(_order):
+            raise RuntimeError("socket closed")
+
+        adapter.submit = boom
+        await svc._place("polymarket", order, {})
+        assert "polymarket" not in svc._adapters and adapter.closed
+        await svc._place("polymarket", order, {})
+
+    try:
+        asyncio.run(run())
+    finally:
+        svc.shutdown()
+    assert _CountingVenue.built == 2
+
+
+def test_fills_keep_count_of_the_shares_held(monkeypatch) -> None:
+    monkeypatch.setattr(orders, "get_venue", lambda name, **kw: _CountingVenue())
+    svc = orders.OrderService()
+    filled: list = []
+    svc.filled.connect(lambda *args: filled.append(args))
+    instrument = Instrument(venue="polymarket", symbol="tok", tick=0.01, size_step=0.01)
+    buy = OrderRequest(instrument=instrument, side="buy", price=0.5, size=0.0, notional=1.0)
+    sell = OrderRequest(instrument=instrument, side="sell", price=0.4, size=2.0, market=True)
+
+    try:
+        asyncio.run(svc._place("polymarket", buy, {}))
+        assert svc.held("tok") == 2.0
+        asyncio.run(svc._place("polymarket", sell, {}))
+        assert svc.held("tok") == 0.0
+    finally:
+        svc.shutdown()
+    assert filled[0] == ("polymarket", "tok", "buy", 2.0, 1.0)

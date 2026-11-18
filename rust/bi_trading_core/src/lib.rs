@@ -500,6 +500,10 @@ fn walk_chunk(
     Ok((trades, equity, end.into()))
 }
 
+/// Where the coin-flip baseline stands between chunks: in a position, its entry
+/// price and index, and how many draws the last piece used.
+type RandomState = (bool, f64, i64, usize);
+
 #[pyfunction]
 #[pyo3(signature = (highs, lows, closes, draws, tp, sl, max_hold, chance, short=false))]
 #[allow(clippy::too_many_arguments)]
@@ -514,36 +518,85 @@ fn random_entries(
     chance: f64,
     short: bool,
 ) -> PyResult<Vec<bool>> {
-    let highs = highs.as_slice()?;
-    let lows = lows.as_slice()?;
-    let closes = closes.as_slice()?;
-    let draws = draws.as_slice()?;
+    let (entries, _) = run_random(
+        highs.as_slice()?,
+        lows.as_slice()?,
+        closes.as_slice()?,
+        draws.as_slice()?,
+        tp, sl, max_hold, chance, short, 0, (false, 0.0, 0, 0),
+    );
+    Ok(entries)
+}
+
+/// `random_entries` for one piece of a longer span: `offset` is its first bar's
+/// index in the whole span and `state` what the piece before it ended in
+/// (`None` to begin). `draws` holds the next uniforms in the stream, at least
+/// as many as the piece has bars. Returns the entries and the state to go on from.
+#[pyfunction]
+#[pyo3(signature = (highs, lows, closes, draws, tp, sl, max_hold, chance, short=false, offset=0, state=None))]
+#[allow(clippy::too_many_arguments)]
+fn random_entries_chunk(
+    highs: PyReadonlyArray1<f64>,
+    lows: PyReadonlyArray1<f64>,
+    closes: PyReadonlyArray1<f64>,
+    draws: PyReadonlyArray1<f64>,
+    tp: f64,
+    sl: f64,
+    max_hold: i64,
+    chance: f64,
+    short: bool,
+    offset: i64,
+    state: Option<RandomState>,
+) -> PyResult<(Vec<bool>, RandomState)> {
+    Ok(run_random(
+        highs.as_slice()?,
+        lows.as_slice()?,
+        closes.as_slice()?,
+        draws.as_slice()?,
+        tp, sl, max_hold, chance, short, offset,
+        state.unwrap_or((false, 0.0, 0, 0)),
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_random(
+    highs: &[f64],
+    lows: &[f64],
+    closes: &[f64],
+    draws: &[f64],
+    tp: f64,
+    sl: f64,
+    max_hold: i64,
+    chance: f64,
+    short: bool,
+    offset: i64,
+    state: RandomState,
+) -> (Vec<bool>, RandomState) {
     let n = closes.len();
+    // `drawn` counts this piece's own draws; the caller adds them up.
+    let (mut in_position, mut entry_price, mut entry_index) = (state.0, state.1, state.2);
+    let mut drawn = 0_usize;
 
     // The coin-flip baseline: one position at a time, a draw on each bar that
     // is flat, exits the same as the walk. `draws` is one uniform per bar, so
     // this matches the Python version draw for draw.
     let mut entries = vec![false; n];
-    let mut in_position = false;
-    let mut entry_price = 0.0_f64;
-    let mut entry_index = 0_i64;
-    let mut drawn = 0_usize;
-
-    for index in 1..n {
+    for local in 0..n {
+        let global = offset + local as i64;
+        if global == 0 {
+            continue;
+        }
         if in_position {
             let (hit_tp, hit_sl) = if short {
                 let target = entry_price * (1.0 - tp / 100.0);
                 let stop = entry_price * (1.0 + sl / 100.0);
-                (tp > 0.0 && lows[index] <= target, sl > 0.0 && highs[index] >= stop)
+                (tp > 0.0 && lows[local] <= target, sl > 0.0 && highs[local] >= stop)
             } else {
                 let target = entry_price * (1.0 + tp / 100.0);
                 let stop = entry_price * (1.0 - sl / 100.0);
-                (tp > 0.0 && highs[index] >= target, sl > 0.0 && lows[index] <= stop)
+                (tp > 0.0 && highs[local] >= target, sl > 0.0 && lows[local] <= stop)
             };
-            if hit_tp
-                || hit_sl
-                || (max_hold > 0 && (index as i64) - entry_index >= max_hold)
-            {
+            if hit_tp || hit_sl || (max_hold > 0 && global - entry_index >= max_hold) {
                 in_position = false;
             }
         } else {
@@ -555,14 +608,14 @@ fn random_entries(
                 1.0
             };
             if draw < chance {
-                entries[index] = true;
+                entries[local] = true;
                 in_position = true;
-                entry_price = closes[index];
-                entry_index = index as i64;
+                entry_price = closes[local];
+                entry_index = global;
             }
         }
     }
-    Ok(entries)
+    (entries, (in_position, entry_price, entry_index, drawn))
 }
 
 #[pymodule]
@@ -570,6 +623,7 @@ fn bi_trading_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(walk, m)?)?;
     m.add_function(wrap_pyfunction!(walk_chunk, m)?)?;
     m.add_function(wrap_pyfunction!(random_entries, m)?)?;
+    m.add_function(wrap_pyfunction!(random_entries_chunk, m)?)?;
     m.add("__version__", "0.1.0")?;
     Ok(())
 }

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from bi_trading.ui.hub.hub_widgets import _accent, _button, _dot, _label
 from bi_trading.ui.palette import DOWN_SOFT
+from bi_trading.ui.venue_icons import venue_mark
 from bi_trading.venues import get_venue
 from bi_trading.venues.base import friendly_message
 from bi_trading.venues.runner import AsyncRunner
@@ -118,7 +119,7 @@ class _ConnectionTester(QObject):
         signer = _signer_address(str(config.get("private_key", "")))
         funder = str(config.get("funder", "")).strip()
         try:
-            kind = int(config.get("signature_type", 0))
+            kind = int(str(config.get("signature_type", 0)))
         except (TypeError, ValueError):
             kind = 0
         # A blank wallet means the V2 deposit-wallet flow: the client acts for
@@ -165,7 +166,7 @@ def _number_text(value: float) -> str:
 
 
 def _read_number(
-    field: QWidget,
+    field: _Holder,
     label: str,
     problems: list[str],
     low: float,
@@ -239,10 +240,10 @@ def _field(
         row.setSpacing(6)
         row.addWidget(edit, 1)
         row.addWidget(show)
-        holder = QWidget()
-        holder.setObjectName("setHolder")
-        holder.setLayout(row)
-        holder = _label_field(text, holder)
+        inner = QWidget()
+        inner.setObjectName("setHolder")
+        inner.setLayout(row)
+        holder = _label_field(text, inner)
         holder.edit = edit
         return holder
 
@@ -282,7 +283,7 @@ def _pill(color: str, name: str, ms: float | None, *, lent: bool = False) -> QHB
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(6)
-    row.addWidget(_dot(color, 8))
+    row.addWidget(venue_mark(color, 14))
     label = _label("", "setPill", rich=True)
     row.addWidget(label)
     # Keep the label addressable from the caller.

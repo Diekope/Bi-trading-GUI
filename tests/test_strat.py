@@ -96,7 +96,8 @@ def test_the_top_row_is_the_run_and_its_inputs(app: QApplication, window) -> Non
     assert window.splitter.count() == 2
     assert window.splitter.orientation() == Qt.Orientation.Horizontal
     assert window.splitter.widget(0) is window.left
-    assert window.splitter.widget(1) is window.right
+    assert window.splitter.widget(1) is window.column_scroll
+    assert window.column_scroll.widget() is window.right
     app.processEvents()
     left, right = window.splitter.sizes()
     assert left > right  # the run takes the slack; the column stays narrow
@@ -643,7 +644,7 @@ def test_the_gallery_wraps_by_width(app: QApplication) -> None:
     # window it lives in a narrow column and never reaches its wide layout.
     tile = ParamsTile()
     tile.show()
-    assert len(tile._elements) == 13
+    assert len(tile._elements) == 12
 
     tile.resize(WIDE_AT + 40, tile.height())
     app.processEvents()
@@ -821,3 +822,178 @@ def test_picking_a_venue_fills_its_costs_and_typing_leaves_custom(
     tile.set_params({"fee": 0.0, "slippage": 0.0})
     assert tile.venue.currentText() == "Polymarket"
     assert tile.fee_field.text() == "0"
+
+
+# -- overlaying a saved run ---------------------------------------------------
+
+
+def _saved_run(window, app, monkeypatch, tmp_path, name: str) -> None:
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
+    window.left.set_source([], "1m")
+    window.left.restart()
+    window.left.finish(wait=True)
+    window.save_run.save_requested.emit(name)
+    app.processEvents()
+
+
+def test_a_saved_runs_curve_can_be_laid_over_the_current_one(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    from bi_trading.state import runs
+
+    _saved_run(window, app, monkeypatch, tmp_path, "first")
+    stored = runs.read_curves("first")[0]
+    assert window.results.curve.overlay == []
+    assert window.results.legend["overlay"].isHidden() is True
+
+    window.load_run.picker.setCurrentText("first")
+    window.load_run.overlay_button.setChecked(True)
+
+    overlay = window.results.curve.overlay
+    assert len(overlay) == len(stored)
+    assert overlay[0] == 0.0                                # a return from its start
+    assert overlay[-1] == pytest.approx((stored[-1] / stored[0] - 1.0) * 100.0)
+    assert window.results.legend["overlay"].isHidden() is False
+    assert "overlay: first" in window.results.legend["overlay"].text()
+    assert window.load_run.overlay_button.text() == "Remove overlay"
+
+    window.load_run.overlay_button.setChecked(False)
+    assert window.results.curve.overlay == []
+    assert window.results.legend["overlay"].isHidden() is True
+    assert window.load_run.overlay_button.text() == "Overlay"
+
+
+def test_picking_another_run_moves_the_overlay(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    _saved_run(window, app, monkeypatch, tmp_path, "alpha")
+    window.save_run.save_requested.emit("beta")
+    app.processEvents()
+    window.load_run.picker.setCurrentText("alpha")
+    window.load_run.overlay_button.setChecked(True)
+    assert "alpha" in window.results.legend["overlay"].text()
+
+    window.load_run.picker.setCurrentText("beta")
+    assert "beta" in window.results.legend["overlay"].text()
+
+
+def test_a_run_with_no_stored_curve_says_so_instead_of_overlaying(
+    app: QApplication, window, monkeypatch, tmp_path
+) -> None:
+    from bi_trading.state import runs
+
+    monkeypatch.setenv("BI_TRADING_RUNS", str(tmp_path / "runs.json"))
+    runs.save(runs.SavedRun(name="bare"))                  # no trades, no curves
+    window.load_run.refresh()
+    window.load_run.picker.setCurrentText("bare")
+
+    window.load_run.overlay_button.setChecked(True)
+    assert window.results.curve.overlay == []
+    assert "no stored curve" in window.load_run.note.text()
+
+
+def test_the_overlay_widens_the_scale_and_is_resampled() -> None:
+    from bi_trading.ui.strat.strat_results import _resample
+
+    assert _resample([1.0, 2.0, 3.0], 10) == [1.0, 2.0, 3.0]    # short: untouched
+    long = [float(i) for i in range(1_000)]
+    cut = _resample(long, 100)
+    assert len(cut) == 100 and cut[0] == 0.0 and cut[-1] == 999.0
+
+
+# -- keyboard shortcuts -------------------------------------------------------
+
+
+def _press(window, key) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+    window.keyPressEvent(event)
+
+
+def test_space_runs_pauses_and_resumes(app: QApplication, window) -> None:
+    window.left.set_source([], "1m")
+    assert window.left.playing() is False
+
+    _press(window, Qt.Key.Key_Space)             # the first press starts the walk
+    assert window.left.playing() is True
+    assert window.left.run_button.text() == "Pause"
+
+    _press(window, Qt.Key.Key_Space)
+    assert window.left.playing() is False
+    assert window.left.run_button.text() == "Resume"
+
+    _press(window, Qt.Key.Key_Space)
+    assert window.left.playing() is True
+    window.left.pause()
+
+
+def test_r_restarts_the_walk(app: QApplication, window) -> None:
+    window.left.set_source([], "1m")
+    window.left.restart()
+    window.left.pause()
+    for _ in range(20):
+        window.left.session.advance()
+    assert window.left.playback.index > 0
+
+    _press(window, Qt.Key.Key_R)
+    assert window.left.playback.index < 20       # started over
+    window.left.pause()
+
+
+@pytest.mark.parametrize(("key", "resolution"), [
+    (Qt.Key.Key_1, "1m"), (Qt.Key.Key_2, "3m"), (Qt.Key.Key_3, "5m"),
+    (Qt.Key.Key_4, "15m"), (Qt.Key.Key_5, "30m"), (Qt.Key.Key_6, "1h"),
+])
+def test_digits_pick_the_resolution(app: QApplication, window, key, resolution) -> None:
+    _press(window, key)
+    assert window.download.span()[2] == resolution
+
+
+def test_a_digit_typed_into_a_field_does_not_change_the_resolution(
+    app: QApplication, window
+) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    window.show()
+    window.params.tp_field.setFocus()
+    before = window.download.span()[2]
+    # A focused line edit takes the key itself; it never reaches the window.
+    event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_5, Qt.KeyboardModifier.NoModifier, "5")
+    window.params.tp_field.keyPressEvent(event)
+    assert event.isAccepted()
+    assert window.download.span()[2] == before
+
+
+def test_a_modified_key_is_left_alone(app: QApplication, window) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    before = window.download.span()[2]
+    event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_5, Qt.KeyboardModifier.ControlModifier)
+    window.keyPressEvent(event)
+    assert window.download.span()[2] == before
+    assert window.left.playing() is False
+
+
+def test_the_buttons_say_their_keys(app: QApplication, window) -> None:
+    assert "Space" in window.left.run_button.toolTip()
+    assert "(R)" in window.left.restart_button.toolTip()
+    assert "1-6" in window.download.resolution.toolTip()
+
+
+def test_a_short_window_scrolls_the_column_instead_of_squeezing_it(
+    app: QApplication, window
+) -> None:
+    window.resize(1180, 700)
+    window.show()
+    app.processEvents()
+    # The row is shorter than the tiles need, so the column keeps its height…
+    assert window.column_scroll.height() < window.right.height()
+    assert window.right.height() >= window.right.minimumSizeHint().height()
+    # …and no tile is squeezed under what its own contents need.
+    for tile in (window.download, window.params, window.strategy):
+        assert tile.height() >= tile.minimumSizeHint().height()
+    assert window.column_scroll.verticalScrollBar().maximum() > 0

@@ -1197,13 +1197,21 @@ def bettable(window: MainWindow, monkeypatch):
             class Signals(QObject):
                 placed = Signal(str, str)
                 failed = Signal(str, str)
+                filled = Signal(str, str, str, float, float)
+                holdings_changed = Signal()
 
             self.signals = Signals()
             self.placed = self.signals.placed
             self.failed = self.signals.failed
+            self.filled = self.signals.filled
+            self.holdings_changed = self.signals.holdings_changed
+            self.shares: dict[str, float] = {}
 
-        def submit(self, venue, order, config) -> None:
+        def submit(self, venue, order, config, *args, **kwargs) -> None:
             sent.append((venue, order, config))
+
+        def held(self, token) -> float:
+            return self.shares.get(token, 0.0)
 
     service = FakeService()
     monkeypatch.setattr(orders, "service", lambda: service)
@@ -1295,3 +1303,202 @@ def test_a_market_with_no_quotes_falls_back_to_the_outcome_price(
     )
     bettable.polymarket.set_market(bare)
     assert bettable._bet_price(bare.outcomes[1]) == pytest.approx(0.5)
+
+
+# -- auto-bet -----------------------------------------------------------------
+
+
+@pytest.fixture
+def auto_window(window: MainWindow, monkeypatch, tmp_path):
+    """A window with a live market, its own event log and a recording order service."""
+    import dataclasses
+
+    from PySide6.QtCore import QObject, Signal
+
+    from bi_trading.state import events, orders
+    from bi_trading.state.autobet import AutoBet
+    from bi_trading.state.events import EventLog
+
+    log = EventLog(tmp_path / "events.jsonl")
+    monkeypatch.setattr(events, "_log", log)
+    window._autobet = AutoBet(log)
+    window.polymarket.set_market(market_from_gamma())
+    window.strategy_bar.size.setText("$2")
+    sent: list = []
+
+    class Signals(QObject):
+        placed = Signal(str, str)
+        failed = Signal(str, str)
+        filled = Signal(str, str, str, float, float)
+        holdings_changed = Signal()
+
+    class Service:
+        signals = Signals()
+        placed = signals.placed
+        failed = signals.failed
+        filled = signals.filled
+        holdings_changed = signals.holdings_changed
+
+        def held(self, token) -> float:
+            return 0.0
+
+        def submit(self, venue, order, config, origin="manual", strategy="") -> None:
+            sent.append((venue, order, origin, strategy))
+
+    monkeypatch.setattr(orders, "service", lambda: Service())
+    monkeypatch.setattr(orders, "config_for", lambda venue: {"private_key": "k"})
+    monkeypatch.setattr(orders, "armed", lambda: False)
+    monkeypatch.setattr(window.feed, "request_window", lambda *a, **k: None)
+    window.sent, window.log = sent, log
+    window.next_market = lambda: dataclasses.replace(
+        window.polymarket.market, slug="btc-updown-5m-next"
+    )
+    return window
+
+
+def test_auto_bet_is_off_by_default(auto_window: MainWindow) -> None:
+    assert auto_window.strategy_bar.auto_bet() is False
+
+
+def test_arming_auto_bet_is_logged(auto_window: MainWindow) -> None:
+    auto_window.strategy_bar.auto.setChecked(True)
+    auto_window.strategy_bar.auto.setChecked(False)
+
+    kinds = [(e.kind, e.source, e.origin) for e in auto_window.log.events()]
+    assert kinds == [("ARMED", "strategy", "manual"), ("DISARMED", "strategy", "manual")]
+    assert "auto-bet on" in auto_window.log.events()[0].message
+
+
+def test_without_armed_orders_an_auto_bet_is_a_paper_bet(auto_window: MainWindow) -> None:
+    auto_window._auto_bet()
+
+    assert auto_window.sent == []                         # nothing was sent
+    assert len(auto_window._autobet.open) == 1
+    bet = auto_window._autobet.open[0]
+    assert (bet.side, bet.stake, bet.paper) == ("up", 2.0, True)
+    kinds = [e.kind for e in auto_window.log.events()]
+    assert kinds == ["ORDER", "FILLED"]
+    assert all(e.origin == "auto" and "paper" in e.message for e in auto_window.log.events())
+    assert "paper" in auto_window.strategy_bar.status.text()
+
+
+def test_armed_and_connected_an_auto_bet_is_a_real_order_without_a_dialog(
+    auto_window: MainWindow, monkeypatch
+) -> None:
+    from bi_trading.state import orders
+
+    monkeypatch.setattr(orders, "armed", lambda: True)
+    monkeypatch.setattr(
+        "bi_trading.ui.main_window.QMessageBox.question",
+        lambda *a, **k: pytest.fail("an auto-bet must not ask"),
+    )
+    auto_window._auto_bet()
+
+    ((venue, order, origin, strategy),) = auto_window.sent
+    assert venue == "polymarket" and origin == "auto"
+    assert strategy == auto_window.strategy_bar.strategy()
+    assert order.instrument.symbol == UP_TOKEN
+    assert order.notional == 2.0
+    assert auto_window._autobet.open[0].paper is False
+
+
+def test_only_one_bet_a_window(auto_window: MainWindow) -> None:
+    auto_window._auto_bet()
+    auto_window._auto_bet()
+    auto_window._auto_bet()
+
+    assert len(auto_window._autobet.open) == 1
+    assert "already bet" in auto_window.strategy_bar.status.text()
+
+
+def test_the_stake_is_capped_at_the_max_stake(auto_window: MainWindow, monkeypatch) -> None:
+    from bi_trading.state.settings import Settings
+
+    auto_window.strategy_bar.size.setText("$5000")
+    auto_window._auto_bet()
+    assert auto_window._autobet.open[0].stake == Settings.load().trading.max_stake
+
+
+def test_no_bet_below_the_minimum_stake(auto_window: MainWindow) -> None:
+    auto_window.strategy_bar.size.setText("$0.5")
+    auto_window._auto_bet()
+
+    assert auto_window._autobet.open == []
+    assert "smallest bet" in auto_window.strategy_bar.status.text()
+
+
+def test_the_daily_loss_limit_stops_auto_bets_and_warns(auto_window: MainWindow) -> None:
+    auto_window.log.record("info", "polymarket", "RESOLVED", "lost", "auto", pnl=-150.0)
+    auto_window._auto_bet()                     # 75% of the $200 limit: warns, still bets
+    assert [e.kind for e in auto_window.log.events() if e.kind == "LIMIT"] == ["LIMIT"]
+    assert len(auto_window._autobet.open) == 1
+
+    auto_window.log.record("info", "polymarket", "RESOLVED", "lost", "auto", pnl=-60.0)
+    auto_window._autobet.last_window = ""        # a fresh window
+    auto_window._auto_bet()                      # $210 lost: over the limit
+    assert len(auto_window._autobet.open) == 1   # no second bet
+    assert "daily loss limit" in auto_window.strategy_bar.status.text()
+    assert sum(e.kind == "LIMIT" for e in auto_window.log.events()) == 1   # warned once a day
+
+
+def test_a_closed_market_is_not_bet_on(auto_window: MainWindow, monkeypatch) -> None:
+    monkeypatch.setattr(type(auto_window.polymarket.market), "is_open", lambda self, now=None: False)
+    auto_window._auto_bet()
+    assert auto_window._autobet.open == []
+
+
+def test_a_paper_bet_resolves_when_the_window_rolls(auto_window: MainWindow) -> None:
+    auto_window._auto_bet()
+    auto_window.polymarket.target = 100_000.0
+    auto_window.polymarket.set_btc(100_050.0)            # finished above its open: UP
+
+    auto_window._on_polymarket_market(auto_window.next_market())
+
+    resolved = [e for e in auto_window.log.events() if e.kind == "RESOLVED"]
+    assert len(resolved) == 1
+    assert "UP won" in resolved[0].message and "paper" in resolved[0].message
+    assert resolved[0].pnl is not None and resolved[0].pnl > 0
+    assert resolved[0].strategy == auto_window.strategy_bar.strategy()
+    assert auto_window._autobet.open == []
+    assert auto_window.log.counts()["pnl"] == pytest.approx(resolved[0].pnl)
+
+
+def test_a_lost_bet_costs_its_stake(auto_window: MainWindow) -> None:
+    auto_window._auto_bet()
+    auto_window.polymarket.target = 100_000.0
+    auto_window.polymarket.set_btc(99_900.0)             # finished below: DOWN won
+
+    auto_window._on_polymarket_market(auto_window.next_market())
+
+    (resolved,) = [e for e in auto_window.log.events() if e.kind == "RESOLVED"]
+    assert "DOWN won" in resolved.message
+    assert resolved.pnl == pytest.approx(-2.0)
+
+
+def test_a_window_without_a_price_cannot_be_settled_yet(auto_window: MainWindow) -> None:
+    auto_window._auto_bet()
+    auto_window.polymarket.target = None
+    auto_window._on_polymarket_market(auto_window.next_market())
+    assert not any(e.kind == "RESOLVED" for e in auto_window.log.events())
+    assert len(auto_window._autobet.open) == 1           # kept for the next try
+
+
+def test_the_signal_turning_true_places_the_auto_bet_only_when_ticked(
+    auto_window: MainWindow, monkeypatch
+) -> None:
+    state = {"holds": False}
+    monkeypatch.setattr(
+        auto_window.strategy_bar, "set_reading", lambda *a, **k: state["holds"]
+    )
+    auto_window._refresh_strategy_bar()                   # quiet
+
+    state["holds"] = True
+    auto_window._refresh_strategy_bar()                   # rose, but the box is off
+    assert auto_window._autobet.open == []
+
+    auto_window._signal_on = False
+    auto_window.strategy_bar.auto.setChecked(True)
+    auto_window._refresh_strategy_bar()                   # rose with the box on
+    assert len(auto_window._autobet.open) == 1
+    auto_window._refresh_strategy_bar()                   # still true: no second bet
+    assert len(auto_window._autobet.open) == 1

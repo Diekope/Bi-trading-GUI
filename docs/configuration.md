@@ -88,3 +88,33 @@ The file rotates at a megabyte, keeping three. `httpx`, `websockets` and
 output at `INFO` is rarely what is wanted. A second `setup()` is a no-op rather
 than a second handler, and any console handler a library installed first is
 dropped.
+
+## Look and layout
+
+**Theme.** There is one, dark. Its colours are in `ui/theme_colors.py` and the sheet in
+`ui/theme_qss.py` (and its parts).
+
+**Layout memory.** The splitters remember where they were left: the terminal's
+two columns and the backtest window's two splits are saved (as ratios, so a
+different window size keeps the same split) a moment after you stop dragging, under
+`layout` in the settings file. The hub window's size is saved on quit, as before,
+and the standalone windows (`bi-trading`, `bi-trading-strat`, `bi-trading-builder`)
+keep theirs too. The terminal reopens on the timeframe it was left on, and the Logs
+table keeps the widths its columns were dragged to. A damaged `layout` entry is ignored
+and the default layout is used. The builder's three columns are locked, so there is
+nothing of theirs to keep.
+
+**Keyboard.** Press **?** or **F1** (outside a text field) for the list, with the
+view you are in first; it is the same list as here.
+
+| Where | Keys |
+| --- | --- |
+| Everywhere | **Ctrl+1 … Ctrl+5** Home, Live, Builder, Backtest, Logs · **Ctrl+,** Settings |
+| Live | **1–6** timeframe · **← →** pan (Shift: ten) · **↑ ↓** zoom · **Home / End / 0** |
+| Backtest | **Space** run, pause, resume · **R** restart · **1–6** resolution |
+| Builder | **Ctrl+S** save · **Ctrl+N** fresh draft · **Alt+1/2/3** Rules · Formula · Code |
+| Logs | **Ctrl+F** or **/** search · **Esc** clear it · **Ctrl+P** pause · **Ctrl+E** export · **Ctrl+Shift+Backspace** clear the log |
+
+The backtest keys act only when no field has focus, so typing a digit into a field is
+left alone. Clear has no confirm, which is why its key is hard to hit by accident.
+The terminal keeps its own **1–6** for the card timeframe.

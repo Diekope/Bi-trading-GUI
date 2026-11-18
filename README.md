@@ -51,7 +51,9 @@ Open work is tracked in [TODO.md](TODO.md).
 
 ```sh
 uv run ruff check src tests
+uv run mypy                         # the whole tree, Qt modules included
 uv run pytest -q -n auto            # headless: no network, no sockets
+UPDATE_GOLDEN=1 uv run pytest tests/test_visual.py   # redraw the screenshot goldens
 uv run python tools/screenshots.py  # regenerate docs/images offscreen
 ```
 
