@@ -140,6 +140,29 @@ is refused before anything is unpickled. Even so, do not drop a file from somewh
 trust into the models folder. Deleting an ML strategy in the builder deletes its model, unless
 another strategy still uses it, and saving will not replace a strategy that is not this model's.
 
+## Live: the terminal's strategy bar
+
+Saved ML strategies are listed in the Live view's strategy picker as `ML · name`. Picking one
+moves the chart to the model's timeframe, and the bar then shows the model's **P(up)** where the
+Bollinger band was, and `UP`, `DOWN` or `FALSE` as the signal.
+
+- **The call** is the model scored on the newest **closed** bar. The bar still forming is left
+  out, because a backtest only sees closed bars. It is scored once per bar. With too few bars,
+  a hole in the recent ones, or a feature not ready, there is no call and the bar says why.
+- **The side** is `UP` at P(up) at or above the strategy's upper threshold and `DOWN` at or below
+  the lower one. A long-only strategy never bets down, a short-only one never bets up.
+- **Min edge** now applies here: UP needs P(up) minus the UP ask to reach it, DOWN needs
+  (1 minus P(up)) minus the DOWN ask. Below it the bar says `edge +0.02 is below 0.05`. With no
+  price there is no bet when an edge is asked for.
+- **Auto-bet** takes the call through the same path as the Bollinger one: at most one bet per
+  five-minute window, the max stake, the daily loss limit, and a **paper** bet unless live orders
+  are armed and Polymarket is connected. It fires when the side turns on and again on each new
+  bar that still calls it. Every call is logged as a signal with its reasons.
+
+A model's P(up) is a probability over its own horizon. Polymarket's window is five minutes, so
+the edge is a like-for-like comparison only for a **5m model with a horizon of 1**; for any other
+the bar says how far ahead the model looks. Test a model in paper mode before arming real orders.
+
 ## Elsewhere in the app
 
 Home has an **ML strategies** card listing them with their model's return on its test part, and

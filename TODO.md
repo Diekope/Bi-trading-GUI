@@ -22,10 +22,10 @@ log and the run log all exist.
   today; add a range (week, all) and a per-strategy summary.
 
 ## ML
-- [med] **Auto-bet from `model_p`, and Min edge.** Live auto-bet is the Bollinger signal only. It
-  needs a rolling window of live bars at the model's timeframe, a score, and the comparison with
-  the Polymarket price that *Min edge vs market price* describes (saved with the model, unused).
-  It touches the real order path, so it was left out on purpose until it is asked for.
+- [med] **Auto-sell for ML bets.** A model bet holds to settlement; let a model flip, or a call
+  that turns back inside its thresholds, sell early through the fast path.
+- [low] **Live scoring off the main thread.** A call is computed once per bar on the GUI thread;
+  a large custom network could make that bar visibly slow.
 - [low] **Walk-forward for custom networks.** Only built-in models retrain through time; a
   torch network would need a warm start per stretch to stay tractable.
 - [low] **Other markets.** Training reads the BTC store only; Hyperliquid candles for other

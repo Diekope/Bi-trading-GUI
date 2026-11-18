@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -205,6 +206,12 @@ class MainWindow(QMainWindow):
         self._settle_timer.timeout.connect(self._settle_real)
         self._settle_timer.start()
         self._settled.connect(self._on_settled)
+        self._ml_side: str | None = None
+        self._ml_cache: tuple | None = None
+        self._ml_status = ""
+        self._ml_item: Any = None   # the picked ML strategy, read when it is picked
+        self.strategy_bar.picker.currentTextChanged.connect(self._on_strategy_picked)
+        self._refresh_ml_choices()
         self.strategy_bar.auto.setChecked(_read_auto_bet())
         self.strategy_bar.auto.toggled.connect(self._on_auto_toggled)
         layout.addWidget(self.strategy_bar)
@@ -379,6 +386,9 @@ class MainWindow(QMainWindow):
         bar = getattr(self, "strategy_bar", None)
         if bar is None:
             return
+        if bar.ml_name():
+            self._refresh_ml(bar)
+            return
         candles = getattr(self.main_card.chart, "_candles", ())
         close = candles[-1].c if candles else None
         band = None
@@ -404,6 +414,117 @@ class MainWindow(QMainWindow):
         bar.set_bets(
             self.polymarket.up_tile.price, self.polymarket.down_tile.price
         )
+
+    # -- an ML strategy on the live chart ------------------------------------
+
+    def _refresh_ml_choices(self) -> None:
+        from bi_trading.state import strategies
+
+        saved = [s for s in strategies.load() if s.model]
+        self.strategy_bar.set_ml_choices([s.name for s in saved])
+        name = self.strategy_bar.ml_name()
+        self._ml_item = next((s for s in saved if s.name == name), None)
+
+    def _on_strategy_picked(self, text: str) -> None:
+        """A strategy was picked: an ML one moves the chart to its timeframe."""
+        self._ml_side = None
+        self._ml_cache = None
+        self._ml_status = ""
+        self._refresh_ml_choices()      # the file is read here, not on every tick
+        name = self.strategy_bar.ml_name()
+        if not name:
+            return
+        from bi_trading.ml import store
+        from bi_trading.ml.live import horizon_note
+        from bi_trading.ml.train import MLError
+
+        item = self._ml_item
+        try:
+            trained = store.load_model(item.model) if item else None
+        except MLError as exc:
+            self.strategy_bar.set_status(str(exc), "error")
+            return
+        if trained is None:
+            return
+        if self.main_card.interval != trained.config.timeframe:
+            self.main_card.set_interval(trained.config.timeframe)
+        note = horizon_note(trained)
+        self.strategy_bar.set_status(note or f"{name}: reading {trained.config.timeframe} bars")
+
+    def _refresh_ml(self, bar: StrategyBar) -> None:
+        """The saved model's call on the newest closed bar, and a bet if it fires."""
+        from bi_trading.ml import live, store
+        from bi_trading.ml.train import MLError
+        from bi_trading.state.events import event_log
+
+        name = bar.ml_name()
+        candles = getattr(self.main_card.chart, "_candles", ())
+        close = candles[-1].c if candles else None
+        item = self._ml_item
+        if item is None:
+            bar.set_ml_reading(close, None, None, "gone")
+            self._say_ml(f"{name} is not saved any more")
+            return
+        try:
+            trained = store.load_model(item.model)
+        except MLError as exc:
+            bar.set_ml_reading(close, None, None, "error")
+            self._say_ml(str(exc), error=True)
+            return
+        config = trained.config
+        if self.main_card.interval != config.timeframe:
+            bar.set_ml_reading(close, None, None, f"needs {config.timeframe}")
+            self._say_ml(f"{name} reads {config.timeframe} bars, the chart is on {self.main_card.interval}", error=True)
+            return
+        # The model's answer only changes when a bar closes: score once per bar.
+        key = (item.model, trained.trained_at, candles[-1].t if candles else 0, len(candles))
+        new_bar = self._ml_cache is None or self._ml_cache[0] != key
+        if new_bar:
+            try:
+                call = live.live_call(trained, candles, int(time.time() * 1000))
+            except MLError as exc:
+                bar.set_ml_reading(close, None, None, "error")
+                self._say_ml(str(exc), error=True)
+                return
+            self._ml_cache = (key, call)
+        assert self._ml_cache is not None
+        call = self._ml_cache[1]
+
+        market = self.polymarket.market
+        asks: list[float | None] = [None, None]
+        if market is not None and len(market.outcomes) >= 2 and market.is_open():
+            asks = [self._bet_price(market.outcomes[0]), self._bet_price(market.outcomes[1])]
+        decision = live.decide(call.p, config.up, config.down, config.min_edge, asks[0], asks[1])
+        side = decision.side
+        if side == "up" and item.side == "short" or side == "down" and item.side == "long":
+            side, decision = None, live.Decision(reason=f"{item.side} strategy: no {side} bets")
+        bar.set_ml_reading(close, call.p, side, call.reason)
+        if call.p is None:
+            self._say_ml(call.reason)
+        elif side is None:
+            self._say_ml(decision.reason)
+        # A call fires when the side turns on, and again for every new bar that
+        # still calls it: the model answers once per bar, and the bet is at most one
+        # per window anyway.
+        rose = side is not None and (side != self._ml_side or new_bar)
+        self._ml_side = side
+        if rose and side is not None:
+            edge = f" · edge {decision.edge:+.2f}" if decision.edge is not None else ""
+            event_log().record(
+                "info", "strategy", "SIGNAL",
+                f"{name} · P(up) {call.p:.2f} → {side.upper()}{edge}",
+                "auto", strategy=name,
+                why=[f"P(up) {call.p:.2f}", f"thresholds {config.down:.2f} / {config.up:.2f}", f"→ {side.upper()}"],
+            )
+            if bar.auto_bet():
+                self._auto_bet(side)
+        bar.set_bets(self.polymarket.up_tile.price, self.polymarket.down_tile.price)
+
+    def _say_ml(self, text: str, error: bool = False) -> None:
+        """Show a reason on the bar once, not on every tick."""
+        if text != self._ml_status:
+            self._ml_status = text
+            self.strategy_bar.set_status(text, "error" if error else "info")
 
     # -- betting -----------------------------------------------------------
 
@@ -581,8 +702,8 @@ class MainWindow(QMainWindow):
             "manual", name,
         )
 
-    def _auto_bet(self) -> None:
-        """The signal fired with Auto-bet on: bet UP, within the rules.
+    def _auto_bet(self, side: str = "up") -> None:
+        """The signal fired with Auto-bet on: bet `side`, within the rules.
 
         Real only when live orders are armed and Polymarket is connected, with no
         confirm dialog (it cannot wait for one); otherwise a paper bet.
@@ -600,7 +721,7 @@ class MainWindow(QMainWindow):
             return
         if not market.is_open() or not market.accepting_orders:
             return
-        outcome = market.outcomes[0]            # a mean-reversion signal: UP
+        outcome = market.outcomes[0 if side == "up" else 1]  # Bollinger calls UP only
         trading = Settings.load().trading
         today = event_log().counts()["pnl"]
         chosen = plan(
@@ -617,11 +738,11 @@ class MainWindow(QMainWindow):
             bar.set_status(f"auto-bet skipped — {chosen.reason}")
             return
         price = self._bet_price(outcome) or 0.0
-        bet = Bet(market.slug, "up", price, chosen.stake, name,
+        bet = Bet(market.slug, side, price, chosen.stake, name,
                   paper=True, end_ms=market.end_ms, token=outcome.token_id)
         if not (armed() and config_for("polymarket") is not None):
             self._autobet.place_paper(bet)
-            bar.set_status(f"auto-bet (paper): ${chosen.stake:,.2f} on UP", "ok")
+            bar.set_status(f"auto-bet (paper): ${chosen.stake:,.2f} on {side.upper()}", "ok")
             return
 
         from bi_trading.venues.base import Instrument, OrderRequest
@@ -734,6 +855,7 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        self._refresh_ml_choices()
         # Sign in to Polymarket now, when live orders are on, so the first bet
         # does not pay for it. A no-op for a dry run.
         from bi_trading.state.orders import armed

@@ -104,4 +104,4 @@ jobs:
         run: uv sync --extra ml
 
       - name: The ML tests
-        run: uv run pytest tests/test_ml_features.py tests/test_ml_spec.py tests/test_ml_train.py tests/test_ml_integration.py tests/test_ml_ui.py -q
+        run: uv run pytest tests/test_ml_*.py -q
