@@ -7,8 +7,16 @@ side, or into the reason there is none, by the strategy's two thresholds and the
 model's *min edge* against Polymarket's price.
 
 A model's P(up) is a probability over its own horizon (`horizon` bars of its
-timeframe). Polymarket's window is five minutes, so the edge is only a like for like
-comparison for a 5m model with a horizon of 1; `horizon_note` says so otherwise.
+timeframe), counted from the close of the bar it was made on. A Polymarket window
+asks whether BTC ends five minutes above where the window opened, so a call is a
+call on that window only when two things hold, and `window_reason` checks both:
+
+* the horizon is five minutes (5m x 1, 1m x 5, 15m is too long, and so on), and
+* the call was made on the bar that closed exactly as the window opened, so its
+  horizon is the window itself and not a stretch that began earlier.
+
+A 5m model stays valid for the whole window; a 1m model only for the first minute.
+Otherwise there is no bet, and the bar says why.
 
 Qt-free; scikit-learn and torch are imported only when a model scores.
 """
@@ -28,7 +36,18 @@ from bi_trading.ml.train import (
     TrainedModel,
 )
 
-__all__ = ["Decision", "LiveCall", "decide", "horizon_note", "live_call"]
+__all__ = [
+    "Decision",
+    "LiveCall",
+    "WINDOW_MINUTES",
+    "decide",
+    "horizon_minutes",
+    "horizon_note",
+    "live_call",
+    "window_reason",
+]
+
+WINDOW_MINUTES = 5   # the Polymarket up/down window
 
 # Bars handed to the features: the longest look-back, a network's window, and room.
 MIN_BARS = LOOKBACK + INPUT_BARS + 40
@@ -118,13 +137,38 @@ def decide(
     return Decision(side=side, edge=edge)
 
 
+def horizon_minutes(timeframe: str, horizon: int) -> int:
+    """How far ahead a model looks, in minutes."""
+    return TIMEFRAME_MINUTES.get(timeframe, 1) * int(horizon)
+
+
 def horizon_note(trained: TrainedModel) -> str:
     """A caution when the model's horizon is not Polymarket's five minutes."""
     config = trained.config
-    minutes = TIMEFRAME_MINUTES.get(config.timeframe, 1) * config.horizon
-    if minutes == 5:
+    minutes = horizon_minutes(config.timeframe, config.horizon)
+    if minutes == WINDOW_MINUTES:
         return ""
     return (
         f"the model looks {minutes} min ahead ({config.horizon} x {config.timeframe}), "
-        "not this 5-minute window"
+        f"not this {WINDOW_MINUTES}-minute window: no bets"
     )
+
+
+def window_reason(trained: TrainedModel, call_stamp: int, window_start_ms: int) -> str:
+    """Why this call is not a call on this window, or "" when it is.
+
+    `call_stamp` is the open time of the bar the call was made on; that bar must
+    close exactly as the window opens.
+    """
+    config = trained.config
+    note = horizon_note(trained)
+    if note:
+        return note
+    step = TIMEFRAME_MINUTES.get(config.timeframe, 1) * 60_000
+    ends = call_stamp + step
+    if ends == window_start_ms:
+        return ""
+    if ends < window_start_ms:
+        return "the model has no call for this window yet"
+    minutes = (ends - window_start_ms) / 60_000
+    return f"this call was made {minutes:g} min into the window: waiting for the next one"

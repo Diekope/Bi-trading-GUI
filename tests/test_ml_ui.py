@@ -533,3 +533,20 @@ def test_every_training_setting_comes_back_with_a_saved_model(app, market) -> No
         assert again.retrain.text() == "3" and again.walk_forward.isChecked()
     finally:
         again.close()
+
+
+def test_the_builder_says_how_far_ahead_the_model_looks(app, no_candles) -> None:
+    widget = view(app)
+    try:
+        widget.timeframe.setCurrentText("5m")
+        widget.horizon.setText("1")
+        widget.horizon.editingFinished.emit()
+        assert "5 min ahead" in widget.horizon_note.text() and "can use it" in widget.horizon_note.text()
+        widget.timeframe.setCurrentText("1m")
+        widget.horizon.setText("5")
+        widget.horizon.editingFinished.emit()
+        assert "can use it" in widget.horizon_note.text()
+        widget.timeframe.setCurrentText("15m")
+        assert "75 min ahead" in widget.horizon_note.text() and "backtests only" in widget.horizon_note.text()
+    finally:
+        widget.close()

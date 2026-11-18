@@ -333,6 +333,8 @@ class MLBuilderView(QWidget):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         layout.addLayout(grid)
+        self.horizon_note = label("", "mlCaption", wrap=True)
+        layout.addWidget(self.horizon_note)
         self.balance = label("Class balance: shown after training", "mlCaption")
         layout.addWidget(self.balance)
 
@@ -680,8 +682,25 @@ class MLBuilderView(QWidget):
         self._add_feature(key, name, True)
         self._features_changed()
 
+    def _refresh_horizon(self) -> None:
+        """Say how far ahead the model looks, and whether live bets can use it."""
+        from bi_trading.ml.live import WINDOW_MINUTES, horizon_minutes
+
+        horizon = int(read_number(self.horizon, 5, 1, 500))
+        minutes = horizon_minutes(self.timeframe.currentText(), horizon)
+        if minutes == WINDOW_MINUTES:
+            self.horizon_note.setText(
+                f"Looks {minutes} min ahead: the Polymarket window, so live auto-bet can use it."
+            )
+        else:
+            self.horizon_note.setText(
+                f"Looks {minutes} min ahead. Live auto-bet needs {WINDOW_MINUTES} min "
+                f"(5m x 1 or 1m x 5); this one backtests only."
+            )
+
     def _invalidate(self, *_args) -> None:
         """An input changed: the shown results no longer describe the controls."""
+        self._refresh_horizon()
         self._refresh_name()
 
     def _on_name_edited(self, _text: str) -> None:

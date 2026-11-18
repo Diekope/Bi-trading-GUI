@@ -159,9 +159,20 @@ Bollinger band was, and `UP`, `DOWN` or `FALSE` as the signal.
   are armed and Polymarket is connected. It fires when the side turns on and again on each new
   bar that still calls it. Every call is logged as a signal with its reasons.
 
-A model's P(up) is a probability over its own horizon. Polymarket's window is five minutes, so
-the edge is a like-for-like comparison only for a **5m model with a horizon of 1**; for any other
-the bar says how far ahead the model looks. Test a model in paper mode before arming real orders.
+**The horizon must be the window.** A model's P(up) is a probability over its own horizon,
+counted from the close of the bar it was made on, and a Polymarket window asks whether BTC ends
+five minutes above where it opened. So a call is a call on a window only if:
+
+- the model looks **five minutes** ahead (`5m` x 1, or `1m` x 5; the ML builder says how far ahead
+  it looks next to the horizon field), and
+- the call was made on the bar that **closed exactly as the window opened**.
+
+A 5m model stays valid for the whole window; a 1m model only for the window's first minute. Any
+other horizon, or a call made later in the window, gets no bet and the bar says why (`the model
+looks 15 min ahead (3 x 5m), not this 5-minute window: no bets`, `this call was made 3 min into
+the window: waiting for the next one`); the P(up) is still shown. The edge compares the model's
+probability from the window's open with the ask now, so it is a rough guide late in a window.
+Test a model in paper mode before arming real orders.
 
 ## Elsewhere in the app
 

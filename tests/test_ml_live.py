@@ -146,11 +146,13 @@ def ml_window(auto_window, trained, monkeypatch, tmp_path):  # noqa: F811
     monkeypatch.setenv("BI_TRADING_STRATEGIES", str(tmp_path / "strategies.json"))
     model, columns, stamps = trained
     model.config.up, model.config.down, model.config.min_edge = 0.6, 0.4, 0.0
+    model.config.timeframe, model.config.horizon = "5m", 1    # a model that looks at the window
     store.save_model(model, "live ml")
-    strategies.save(SavedStrategy("live ml", "1m", "model_p >= 0.6", "", "both", "model_p <= 0.4", "live ml"))
+    strategies.save(SavedStrategy("live ml", "5m", "model_p >= 0.6", "", "both", "model_p <= 0.4", "live ml"))
     bars = bars_of(columns, stamps, 600)
     auto_window.main_card.chart._candles = tuple(bars)
-    auto_window.main_card.interval = "1m"
+    auto_window.main_card.interval = "5m"
+    _WINDOW["start"] = auto_window.polymarket.market.start_ms
     auto_window.strategy_bar.auto.setChecked(True)
     auto_window._refresh_ml_choices()
     auto_window.strategy_bar.picker.setCurrentText("ML · live ml")
@@ -158,10 +160,15 @@ def ml_window(auto_window, trained, monkeypatch, tmp_path):  # noqa: F811
     return auto_window
 
 
+_WINDOW: dict = {}
+
+
 def call_with(monkeypatch, p):
+    """A call on the bar that closed as the live window opened."""
     from bi_trading.ml import live
 
-    monkeypatch.setattr(live, "live_call", lambda *a, **k: live.LiveCall(p=p, stamp=1))
+    stamp = _WINDOW["start"] - 300_000
+    monkeypatch.setattr(live, "live_call", lambda *a, **k: live.LiveCall(p=p, stamp=stamp))
 
 
 def test_saved_ml_strategies_join_the_picker(ml_window) -> None:
@@ -174,12 +181,17 @@ def test_picking_one_moves_the_chart_to_its_timeframe_and_warns_about_the_horizo
     from bi_trading.ml import store
 
     model = store.load_model("live ml")
-    model.config.timeframe = "5m"
+    model.config.timeframe, model.config.horizon = "1m", 5
     store.save_model(model, "live ml")
     ml_window.strategy_bar.picker.setCurrentText("Random buy")
     ml_window.strategy_bar.picker.setCurrentText("ML · live ml")
-    assert ml_window.main_card.interval == "5m"
-    assert "5-minute window" in ml_window.strategy_bar.status.text() or "reading 5m" in ml_window.strategy_bar.status.text()
+    assert ml_window.main_card.interval == "1m"
+    assert "reading 1m bars" in ml_window.strategy_bar.status.text()
+    model.config.horizon = 2                      # 2 minutes: not the window
+    store.save_model(model, "live ml")
+    ml_window.strategy_bar.picker.setCurrentText("Random buy")
+    ml_window.strategy_bar.picker.setCurrentText("ML · live ml")
+    assert "2 min ahead" in ml_window.strategy_bar.status.text() and "no bets" in ml_window.strategy_bar.status.text()
 
 
 def test_a_call_over_the_threshold_bets_up_on_paper(ml_window, monkeypatch) -> None:
@@ -259,7 +271,7 @@ def test_the_wrong_timeframe_is_said_not_guessed(ml_window, monkeypatch) -> None
     ml_window.main_card.interval = "15m"
     ml_window._refresh_strategy_bar()
     assert ml_window._autobet.open == []
-    assert "reads 1m bars" in ml_window.strategy_bar.status.text()
+    assert "reads 5m bars" in ml_window.strategy_bar.status.text()
 
 
 def test_a_real_call_on_the_real_model_runs_end_to_end(ml_window) -> None:
@@ -273,3 +285,77 @@ def test_a_built_in_strategy_still_reads_the_band(ml_window) -> None:
     ml_window.strategy_bar.picker.setCurrentText("Bollinger reversion")
     ml_window._refresh_strategy_bar()
     assert ml_window.strategy_bar.band_caption.text() == "band"
+
+
+# -- the horizon against the Polymarket window -------------------------------------------
+
+def _model(trained, timeframe, horizon):
+    model, _, _ = trained
+    model.config.timeframe, model.config.horizon = timeframe, horizon
+    return model
+
+
+def test_a_five_minute_horizon_is_a_call_on_the_window_it_closed_into(trained) -> None:
+    from bi_trading.ml.live import window_reason
+
+    five = _model(trained, "5m", 1)
+    start = 1_700_000_100_000
+    assert window_reason(five, start - 300_000, start) == ""          # the bar that closed at the open
+    assert "no call for this window yet" in window_reason(five, start - 600_000, start)
+    assert "5 min into the window" in window_reason(five, start, start)   # a bar that closes after the open
+
+
+def test_a_call_from_an_earlier_bar_is_not_a_call_on_this_window(trained) -> None:
+    from bi_trading.ml.live import window_reason
+
+    one = _model(trained, "1m", 5)                                    # 5 minutes ahead too
+    start = 1_700_000_100_000
+    assert window_reason(one, start - 60_000, start) == ""            # the first minute
+    late = window_reason(one, start + 120_000, start)                 # made two minutes in
+    assert "3 min into the window" in late
+    assert "no call for this window yet" in window_reason(one, start - 180_000, start)
+
+
+def test_any_other_horizon_never_bets(trained) -> None:
+    from bi_trading.ml.live import horizon_note, window_reason
+
+    for timeframe, horizon in (("1m", 1), ("5m", 3), ("15m", 1), ("1m", 20)):
+        model = _model(trained, timeframe, horizon)
+        assert "no bets" in horizon_note(model)
+        assert "no bets" in window_reason(model, 0, 300_000)
+    _model(trained, "1m", 1)
+
+
+def test_the_terminal_does_not_bet_on_a_model_whose_horizon_is_not_the_window(ml_window, monkeypatch) -> None:
+    from bi_trading.ml import store
+
+    model = store.load_model("live ml")
+    model.config.timeframe, model.config.horizon = "1m", 3   # 3 minutes ahead
+    ml_window.main_card.interval = "1m"
+    store.save_model(model, "live ml")
+    call_with(monkeypatch, 0.9)
+    ml_window._refresh_strategy_bar()
+    assert ml_window._autobet.open == []
+    assert "no bets" in ml_window.strategy_bar.status.text()
+    assert ml_window.strategy_bar.band_label.text() == "0.90"         # still shown
+
+
+def test_the_terminal_bets_only_on_the_call_made_as_the_window_opened(ml_window, monkeypatch) -> None:
+    import dataclasses
+
+    from bi_trading.ml import live
+
+    start = ml_window.polymarket.market.start_ms
+    monkeypatch.setattr(live, "live_call", lambda *a, **k: live.LiveCall(p=0.9, stamp=start - 300_000))
+    ml_window._refresh_strategy_bar()
+    assert len(ml_window._autobet.open) == 1                          # the call is on this window
+
+    ml_window._autobet.open.clear()
+    ml_window._autobet.last_window = ""
+    ml_window._ml_cache = None
+    ml_window._ml_side = None
+    monkeypatch.setattr(live, "live_call", lambda *a, **k: live.LiveCall(p=0.9, stamp=start - 600_000))
+    ml_window._refresh_strategy_bar()
+    assert ml_window._autobet.open == []
+    assert "no call for this window yet" in ml_window.strategy_bar.status.text()
+    del dataclasses

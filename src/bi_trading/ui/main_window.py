@@ -496,6 +496,11 @@ class MainWindow(QMainWindow):
             asks = [self._bet_price(market.outcomes[0]), self._bet_price(market.outcomes[1])]
         decision = live.decide(call.p, config.up, config.down, config.min_edge, asks[0], asks[1])
         side = decision.side
+        # A call is a call on this window only if its horizon is the window.
+        if side is not None and market is not None:
+            reason = live.window_reason(trained, call.stamp, market.start_ms)
+            if reason:
+                side, decision = None, live.Decision(reason=reason)
         if side == "up" and item.side == "short" or side == "down" and item.side == "long":
             side, decision = None, live.Decision(reason=f"{item.side} strategy: no {side} bets")
         bar.set_ml_reading(close, call.p, side, call.reason)
