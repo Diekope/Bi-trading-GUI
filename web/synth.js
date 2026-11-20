@@ -67,3 +67,19 @@ export const stack = [["LSTM", "64 units"], ["Dropout", "0.2"], ["Dense", "32 un
 export function heat(seed = 9) { const r = rng(seed); return Array.from({ length: 5 }, (_, y) => Array.from({ length: 5 }, (_, x) => +((r() - 0.5) * 6 + (x - y) * 0.4).toFixed(1))); }
 export function trades(n = 12, seed = 21) { const r = rng(seed); return Array.from({ length: n }, (_, i) => { const pnl = (r() - 0.45) * 3, ex = ["Take profit", "Stop loss", "Time"][Math.floor(r() * 3)]; return { n: i + 1, side: r() > 0.5 ? "Long" : "Short", entry: (76 + r()).toFixed(3), pnl: +pnl.toFixed(2), exit: ex }; }); }
 export const histogram = Array.from({ length: 40 }, (_, i) => Math.round(2 + 30 * Math.exp(-((i - 18) ** 2) / 60) + (i === 0 ? 90 : 0) + (i === 39 ? 50 : 0)));
+
+// Log rows shaped like the real screen: latency and connection events, a few orders.
+export function logRows(n = 30, seed = 5) {
+  const r = rng(seed), rows = []; let t = 10 * 3600 + 10 * 60 + 2.098;
+  for (let i = 0; i < n; i++) {
+    t -= 2 + r() * 40; const x = r(), ms = Math.round(50 + r() * 700);
+    const f = (s) => `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0")}`;
+    const venue = r() > 0.5 ? "Polymarket" : "Hyperliquid";
+    if (x < 0.2) rows.push({ time: f(t), level: "WARN", source: "System", origin: "—", event: "CONNECTION", message: `${venue} ${r() > 0.5 ? "reconnecting" : "disconnected"}` });
+    else if (x < 0.35) rows.push({ time: f(t), level: "INFO", source: "System", origin: "—", event: "CONNECTION", message: `${venue} reconnected` });
+    else if (x < 0.45) rows.push({ time: f(t), level: "INFO", source: venue, origin: "Manual", event: "ORDER", message: "UP 82¢ × 5 sent" });
+    else if (x < 0.7) rows.push({ time: f(t), level: "WARN", source: venue, origin: "—", event: "LATENCY", message: `High latency ${Math.max(ms, 260)} ms (limit 250 ms)` });
+    else rows.push({ time: f(t), level: "INFO", source: venue, origin: "—", event: "LATENCY", message: `${venue} latency back to ${Math.min(ms, 240)} ms` });
+  }
+  return rows;
+}

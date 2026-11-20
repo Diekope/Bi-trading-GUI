@@ -10,4 +10,6 @@ Screens (hash routes, rail icons, `Ctrl/Cmd+1..7`): `#home`, `#live`, `#builder`
 - `views.js`: one entry per screen. `chart.js`: canvas drawing. `app.js`: router.
 - Controls with `data-set="key=value"` or `data-flip="key"` change shared state and re-render.
 
+Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `web/assets/`.
+
 Edit here to try a layout, then port the result to the Qt code.
