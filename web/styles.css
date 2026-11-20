@@ -127,3 +127,6 @@ body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
 .stile:hover { border-color: #3a3b41; } .stile.on, .stile.on:hover { border-color: var(--accent); background: var(--accent-bg); }
 .stile.new { place-items: center; border-style: dashed; color: var(--accent); background: none; min-height: 64px; }
 .statrow { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; } .statrow > .card { min-width: 0; }
+/* Tiles on a later line take the whole width: the "new" tile, a lone last tile, and the full-width row tiles. */
+.g2 > .stile.new, .g2 > .stile:nth-last-child(2):nth-child(odd) { grid-column: 1 / -1; }
+.stile.wide { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; }
