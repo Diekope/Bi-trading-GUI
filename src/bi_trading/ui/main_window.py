@@ -200,6 +200,9 @@ class MainWindow(QMainWindow):
         self._autobet = AutoBet(event_log())
         self._official: dict[str, str] = {}     # window -> the side Polymarket settled on
         self._asked: set[str] = set()           # windows being asked about right now
+        # A manual bet's token -> (window, side, window end), noted when it is
+        # sent so its fill can be tracked to the window's resolution.
+        self._manual_orders: dict[str, tuple[str, str, int]] = {}
         self._settler: AsyncRunner | None = None
         self._settle_timer = QTimer(self)
         self._settle_timer.setInterval(SETTLE_EVERY_MS)
@@ -632,6 +635,9 @@ class MainWindow(QMainWindow):
         bar.set_status("sending…")
         svc = service()
         self._hook_service(svc)
+        self._manual_orders[outcome.token_id] = (market.slug, side, market.end_ms)
+        while len(self._manual_orders) > 20:
+            self._manual_orders.pop(next(iter(self._manual_orders)))
         svc.submit("polymarket", order, config_for("polymarket") or {})  # a manual bet
 
     def _hook_service(self, svc) -> None:
@@ -645,8 +651,23 @@ class MainWindow(QMainWindow):
         self._bet_wired = True
 
     def _on_filled(self, venue: str, token: str, side: str, shares: float, dollars: float) -> None:
-        if venue == "polymarket" and side == "buy":
-            self._autobet.fill(token, shares, dollars)
+        if venue != "polymarket":
+            return
+        if side == "sell":
+            self._autobet.sold(token, shares, dollars)
+        elif not self._autobet.fill(token, shares, dollars):
+            # Not an auto-bet's fill: a bet the user placed. Keep it, at the
+            # venue's own stake and price, so its window closes it with the pnl.
+            from bi_trading.state.autobet import Bet
+
+            meta = self._manual_orders.get(token)
+            if meta is not None and shares > 0 and dollars > 0:
+                slug, bet_side, end_ms = meta
+                self._autobet.track_manual(Bet(
+                    slug, bet_side, dollars / shares, dollars, "manual",
+                    paper=False, end_ms=end_ms, token=token, filled=True,
+                    origin="manual",
+                ))
 
     def _show_held(self) -> None:
         from bi_trading.state.orders import service

@@ -128,3 +128,70 @@ def test_the_limit_warning_is_given_once_a_day(app, tmp_path) -> None:
     auto.check_limit(-150.0, 200.0, "2026-11-18")       # next day: warns again
     assert [e.kind for e in log.events()] == ["LIMIT", "LIMIT"]
     assert "75%" in log.events()[0].message
+
+
+def _manual(slug="w1", stake=10.0, price=0.5, token="tok"):
+    return Bet(slug, "up", price, stake, "manual", False, 1_000, token=token,
+               filled=True, origin="manual")
+
+
+def test_a_manual_bet_settles_at_its_window_with_the_pnl_and_origin(app, tmp_path) -> None:
+    log = EventLog(tmp_path / "e.jsonl")
+    auto = AutoBet(log)
+    auto.track_manual(_manual())
+    assert auto.last_window == ""                # it does not use up the window for auto-bets
+    assert auto.resolve("w2", 100.0, 99.0, {"w1": "up"}, now_ms=2_000) == 1
+    (event,) = log.events()
+    assert event.origin == "manual" and event.strategy == "manual"
+    assert event.pnl == 10.0                      # 20 shares at $1, less the $10 stake
+    assert "settled by Polymarket" in event.message
+    assert auto.open == []
+
+
+def test_a_manual_losing_bet_books_the_stake_lost(app, tmp_path) -> None:
+    log = EventLog(tmp_path / "e.jsonl")
+    auto = AutoBet(log)
+    auto.track_manual(_manual(stake=15.0, price=0.6))
+    auto.resolve("w2", 100.0, 99.0, {"w1": "down"}, now_ms=2_000)
+    assert log.events()[0].pnl == -15.0
+
+
+def test_partial_fills_of_one_manual_bet_add_up(app, tmp_path) -> None:
+    auto = AutoBet(EventLog(tmp_path / "e.jsonl"))
+    auto.track_manual(_manual(stake=4.0, price=0.4))      # 10 shares
+    auto.track_manual(_manual(stake=6.0, price=0.6))      # 10 shares
+    (bet,) = auto.open
+    assert bet.stake == pytest.approx(10.0) and bet.shares == pytest.approx(20.0)
+    assert bet.price == pytest.approx(0.5)
+
+
+def test_a_fill_is_claimed_by_an_auto_bet_first(app, tmp_path) -> None:
+    auto = AutoBet(EventLog(tmp_path / "e.jsonl"))
+    auto.track_real(Bet("w1", "up", 0.5, 10.0, "S", False, 0, token="tok"))
+    assert auto.fill("tok", 10.0, 5.0) is True
+    assert auto.fill("tok", 10.0, 5.0) is False           # nothing left waiting for a fill
+
+
+def test_selling_early_books_the_profit_on_those_shares_and_keeps_the_rest(app, tmp_path) -> None:
+    log = EventLog(tmp_path / "e.jsonl")
+    auto = AutoBet(log)
+    auto.track_manual(_manual(stake=10.0, price=0.5))     # 20 shares
+    assert auto.sold("tok", 10.0, 7.0)                    # half sold for $7; half cost $5
+    assert log.events()[0].pnl == pytest.approx(2.0)
+    assert "Sold early" in log.events()[0].message
+    (bet,) = auto.open
+    assert bet.shares == pytest.approx(10.0) and bet.stake == pytest.approx(5.0)
+    # The 10 left settle at the window: a win pays $10 on the $5 they cost.
+    auto.resolve("w2", 100.0, 99.0, {"w1": "up"}, now_ms=2_000)
+    assert sorted(e.pnl for e in log.events()) == pytest.approx([2.0, 5.0])
+    assert auto.open == []
+
+
+def test_selling_everything_closes_the_bet_and_nothing_settles_later(app, tmp_path) -> None:
+    log = EventLog(tmp_path / "e.jsonl")
+    auto = AutoBet(log)
+    auto.track_manual(_manual())
+    assert auto.sold("tok", 20.0, 8.0)
+    assert auto.open == [] and log.events()[0].pnl == pytest.approx(-2.0)
+    assert auto.resolve("w2", 100.0, 99.0, {"w1": "up"}, now_ms=2_000) == 0
+    assert not auto.sold("tok", 1.0, 1.0)                 # nothing held any more

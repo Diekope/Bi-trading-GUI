@@ -79,6 +79,8 @@ FRAME_MS = SETTINGS.frame_ms
 LAG_MS = SETTINGS.lag_ms   # > one sample: the tip always has a future keyframe
 EASE_TIP = SETTINGS.ease_tip
 EASE_RANGE = SETTINGS.ease_range
+TARGET_FADE_S = 0.7   # a new window's target line fades in over this long
+PAST_TARGETS = 4      # finished windows whose target line is still on the chart
 
 
 def time_to_x(
@@ -267,6 +269,10 @@ class PriceChart(QWidget):
         self._lo: float | None = None
         self._hi: float | None = None
         self._tip: float | None = None
+        # The target lines of finished windows, (start, end, target), each kept
+        # where it was drawn so it scrolls away with its own stretch of line.
+        self._past: list[tuple[int, int, float]] = []
+        self._shown_at: float | None = None   # when the current target first appeared
         self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -281,18 +287,43 @@ class PriceChart(QWidget):
         points: list[PricePoint],
         target: float | None,
     ) -> None:
-        """Point the chart at a new window without dropping the history."""
+        """Point the chart at a new window without dropping the history.
+
+        The line carries on across the roll. The finished window's target stays
+        where it was, and the new window starts with no target at all until its
+        own arrives (see `_adopt`), so the old price is never drawn against the
+        new window.
+        """
+        previous = self.market
+        if previous is not None and previous.slug != market.slug:
+            if self.target is not None and previous.end_ms > 0:
+                self._past.append((previous.start_ms, previous.end_ms, self.target))
+                del self._past[:-PAST_TARGETS]
+            self.target = None
+            self._shown_at = None
         self.market = market
         self.points = points
         if target is not None:
-            self.target = target
+            self._adopt(target)
         self.update()
 
     def set_data(self, points: list[PricePoint], target: float | None) -> None:
         self.points = points
         if target is not None:
-            self.target = target
+            self._adopt(target)
         self.update()
+
+    def _adopt(self, target: float) -> None:
+        """Take the window's target; the first time, start its fade-in."""
+        if self.target is None:
+            self._shown_at = time.monotonic()
+        self.target = target
+
+    def _fade(self) -> float:
+        """How much of the current target is showing, 0 to 1."""
+        if self._shown_at is None:
+            return 1.0
+        return max(0.0, min(1.0, (time.monotonic() - self._shown_at) / TARGET_FADE_S))
 
     def _advance(self) -> None:
         if self.market is None or not self.isVisible():
@@ -452,14 +483,25 @@ class PriceChart(QWidget):
 
         above = target is not None and reference >= target
         color = (UP if above else DOWN) if target is not None else ACCENT
+        fade = self._fade()
 
         path = smooth_path(
             [(x_of(stamp), y_of(price)) for stamp, price in series]
         )
 
+        # Finished windows keep their target line where it was drawn: it scrolls
+        # away with its own stretch of line instead of vanishing at the roll.
+        painter.setPen(QPen(_alpha(AMBER, 70), 1, Qt.PenStyle.DashLine))
+        for past_start, past_end, past_target in self._past:
+            first, last = max(start, past_start), min(end, past_end)
+            level = y_of(past_target)
+            if last > first and top <= level <= bottom:
+                painter.drawLine(QLineF(x_of(first), level, x_of(last), level))
+
         # The target and the shaded gap belong to the current window only:
         # older windows had a different opening price, so shading them against
-        # this one would be a lie.
+        # this one would be a lie. Both fade in when the target first arrives.
+        window: list[tuple[int, float]] = []
         if target is not None:
             target_y = y_of(target)
             window = [
@@ -480,7 +522,7 @@ class PriceChart(QWidget):
                 painter.setClipRect(
                     QRectF(left, top, right - left, max(0.0, target_y - top))
                 )
-                painter.fillPath(fill, _alpha(UP, 30))
+                painter.fillPath(fill, _alpha(UP, int(30 * fade)))
                 painter.restore()
                 painter.save()
                 painter.setClipRect(
@@ -491,7 +533,7 @@ class PriceChart(QWidget):
                         max(0.0, bottom - target_y),
                     )
                 )
-                painter.fillPath(fill, _alpha(DOWN, 30))
+                painter.fillPath(fill, _alpha(DOWN, int(30 * fade)))
                 painter.restore()
 
             # The target belongs to the same span as the line: starting it at
@@ -502,13 +544,15 @@ class PriceChart(QWidget):
                 seg_start = max(seg_start, window[0][0])
             seg_end = min(end, market.end_ms if market.end_ms > 0 else end)
             if seg_end > seg_start:
-                painter.setPen(QPen(QColor(AMBER), 1, Qt.PenStyle.DashLine))
+                painter.setPen(
+                    QPen(_alpha(AMBER, int(255 * fade)), 1, Qt.PenStyle.DashLine)
+                )
                 painter.drawLine(
                     QLineF(x_of(seg_start), target_y, x_of(seg_end), target_y)
                 )
                 if x_of(seg_end) - x_of(seg_start) > 70:
                     painter.setFont(mono_font(7))
-                    painter.setPen(QColor(AMBER))
+                    painter.setPen(_alpha(AMBER, int(255 * fade)))
                     painter.drawText(
                         QRectF(x_of(seg_end) - 90, target_y - 13, 88, 12),
                         Qt.AlignmentFlag.AlignRight
@@ -516,15 +560,34 @@ class PriceChart(QWidget):
                         f"open {target:,.1f}",
                     )
 
-        pen = QPen(QColor(color), 1.8)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(path)
+        def stroke(shape: QPainterPath, shade: str, alpha: int = 255) -> None:
+            pen = QPen(_alpha(shade, alpha), 1.8)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(shape)
+
+        # The line is one neutral curve across windows. The current window's
+        # part is drawn over it in green above the target and red below, split
+        # exactly where the price crosses, so it changes colour as it crosses.
+        stroke(path, ACCENT)
+        if target is not None and window:
+            keep = max(0, len(series) - len(window) - 1)   # one sample before, for continuity
+            current = smooth_path(
+                [(x_of(stamp), y_of(price)) for stamp, price in series[keep:]]
+            )
+            for shade, region in (
+                (UP, QRectF(left, top, right - left, max(0.0, target_y - top))),
+                (DOWN, QRectF(left, target_y, right - left, max(0.0, bottom - target_y))),
+            ):
+                painter.save()
+                painter.setClipRect(region)
+                stroke(current, shade, int(255 * fade))
+                painter.restore()
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(color))
+        painter.setBrush(QColor(color if fade >= 1.0 or target is None else ACCENT))
         painter.drawEllipse(QPointF(x_of(end), y_of(reference)), 2.6, 2.6)
 
         # The side and the gap in the header: the answer to the market's
@@ -675,6 +738,7 @@ class PolymarketPanel(Card):
         self.books: dict[str, TokenBook] = {}
         self.points: list[PricePoint] = []
         self.target: float | None = None
+        self._target_slug = ""      # the window `target` belongs to
         self._btc: float | None = None
         self._selected = 0
         self._last_sample = 0
@@ -881,7 +945,7 @@ class PolymarketPanel(Card):
             )
         # The price line keeps rolling across rollovers. Only the book, the
         # tape and the target segment belong to one window.
-        self.price_chart.set_market(market, self.points, self.target)
+        self.price_chart.set_market(market, self.points, self._window_target())
 
         self.question.setText(market.question)
         self.window_label.setText(self._window_text(market))
@@ -934,6 +998,7 @@ class PolymarketPanel(Card):
         if self.market is None or target is None or target <= 0:
             return
         self.target = float(target)
+        self._target_slug = self.market.slug
         self._set_text(self.target_value, f"{self.target:,.1f}")
 
         merged: dict[int, PricePoint] = {}
@@ -945,9 +1010,19 @@ class PolymarketPanel(Card):
         ordered = sorted(merged.values(), key=lambda point: point.timestamp_ms)
         del ordered[:-MAX_POINTS]
         self.points = ordered
-        self.price_chart.set_data(self.points, self.target)
+        self.price_chart.set_data(self.points, self._window_target())
         if self._btc is not None:
             self._update_delta(self._btc)
+
+    def _window_target(self) -> float | None:
+        """The target, only while it is the current window's own.
+
+        After a roll `self.target` still holds the window before until the new
+        one's arrives; the chart must not draw that old price on the new window.
+        """
+        if self.market is not None and self._target_slug == self.market.slug:
+            return self.target
+        return None
 
     def _sample_price(self, price: float) -> None:
         """Record BTC once a second for the reference chart.
@@ -970,7 +1045,7 @@ class PolymarketPanel(Card):
             value = self.points[-1].price + (value - self.points[-1].price) * SMOOTH
         self.points.append(PricePoint(now_ms, value))
         del self.points[:-MAX_POINTS]
-        self.price_chart.set_data(self.points, self.target)
+        self.price_chart.set_data(self.points, self._window_target())
 
     def _update_delta(self, price: float) -> None:
         """Above/below the target, in percent, for the header readouts."""
