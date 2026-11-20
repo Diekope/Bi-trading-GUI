@@ -1,4 +1,4 @@
-import { views, state, draw, normalize, latency } from "./views.js";
+import { views, state, draw, normalize, latency, balances } from "./views.js";
 import { feed, onChange, startHL, startPM, logEvent } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -16,6 +16,7 @@ const tail = [
 ];
 const keys = ["home", "portfolio", "live", "builder", "backtest", "ml", "logs", "settings"];
 const titles = { home: "Home", portfolio: "Portfolio", live: "Live", builder: "Strategy builder", backtest: "Backtest engine", ml: "ML strategy builder", model: "Model builder", logs: "Logs", settings: "Settings" };
+const ADDR_KEY = "bi-trading-sandbox-hl-address";
 const liveViews = new Set(["home", "portfolio", "live", "logs"]);
 const $ = (s) => document.querySelector(s);
 const link = ([k, t, i], key) => `<a href="#${k}" title="${t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}</a>`;
@@ -29,7 +30,13 @@ function chrome(key) {
   document.body.dataset.venue = state.venue;
   $("#rail").innerHTML = `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`;
   const extra = v.topExtra ? v.topExtra() : "";
-  $("#topbar").innerHTML = `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`;
+  $("#topbar").innerHTML = `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`;
+}
+const usd = (n) => `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</span>`;
+const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function balChips() {
+  const b = balances();
+  return `<a class="bal" href="#portfolio" title="Paper account, marked to the live books"><span class="mode paper">PAPER</span> <b>${money(b.paper)}</b> ${usd(b.paperPnl)}</a><a class="bal" href="#portfolio" title="Live balance: Hyperliquid account value, read-only. Add an address in Settings."><span class="mode live">LIVE</span> <b>${b.live != null ? money(b.live) : "—"}</b>${b.liveNote === "error" ? ` <span class="down">!</span>` : ""}</a>`;
 }
 let hlHandle = null;
 function render() {
@@ -47,7 +54,8 @@ function render() {
 }
 // Live data repaints the screens that show it, but never while the user is typing.
 let timer = null;
-const typing = () => /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "") && document.activeElement.type !== "checkbox";
+let lastInput = 0;
+const typing = () => Date.now() - lastInput < 2500 && /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
 function schedule() {
   if (timer) return;
   timer = setTimeout(() => { timer = null; const key = curKey(); if (liveViews.has(key) && !typing()) render(); else chrome(key); }, 400);
@@ -56,6 +64,8 @@ function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t
 function act(a) {
   const f = state.form;
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
+  if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
+  if (a === "hl-disconnect") { hlHandle.setAddress(""); try { localStorage.removeItem(ADDR_KEY); } catch { /* storage blocked */ } state.form.hlAddr = ""; toast("Live balance disconnected."); render(); return; }
   if (state.live && !a.startsWith("close-")) { toast("Live trading is not available in this sandbox. Switch to PAPER to place orders.", true); return; }
   let r;
   if (a.startsWith("pm-")) r = placePM(feed, a.slice(3), Number(f.pmStake ?? 20));
@@ -71,7 +81,7 @@ document.addEventListener("click", (e) => {
   const [k, ...v] = s.dataset.set.split("="), val = v.join("="); state[k] = val !== "" && !isNaN(val) ? Number(val) : val; render();
 });
 document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } });
-document.addEventListener("input", (e) => { const b = e.target.dataset?.bind; if (b) state.form[b] = e.target.value; });
+document.addEventListener("input", (e) => { lastInput = Date.now(); const b = e.target.dataset?.bind; if (b) state.form[b] = e.target.value; });
 addEventListener("hashchange", render); addEventListener("resize", draw);
 addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); location.hash = keys[e.key - 1]; }
@@ -79,5 +89,6 @@ addEventListener("keydown", (e) => {
 });
 onChange(schedule);
 hlHandle = startHL(); startPM();
+try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); } catch { /* storage blocked */ }
 setInterval(() => { paperTick(feed); schedule(); }, 1000);
 render();

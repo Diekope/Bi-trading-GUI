@@ -86,6 +86,16 @@ test("paper: PM bet fills through the book and settles", async () => {
   assert.ok(!P.placePM(feed, "UP", 5000).ok);
 });
 
+test("read-only HL account", async () => {
+  assert.deepEqual(F.parseHLAccount({ marginSummary: { accountValue: "13109.48", totalMarginUsed: "100", totalNtlPos: "500" } }), { value: 13109.48, marginUsed: 100, notional: 500 });
+  assert.equal(F.parseHLAccount({}), null); assert.ok(F.validAddress("0x" + "a".repeat(40))); assert.ok(!F.validAddress("0x123"));
+  const posts = []; const h = F.startHL(env(async (u, o) => { const b = JSON.parse(o.body); posts.push(b); return b.type === "clearinghouseState" ? json({ marginSummary: { accountValue: "42.5", totalMarginUsed: "1", totalNtlPos: "2" } }) : json([]); }));
+  const bad = await h.setAddress("nope"); assert.ok(!bad.ok);
+  const ok = await h.setAddress("0x" + "b".repeat(40)); assert.ok(ok.ok); assert.equal(F.feed.hl.account.value, 42.5);
+  assert.ok(posts.some((p) => p.type === "clearinghouseState" && p.user === "0x" + "b".repeat(40)));
+  await h.setAddress(""); assert.equal(F.feed.hl.account, null); h.stop();
+});
+
 test("paper: HL long fills on the ask, TP closes it, fees counted", () => {
   const feed = F.feed; P.resetPaper(); const S = feed.hl; S.status = "live"; S.coin = "HYPE";
   S.book = { coin: "HYPE", bids: [{ px: 99, sz: 100 }], asks: [{ px: 100, sz: 5 }, { px: 101, sz: 100 }] }; S.mids.HYPE = 100;

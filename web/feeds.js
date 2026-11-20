@@ -14,7 +14,7 @@ const CANDLE_COUNT = 300;
 // -- shared state and a small event log -------------------------------------
 
 export const feed = {
-  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0 },
+  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null },
   pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, latency: null },
 };
 export const events = [];
@@ -167,6 +167,13 @@ export function dispatchPM(S, raw) {
   return dirty;
 }
 
+// Read-only account summary from a public address (no key): POST info {type:"clearinghouseState", user}.
+export function parseHLAccount(j) {
+  const m = j?.marginSummary, v = num(m?.accountValue);
+  return v === null ? null : { value: v, marginUsed: num(m.totalMarginUsed) ?? 0, notional: num(m.totalNtlPos) ?? 0 };
+}
+export const validAddress = (a) => /^0x[0-9a-fA-F]{40}$/.test(String(a || "").trim());
+
 // -- connections ----------------------------------------------------------------
 
 export const defaultEnv = () => ({ fetch: (...a) => fetch(...a), WebSocket: globalThis.WebSocket, now: () => Date.now(), setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: (t) => clearTimeout(t), setInterval: (f, ms) => setInterval(f, ms), clearInterval: (t) => clearInterval(t) });
@@ -202,7 +209,14 @@ export function startHL(env = defaultEnv()) {
     ws.onclose = () => { if (stopped) return; S.status = "reconnecting"; logEvent("warn", "System", "—", "CONNECTION", "Hyperliquid disconnected", env.now()); tries++; env.setTimeout(connect, Math.min(15000, 500 * 2 ** tries)); emit(); };
     ws.onerror = () => { S.error = "websocket error"; };
   }
+  async function refreshAccount() {
+    const a = S.account; if (!a?.address) return;
+    try { const r = parseHLAccount(await hlPost(env, { type: "clearinghouseState", user: a.address })); if (!r) throw new Error("unexpected response"); S.account = { ...a, ...r, error: "", at: env.now() }; }
+    catch (e) { S.account = { ...a, error: e.message, at: env.now() }; }
+    emit();
+  }
   snapshot(S.coin, S.interval); snapshot("BTC", "1m"); connect();
+  timers.push(env.setInterval(refreshAccount, 10000));
   timers.push(env.setInterval(() => { if (S._dirty) { S._dirty = false; emit(); } }, 250));
   timers.push(env.setInterval(() => { if (ws && ws.readyState === 1) { S._pingAt = env.now(); ws.send(JSON.stringify({ method: "ping" })); } }, 2000));
   // HTTP round trip as a fallback latency (the browser cannot send protocol pings).
@@ -212,6 +226,13 @@ export function startHL(env = defaultEnv()) {
   };
   httpProbe(); timers.push(env.setInterval(httpProbe, 5000));
   return {
+    async setAddress(address) {
+      address = String(address || "").trim();
+      if (!address) { S.account = null; emit(); return { ok: true }; }
+      if (!validAddress(address)) return { ok: false, error: "That is not a 0x address (42 characters)." };
+      S.account = { address, value: null, error: "", at: 0 }; await refreshAccount();
+      return S.account.error ? { ok: false, error: S.account.error } : { ok: true };
+    },
     setWatch(coin, interval) {
       if (coin === S.coin && interval === S.interval) return;
       const old = { coin: S.coin, interval: S.interval }; S.coin = coin; S.interval = interval; S.book = null;
