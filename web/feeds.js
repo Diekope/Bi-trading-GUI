@@ -15,7 +15,7 @@ const CANDLE_COUNT = 300;
 
 export const feed = {
   hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [] },
-  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, latency: null },
+  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null },
 };
 export const events = [];
 const listeners = new Set();
@@ -264,6 +264,13 @@ export async function fetchResolved(env, slug) {
   try { const r = await env.fetch(`${GAMMA}/markets?slug=${encodeURIComponent(slug)}`); return r.ok ? resolvedSide(await r.json()) : null; } catch { return null; }
 }
 
+// Each window keeps its target so the chart can scroll old windows left instead of restarting every 5 minutes.
+export function rememberWindow(S, m, target) {
+  const w = S.windows.find((x) => x.start === m.startMs);
+  if (w) w.target = target; else S.windows.push({ start: m.startMs, end: m.endMs, target });
+  S.windows.sort((a, b) => a.start - b.start); while (S.windows.length > 6) S.windows.shift();
+}
+
 export function startPM(env = defaultEnv()) {
   const S = feed.pm; let stopped = false, ws = null; const timers = [];
   const probe = async () => { const t0 = env.now(); try { const r = await env.fetch(`${CLOB}/time`); if (r.ok) { S.latency = Math.round(env.now() - t0); emit(); } } catch { /* keep last */ } };
@@ -293,7 +300,7 @@ export function startPM(env = defaultEnv()) {
         const m = parseMarket(await r.json());
         if (!m) { S.error = "market not listed yet"; await sleep(env, 2000); continue; }
         S.market = m; S.books = {}; S.trades = []; S.target = null; emit();
-        fetchTarget(env, m.startMs).then((t) => { S.target = t; emit(); });
+        fetchTarget(env, m.startMs).then((t) => { S.target = t; if (t != null) rememberWindow(S, m, t); emit(); });
         await session(m);
       } catch (e) {
         S.status = "error"; S.error = e.message || String(e); logEvent("error", "Polymarket", "—", "FEED", `market ${slug}: ${S.error}`, env.now()); emit();

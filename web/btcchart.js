@@ -12,7 +12,7 @@ export const xFrac = (t, wall, span = SPAN) => (t - (wall - span)) / span;
 // Axis for a mode: rolling "1m" / "2m" / "5m" ending at `wall`, or "Window" = the market window start to end, like Polymarket.
 export const axisFor = (mode, wall, startMs, endMs) => (mode === "Window" && startMs && endMs ? { t0: startMs, span: endMs - startMs } : { t0: wall - ({ "1m": 60e3, "2m": 120e3, "5m": 300e3 }[mode] ?? 120e3), span: { "1m": 60e3, "2m": 120e3, "5m": 300e3 }[mode] ?? 120e3 });
 
-export function paintBtc(cv, { points, target, startMs, endMs, key, mode = "1m" }, nowPerf = performance.now(), wall = Date.now() - LAG) {
+export function paintBtc(cv, { points, target, startMs, endMs, key, mode = "1m", windows = [] }, nowPerf = performance.now(), wall = Date.now() - LAG) {
   if (anim.key !== key) Object.assign(anim, { key, t0: nowPerf, lo: null, hi: null, tip: null, prev: null });
   const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1, w = Math.round(r.width * d), h = Math.round(r.height * d);
   if (!w || !h) return;
@@ -27,7 +27,9 @@ export function paintBtc(cv, { points, target, startMs, endMs, key, mode = "1m" 
   const last = raw.at(-1).p, dt = Math.min(0.1, Math.max(0, (nowPerf - (anim.prev ?? nowPerf)) / 1000)); anim.prev = nowPerf;
   const ease = (tau) => 1 - Math.exp(-dt / tau); // time-based, so the speed does not depend on the frame rate
   anim.tip = anim.tip == null ? last : anim.tip + (last - anim.tip) * ease(0.45);
-  const inView = vis.filter((p) => p.t >= t0), vals = [...inView.map((p) => p.p), anim.tip, ...(target ? [target] : [])];
+  const shown = windows.filter((w) => w.target && w.end > t0 && w.start < wall), cur = shown.find((w) => w.start <= wall && wall < w.end);
+  if (cur) target = cur.target;
+  const inView = vis.filter((p) => p.t >= t0), vals = [...inView.map((p) => p.p), anim.tip, ...shown.map((w) => w.target), ...(!shown.length && target ? [target] : [])];
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const minSpan = Math.max(last * 0.0006, 1); if (hi - lo < minSpan) { const m = (hi + lo) / 2; lo = m - minSpan / 2; hi = m + minSpan / 2; }
   const pad = (hi - lo) * 0.18; lo -= pad; hi += pad;
@@ -43,9 +45,16 @@ export function paintBtc(cv, { points, target, startMs, endMs, key, mode = "1m" 
   // reveal sweep on entry, then the live scroll
   const reveal = Math.min(1, (nowPerf - anim.t0) / REVEAL_MS), e = 1 - (1 - reveal) ** 3;
   g.save(); if (reveal < 1) { g.beginPath(); g.rect(0, 0, L + pw * e + 1, H); g.clip(); }
-  // target segment grows from the window start
+  // Each window's target is a dashed segment over its own 5 minutes: the current one grows from the right edge,
+  // earlier ones scroll off to the left, so the picture never restarts at a rollover.
+  const segs = shown.length ? shown : target ? [{ start: startMs ?? t0, end: wall, target }] : [];
   const above = !target || anim.tip >= target, col = css(above ? "--up" : "--down");
-  if (target) { const x0 = startMs ? Math.max(L, X(startMs)) : L, y = Y(target); g.strokeStyle = css("--accent"); g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x0, y); g.lineTo(X(wall), y); g.stroke(); g.setLineDash([]); g.fillStyle = css("--accent"); const lbl = `open ${target.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`; g.fillText(lbl, L + pw - g.measureText(lbl).width - 2, y - 4); }
+  for (const w of segs) {
+    const x0 = Math.max(L, X(w.start)), x1 = Math.min(L + pw, X(Math.min(w.end, wall))), y = Y(w.target), now = w === cur || segs.length === 1;
+    if (x1 <= x0) continue;
+    g.strokeStyle = css("--accent"); g.globalAlpha = now ? 1 : 0.4; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    if (now) { g.fillStyle = css("--accent"); const lbl = `open ${w.target.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`; g.fillText(lbl, L + pw - g.measureText(lbl).width - 2, y - 4); }
+  }
   // smoothed curve through the samples, ending at the eased tip
   const pts = [...vis.map((p) => [X(p.t), Y(p.p)]), [X(wall), Y(anim.tip)]];
   const path = () => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length - 1; i++) { const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; g.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); } g.lineTo(pts.at(-1)[0], pts.at(-1)[1]); };

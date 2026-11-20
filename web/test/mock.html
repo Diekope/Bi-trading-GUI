@@ -12,7 +12,7 @@
   const base = { HYPE: 76.2, BTC: 75760, ETH: 3100, SOL: 165 }, px = { ...base };
   const ms = { "1m": 6e4, "3m": 18e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5 };
   const walk = () => Object.keys(px).forEach((k) => { px[k] += (rnd() - 0.5) * base[k] * 0.0004; });
-  const candles = (coin, iv, n) => { const step = ms[iv], t0 = Math.floor(Date.now() / step) * step - (n - 1) * step; let p = base[coin] * 0.99; return Array.from({ length: n }, (_, i) => { const o = p, c = o + (rnd() - 0.5) * base[coin] * 0.003; p = c; return { t: t0 + i * step, o: String(o), h: String(Math.max(o, c) + base[coin] * 0.0008), l: String(Math.min(o, c) - base[coin] * 0.0008), c: String(c), v: String(20 + rnd() * 80) }; }); };
+  const candles = (coin, iv, n) => { const step = ms[iv], t0 = Math.floor(Date.now() / step) * step - (n - 1) * step; let p = base[coin]; const rows = Array.from({ length: n }, (_, i) => { const o = p, c = o + (rnd() - 0.5) * base[coin] * 0.0015; p = c; return { t: t0 + i * step, o, h: Math.max(o, c) + base[coin] * 0.0004, l: Math.min(o, c) - base[coin] * 0.0004, c, v: 20 + rnd() * 80 }; }); const off = px[coin] - rows[n - 1].c; return rows.map((r) => ({ t: r.t, o: String(r.o + off), h: String(r.h + off), l: String(r.l + off), c: String(r.c + off), v: String(r.v) })); };
   const end = () => (Math.floor(Date.now() / 3e5) + 1) * 3e5;
   window.fetch = async (url, o) => {
     await new Promise((r) => setTimeout(r, 30)); const ok = (j) => ({ ok: true, json: async () => j });

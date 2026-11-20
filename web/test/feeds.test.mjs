@@ -47,6 +47,13 @@ test("BTC ticks feed the rolling chart", async () => {
   assert.equal(B.xFrac(5000, 5000), 1); assert.equal(B.xFrac(5000 - B.SPAN, 5000), 0); assert.equal(B.xFrac(5000 - B.SPAN / 2, 5000), 0.5);
 });
 
+test("windows are remembered across rollovers, newest last, capped", () => {
+  const S = { windows: [] };
+  for (let i = 0; i < 8; i++) F.rememberWindow(S, { startMs: i * 300000, endMs: (i + 1) * 300000 }, 100 + i);
+  assert.equal(S.windows.length, 6); assert.equal(S.windows.at(-1).target, 107); assert.equal(S.windows[0].start, 600000);
+  F.rememberWindow(S, { startMs: 7 * 300000, endMs: 8 * 300000 }, 999); assert.equal(S.windows.length, 6); assert.equal(S.windows.at(-1).target, 999);
+});
+
 test("dispatch PM book, change, trade", () => {
   const S = { books: {}, trades: [] };
   F.dispatchPM(S, [{ event_type: "book", asset_id: "a", bids: [{ price: "0.5", size: "10" }, { price: "0.6", size: "5" }], asks: [{ price: "0.9", size: "5" }, { price: "0.7", size: "5" }], timestamp: "1" }]);
@@ -83,7 +90,7 @@ test("startPM resolves the market and subscribes", async () => {
   }));
   await wait(60); const ws = FakeWS.all.find((w) => w.url === F.PM_WS);
   assert.ok(slugAsked.startsWith("btc-updown-5m-")); assert.deepEqual(ws.sent[0], { assets_ids: ["tu", "td"], type: "market" });
-  assert.equal(F.feed.pm.status, "live"); assert.equal(F.feed.pm.target, 75726);
+  assert.equal(F.feed.pm.status, "live"); assert.equal(F.feed.pm.target, 75726); assert.equal(F.feed.pm.windows.at(-1).target, 75726);
   ws.emit([{ event_type: "book", asset_id: "tu", bids: [{ price: "0.80", size: "100" }], asks: [{ price: "0.81", size: "100" }, { price: "0.83", size: "100" }] }]);
   assert.equal(F.feed.pm.books.tu.asks[0].price, 0.81);
 });

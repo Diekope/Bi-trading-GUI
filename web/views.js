@@ -284,14 +284,15 @@ function btcFeed() {
   const m = feed.pm.market, ticks = feed.hl.btcTicks || [], live = feed.hl.status === "live" && ticks.length > 1, now = Date.now();
   if (live) {
     const c = feed.hl.series["BTC|1m"] || [], first = ticks[0].t, back = c.filter((x) => x.t + 60000 < first && x.t + 60000 > now - 16 * 60e3).flatMap((x) => [{ t: x.t, p: x.o }, { t: x.t + 60000, p: x.c }]);
-    return { points: [...back, ...ticks], target: feed.pm.target, startMs: m?.startMs, endMs: m?.endMs, key: `${location.hash}|${m?.slug || "live"}`, mode: "1m" };
+    return { points: [...back, ...ticks], target: feed.pm.target, startMs: m?.startMs, endMs: m?.endMs, windows: feed.pm.windows, key: `${location.hash}|btc`, mode: "1m" };
   }
   if (!demo.t) { demo.t = now - 16 * 60e3; }
   const r = rng(Math.floor(now / 500));
   while (demo.t < now) { demo.t += 500; demo.p += (r() - 0.5) * 14 + (75740 - demo.p) * 0.01; demo.pts.push({ t: demo.t, p: demo.p }); }
   while (demo.pts.length && demo.pts[0].t < now - 16 * 60e3) demo.pts.shift();
-  const start = Math.floor(now / 300e3) * 300e3;
-  return { points: demo.pts, target: demo.pts.find((x) => x.t >= start)?.p ?? demo.pts[0].p, startMs: start, endMs: start + 300e3, key: `${location.hash}|demo`, mode: "1m" };
+  const start = Math.floor(now / 300e3) * 300e3, at = (s) => demo.pts.find((x) => x.t >= s)?.p ?? demo.pts[0].p;
+  const windows = [0, 1, 2].map((k) => ({ start: start - k * 300e3, end: start - k * 300e3 + 300e3, target: at(start - k * 300e3) }));
+  return { points: demo.pts, target: windows[0].target, startMs: start, endMs: start + 300e3, windows, key: `${location.hash}|btc`, mode: "1m" };
 }
 export function paintAll() {
   const els = ["#btc", "#btc2"].map((s) => $(s)).filter(Boolean);
