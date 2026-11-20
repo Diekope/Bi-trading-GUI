@@ -14,7 +14,9 @@ const tail = [
   ["logs", "Logs", I('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>')],
   ["settings", "Settings", I('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>')],
 ];
-const keys = ["home", "portfolio", "live", "builder", "backtest", "ml", "logs", "settings"];
+const venueOnly = new Set(["builder", "backtest", "ml", "model"]); // strategy work exists per venue, not in "general"
+const shown = (k) => state.venue !== "Both" || !venueOnly.has(k);
+const keys = () => ["home", "portfolio", "live", "builder", "backtest", "ml", "logs", "settings"].filter(shown);
 const titles = { home: "Home", portfolio: "Portfolio", live: "Live", builder: "Strategy builder", backtest: "Backtest engine", ml: "ML strategy builder", model: "Model builder", logs: "Logs", settings: "Settings" };
 const ADDR_KEY = "bi-trading-sandbox-hl-address";
 const liveViews = new Set(["home", "portfolio", "live", "logs"]);
@@ -28,7 +30,7 @@ function chrome(key) {
   document.body.classList.toggle("hub", !!v.hub);
   document.body.classList.toggle("live-mode", !!state.live);
   document.body.dataset.venue = state.venue;
-  morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
+  morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.filter((r) => shown(r[0])).map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
   const extra = v.topExtra ? v.topExtra() : "";
   morph($("#topbar"), `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${feedChips()}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`);
 }
@@ -73,6 +75,7 @@ function feedChips() {
 let hlHandle = null;
 function render() {
   normalize();
+  if (!shown(curKey())) { location.hash = "#home"; return; } // a strategy screen while on "general": go home (hashchange re-renders)
   const key = curKey(), v = views[key];
   hlHandle?.setWatch(state.coin, state.tf);
   chrome(key);
@@ -115,7 +118,7 @@ document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if
 document.addEventListener("input", (e) => { lastInput = Date.now(); const b = e.target.dataset?.bind; if (b) state.form[b] = e.target.value; });
 addEventListener("hashchange", render); addEventListener("resize", draw);
 addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); location.hash = keys[e.key - 1]; }
+  if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); const k = keys()[e.key - 1]; if (k) location.hash = k; }
   if (e.altKey && ["1", "2", "3"].includes(e.key)) { state.venue = ["Polymarket", "Hyperliquid", "Both"][e.key - 1]; render(); }
 });
 onChange(schedule);

@@ -117,3 +117,8 @@ body.live-mode #topbar { box-shadow: inset 0 -2px 0 var(--down-dim); }
 .bal { display: inline-flex; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--text); text-decoration: none; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; } .bal:hover { background: var(--panel-alt); }
 .btn.sel { box-shadow: 0 0 0 1px currentColor inset; font-weight: 700; }
 .tile { transition: border-color .15s; } .tile:not(.up):not(.down):hover { border-color: #3a3b41; }
+
+/* "General" (both venues) has no strategy builder, backtest or ML: those exist per venue. */
+body[data-venue="Both"] .venue-only { display: none !important; }
+body:not([data-venue="Both"]) .both-only { display: none !important; }
+body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
