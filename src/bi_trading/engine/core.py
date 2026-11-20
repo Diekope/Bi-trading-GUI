@@ -45,6 +45,15 @@ except ImportError:  # pragma: no cover - depends on the build
     _NATIVE = False
 
 
+def _flags(values):
+    """A boolean array for the native core, or None when there is nothing."""
+    if values is None:
+        return None
+    import numpy as np
+
+    return np.ascontiguousarray(values, dtype=bool)
+
+
 def available() -> bool:
     """Whether the native core is in play."""
     return _NATIVE
@@ -60,8 +69,12 @@ def random_entries(
     max_hold=DEFAULT_HOLD,
     chance=0.03,
     short=False,
+    gaps=None,
 ) -> list[bool]:
     """The coin-flip baseline's entries, one position at a time.
+
+    `gaps` flags the bars that are the last before a hole in the data (see
+    `walk_chunk`): the baseline does not open there and drops what it holds.
 
     `draws` is one uniform per bar, generated from the same seed on both paths,
     so the native and Python baselines are identical bar for bar.
@@ -80,16 +93,17 @@ def random_entries(
                 max_hold,
                 chance,
                 bool(short),
+                _flags(gaps),
             )
         )
     return _python_random_entries(
-        highs, lows, closes, draws, tp, sl, max_hold, chance, short
+        highs, lows, closes, draws, tp, sl, max_hold, chance, short, gaps=gaps
     )[0]
 
 
 def random_entries_chunk(
     highs, lows, closes, draws, tp=2.0, sl=1.0, max_hold=DEFAULT_HOLD,
-    chance=0.03, short=False, offset=0, state=None,
+    chance=0.03, short=False, offset=0, state=None, gaps=None,
 ):
     """`random_entries` for one piece of a longer span, carrying its state.
 
@@ -108,17 +122,18 @@ def random_entries_chunk(
             np.ascontiguousarray(closes, dtype=float),
             np.ascontiguousarray(draws, dtype=float),
             tp, sl, max_hold, chance, bool(short), int(offset),
-            None if state is None else tuple(state),
+            None if state is None else tuple(state), _flags(gaps),
         )
         return list(entries), end
     return _python_random_entries(
-        highs, lows, closes, draws, tp, sl, max_hold, chance, short, offset, state
+        highs, lows, closes, draws, tp, sl, max_hold, chance, short, offset, state,
+        gaps,
     )
 
 
 def _python_random_entries(
     highs, lows, closes, draws, tp, sl, max_hold, chance, short=False,
-    offset=0, state=None,
+    offset=0, state=None, gaps=None,
 ):
     n = len(closes)
     entries = [False] * n
@@ -128,6 +143,7 @@ def _python_random_entries(
         index = offset + local
         if index == 0:
             continue
+        gap_after = bool(gaps[local]) if gaps is not None else False
         if in_position:
             if short:
                 target = entry_price * (1.0 - tp / 100.0)
@@ -139,8 +155,13 @@ def _python_random_entries(
                 stop = entry_price * (1.0 - sl / 100.0)
                 hit_tp = tp > 0 and highs[local] >= target
                 hit_sl = sl > 0 and lows[local] <= stop
-            if hit_tp or hit_sl or (max_hold > 0 and index - entry_index >= max_hold):
+            if (
+                hit_tp or hit_sl or gap_after
+                or (max_hold > 0 and index - entry_index >= max_hold)
+            ):
                 in_position = False
+        elif gap_after:
+            pass  # the walk does not open on the last bar before a hole
         else:
             if drawn < len(draws):
                 draw = draws[drawn]
@@ -256,8 +277,20 @@ def walk_chunk(
     slippage=0.0,
     offset=0,
     state=None,
+    gaps=None,
+    volumes=None,
+    participation=0.0,
 ):
     """Walk the bars, opening where an entry is true. One position at a time.
+
+    `gaps` is one flag per bar: True when the bar is the last before a hole in
+    the data (the next bar is more than one step later). A position cannot be
+    held through a hole, so it is closed at that bar's close, as a market exit
+    that reads `gap`, and no trade opens on such a bar.
+
+    `volumes` (the bars' traded volume, in the asset) with a `participation`
+    fraction above zero caps an entry at that share of the entry bar's traded
+    value (volume x close), so a size the market could not have absorbed is cut.
 
     Returns `(trades, equity, state)`. A long span can be walked in chunks:
     pass each chunk's `offset` (its first bar's index in the whole span) and
@@ -314,6 +347,9 @@ def walk_chunk(
             capital, tp, sl, position, sizing, max_cash, fee, int(max_hold),
             bool(dynamic_tp), float(reverse), program, slots, float(slippage),
             int(offset), None if state is None else tuple(state),
+            None if gaps is None else flags(gaps),
+            None if volumes is None else np.ascontiguousarray(volumes, dtype=float),
+            float(participation),
         )
         return trades, curve, end
     # The Python walk indexes the columns one by one, and list indexing is
@@ -332,6 +368,9 @@ def walk_chunk(
         closes, highs, lows, listed(longs), listed(shorts), capital, tp, sl,
         position, sizing, max_cash, fee, int(max_hold), dynamic_tp, reverse,
         exit_formula, slippage, offset, state,
+        None if gaps is None else listed(gaps),
+        None if volumes is None else [float(v) for v in volumes],
+        participation,
     )
 
 
@@ -351,7 +390,8 @@ def exit_context(price, entry, tp, sl, bars, short=False) -> dict:
 def _python_walk(
     closes, highs, lows, longs, shorts, capital, tp, sl, position, sizing,
     max_cash, fee, max_hold, dynamic_tp=False, reverse=0.0, exit_formula=None,
-    slippage=0.0, offset=0, state=None,
+    slippage=0.0, offset=0, state=None, gaps=None, volumes=None,
+    participation=0.0,
 ):
     """The bar loop. `offset` is the first bar's index in the whole span and
     `state` what the previous chunk ended in (None to begin); returns the
@@ -371,6 +411,7 @@ def _python_walk(
         index = offset + local
         high = highs[local]
         low = lows[local]
+        gap_after = bool(gaps[local]) if gaps is not None else False
         if qty > 0.0:
             if short:
                 target = entry_price * (1.0 - tp / 100.0)
@@ -419,6 +460,10 @@ def _python_walk(
             if price is None and max_hold > 0 and held >= max_hold:
                 price = close
                 reason = "time"
+            if price is None and gap_after:
+                # The data stops after this bar: no holding through a hole.
+                price = close
+                reason = "gap"
             if price is not None:
                 if reason != "tp":  # a take profit is a limit order: no slip
                     price *= (1.0 + slippage) if short else (1.0 - slippage)
@@ -444,7 +489,7 @@ def _python_walk(
                 qty = 0.0
                 entry_cost = 0.0
                 best = 0.0
-        elif index != 0 and longs[local] != shorts[local]:
+        elif index != 0 and not gap_after and longs[local] != shorts[local]:
             deployable = min(cash, max_cash)
             if fixed:
                 notional = max(0.0, min(position, deployable))
@@ -457,6 +502,8 @@ def _python_walk(
                 notional = max(0.0, min(notional, deployable))
             else:
                 notional = deployable * max(0.0, position) / 100.0
+            if participation > 0.0 and volumes is not None:
+                notional = min(notional, volumes[local] * close * participation)
             if notional > 0.0 and close > 0.0:
                 cost = notional * fee
                 short = bool(shorts[local])

@@ -113,10 +113,11 @@ def test_the_store_is_streamed_in_order_and_counted() -> None:
 
     assert [round(bar.close) for bar in bars] == [50] * 5 + [70] * 7
     assert count_bars([2019, 2020], "1m") == 12
-    # Five-minute bars: five, then two, because each file is compacted on its
-    # own — and the count matches what the stream actually yields.
-    assert count_bars([2019, 2020], "5m") == 3
-    assert len(list(iter_candles([2019, 2020], "5m"))) == 3
+    # Five-minute bars are whole on the clock: the first file's five minutes make
+    # one bar; the second file's last two minutes are not a bar, so they are
+    # dropped. The count matches what the stream yields.
+    assert count_bars([2019, 2020], "5m") == 2
+    assert len(list(iter_candles([2019, 2020], "5m"))) == 2
 
 
 def test_an_empty_span_counts_nothing() -> None:
@@ -688,12 +689,13 @@ def test_reverse_means_nothing_without_the_dynamic_take_profit() -> None:
 # -- warm-up ------------------------------------------------------------------
 
 
-def test_warmup_is_off_by_default() -> None:
+def test_warmup_defaults_to_a_hundred_bars_and_can_be_switched_off() -> None:
     from bi_trading.state.settings import BacktestDefaults
     from bi_trading.ui.strat.strat_playback import _walk_settings
 
-    assert BacktestDefaults().warmup == 0
-    assert _walk_settings(_params())["warmup"] == 0
+    assert BacktestDefaults().warmup == 100
+    assert _walk_settings(_params())["warmup"] == 0          # a form that says 0 is off
+    assert _walk_settings(_params(warmup=100))["warmup"] == 100
 
 
 def test_signals_before_the_warmup_do_not_count() -> None:

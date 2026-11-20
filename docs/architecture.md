@@ -109,8 +109,9 @@ Downloaded history lives in `data/candles/` — one OHLCV Parquet file per
 year, `BTC-<year>-1m.parquet`, with columns
 `timestamp, open, high, low, close, volume`. A legacy `BTC-<year>-1m.csv` is
 converted to Parquet the first time its year is read. Only BTC is fetched, and only at
-1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, so the
-store never holds the same data twice. The history tile reads those files to
+1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, on the clock
+(a bar needs all of its minutes; see [backtest.md](backtest.md)), so the store never
+holds the same data twice. The history tile reads those files to
 report which years of the selected span are missing (red) or only partly
 downloaded (amber), and offers the same set of resolutions — `1m`, `3m`, `5m`,
 `15m`, `30m`, `1h` — to run at.

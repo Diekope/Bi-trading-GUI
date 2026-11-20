@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 from bi_trading.engine.core import DEFAULT_HOLD, exit_context
 from bi_trading.engine.formula_eval import evaluate_scalar
+from bi_trading.engine.stats import underwater_runs
 from collections import deque
 from collections.abc import Iterable
 from collections.abc import Callable, Iterator
@@ -84,8 +85,13 @@ class Playback:
         short_entries=None,
         slippage: float = 0.0,
         warmup: int = 0,
+        step_ms: int = 60_000,
+        participation: float = 0.0,
     ) -> None:
+        self.participation = participation
         self.warmup = max(0, int(warmup))
+        # How far apart two neighbouring bars are; further than that is a hole.
+        self.step_ms = step_ms
         self._span = span
         self._feed_factory: Callable[[], Iterator[Candle]] | None = (
             None if span is not None else _feed_factory(candles)
@@ -142,6 +148,7 @@ class Playback:
     def reset(self) -> None:
         self._rng = random.Random(self.seed)
         self._feed = self._new_feed() if self._span is None else None
+        self._ahead: Candle | None = None   # the next bar, read to see a hole
         self._exhausted = False
         self.index = 0
         self.first_close = 0.0
@@ -159,6 +166,8 @@ class Playback:
         self.peak = self.capital
         self.max_drawdown = 0.0
         self.max_gain = 0.0
+        self._under = 0               # bars in the current run below the peak
+        self.longest_underwater = 0   # the longest such run, in bars
         self.fees = 0.0
         self.trade_returns: list[float] = []
         self.trades_log: list[tuple] = []  # (in stamp, in px, out stamp, out px, result)
@@ -310,6 +319,7 @@ class Playback:
             self._feed = None
         else:
             self._feed = iter(bars[self.index :])
+        self._ahead = None
 
         self._adopt_trades([t for t in trades if t[2] < self.index], stamp)
 
@@ -340,6 +350,8 @@ class Playback:
         self._returns = 0
         self._return_mean = 0.0
         self._return_m2 = 0.0
+        self._under = 0
+        self.longest_underwater = 0
         # The whole equity curve, in array maths: a decade is millions of bars,
         # and the figures are the same running peak, drawdown and return
         # moments the per-bar `_observe` would keep.
@@ -353,6 +365,9 @@ class Playback:
             with np.errstate(divide="ignore", invalid="ignore"):
                 drawdowns = values / running_peak - 1.0
             self.peak = float(running_peak[-1])
+            runs = underwater_runs(values < running_peak)
+            self.longest_underwater = int(runs.max()) if runs.size else 0
+            self._under = int(runs[-1]) if values[-1] < running_peak[-1] else 0
             self.max_drawdown = float(np.nanmin(drawdowns))
             self.max_gain = float(values.max() / self.capital - 1.0)
 
@@ -430,6 +445,7 @@ class Playback:
             iter(()) if self._exhausted
             else itertools.islice(self._new_feed(), self.index, None)
         )
+        self._ahead = None
         rows = run.rows
         self.trade_returns = [row[6] for row in rows]
         self.trades_log = [tuple(row) for row in rows]
@@ -456,6 +472,8 @@ class Playback:
         self.peak = max(run.peak, self.capital)
         self.max_drawdown = run.max_drawdown
         self.max_gain = run.max_gain
+        self.longest_underwater = run.longest_under
+        self._under = run.under
         self._last_equity = run.last_equity
         self._returns = run.count
         self._return_mean = run.mean
@@ -468,18 +486,34 @@ class Playback:
         )
 
     def _advance_one(self) -> bool:
+        next_stamp: int | None = None
         if self._span is not None:
             if self.index >= self._span.length:
                 self._exhausted = True
                 return False
             candle = self._span.candle(self.index)
+            if self.index + 1 < self._span.length:
+                next_stamp = int(self._span.stamps[self.index + 1])
         else:
             try:
                 assert self._feed is not None
-                candle = next(self._feed)
+                if self._ahead is not None:
+                    candle, self._ahead = self._ahead, None
+                else:
+                    candle = next(self._feed)
             except StopIteration:
                 self._exhausted = True
                 return False
+            # Read the next bar too, to know whether the data stops after this one.
+            try:
+                self._ahead = next(self._feed)
+                next_stamp = self._ahead.stamp
+            except StopIteration:
+                self._ahead = None
+        # True when this is the last bar before a hole in the data.
+        gap_after = (
+            next_stamp is not None and next_stamp - candle.stamp > self.step_ms
+        )
 
         if not self.first_close:
             self.first_close = candle.close
@@ -487,10 +521,10 @@ class Playback:
 
         if self.in_position:
             self.bars_in_market += 1
-            self._manage(candle)
+            self._manage(candle, gap_after)
         else:
             side = self._wants(candle, self._previous or candle)
-            if side:
+            if side and not gap_after:
                 self._enter(candle, side)
 
         self._previous = candle
@@ -499,6 +533,8 @@ class Playback:
 
         equity = self.equity
         self.peak = max(self.peak, equity)
+        self._under = self._under + 1 if equity < self.peak else 0
+        self.longest_underwater = max(self.longest_underwater, self._under)
         self.max_drawdown = min(self.max_drawdown, self.drawdown())
         self.max_gain = max(self.max_gain, equity / self.capital - 1.0)
         self._observe(equity)
@@ -573,6 +609,8 @@ class Playback:
 
     def _enter(self, candle: Candle, side: str = "long") -> None:
         notional = self._budget()
+        if self.participation > 0.0:
+            notional = min(notional, candle.volume * candle.close * self.participation)
         if notional <= 0.0 or candle.close <= 0.0:
             return
         self.direction = side
@@ -595,7 +633,7 @@ class Playback:
         self._path = [candle.close]
         self.markers.append((self.index, "in", candle.close))
 
-    def _manage(self, candle: Candle) -> None:
+    def _manage(self, candle: Candle, gap_after: bool = False) -> None:
         self._path.append(candle.close)
         short = self.direction == "short"
         if short:
@@ -655,6 +693,10 @@ class Playback:
         ):
             price = candle.close
             reason = "time"
+        if price is None and gap_after:
+            # The data stops after this bar: no holding through a hole.
+            price = candle.close
+            reason = "gap"
         if price is None:
             return
         if reason != "tp":  # a take profit is a limit order: no slip

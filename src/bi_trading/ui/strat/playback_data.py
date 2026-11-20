@@ -6,7 +6,7 @@ small enough to hold, and the constants that size the picture and the pace live 
 from __future__ import annotations
 
 import random
-from bi_trading.data.candles import candle_file
+from bi_trading.data.candles import MINUTE_MS, candle_file
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -104,26 +104,18 @@ def _merge(group: list[Candle]) -> Candle:
 
 
 def _iter_file(path, factor: int) -> Iterator[Candle]:
-    """One year, compacted `factor`-to-one, read straight from Parquet arrays."""
+    """One year, compacted `factor`-to-one on the clock, read from Parquet arrays."""
     from bi_trading.data import candles
 
     data = candles.arrays(path)
     if data is None:
         return
-    stamps, opens, highs, lows, closes, volumes = data
-    size = len(stamps)
-    index = 0
-    while index < size:
-        end = min(index + factor, size) if factor > 1 else index + 1
+    stamps, opens, highs, lows, closes, volumes = _compact_arrays(data, factor)
+    for index in range(len(stamps)):
         yield Candle(
-            int(stamps[index]),
-            float(opens[index]),
-            float(highs[index:end].max() if factor > 1 else highs[index]),
-            float(lows[index:end].min() if factor > 1 else lows[index]),
-            float(closes[end - 1]),
-            float(volumes[index:end].sum() if factor > 1 else volumes[index]),
+            int(stamps[index]), float(opens[index]), float(highs[index]),
+            float(lows[index]), float(closes[index]), float(volumes[index]),
         )
-        index = end
 
 
 def iter_candles(years: list[int], resolution: str) -> Iterator[Candle]:
@@ -133,21 +125,31 @@ def iter_candles(years: list[int], resolution: str) -> Iterator[Candle]:
         yield from _iter_file(candle_file(year), factor)
 
 
+_COUNTS: dict[tuple, int] = {}
+
+
 def count_bars(years: list[int], resolution: str) -> int:
     """How many bars the span holds at `resolution`.
 
-    Counted per file and rounded up, because bars are compacted within a year:
-    a file whose row count is not a multiple of the factor still yields one
-    more, shorter bar. The total therefore matches what `iter_candles` yields,
-    which matters: progress is measured against it.
+    A coarser bar is only kept when every minute of it is on disk (see
+    `_compact_arrays`), so the count is read off each file's timestamps, once per
+    version of the file. It matches what `iter_candles` yields, which matters:
+    progress is measured against it.
     """
     from bi_trading.data import candles
 
     factor = FACTOR.get(resolution, 1)
     bars = 0
     for year in sorted(years):
-        rows = candles.row_count(candle_file(year))
-        bars += -(-rows // factor)
+        path = candle_file(year)
+        if factor <= 1:
+            bars += candles.row_count(path)
+            continue
+        key = (str(path), candles.store_signature(path), factor)
+        if key not in _COUNTS:
+            data = candles.arrays(path)
+            _COUNTS[key] = 0 if data is None else len(_compact_arrays(data, factor)[0])
+        bars += _COUNTS[key]
     return bars
 
 
@@ -441,37 +443,70 @@ def load_span(years: list[int], resolution: str) -> ColumnSpan | None:
 
 
 def _compact_arrays(data: tuple, factor: int) -> tuple:
-    """Compact a year's columns `factor`-to-one, without building Candles."""
+    """Compact a year's columns `factor`-to-one, on the clock.
+
+    A bar covers `factor` minutes starting on a multiple of `factor` minutes
+    (a 5m bar opens at :00, :05, ...), not "the next five rows": after a hole in
+    the data, rows would otherwise be grouped off the grid. A bucket that is
+    missing any of its minutes is dropped rather than drawn from fewer, so every
+    bar means what its resolution says. The hole it leaves is the same kind of
+    hole `gap_flags` finds in a 1m series.
+    """
     import numpy as np
 
     if factor <= 1:
         return data
     stamps, opens, highs, lows, closes, volumes = data
-    size = len(stamps)
-    out_stamp: list[int] = []
-    out_open: list[float] = []
-    out_high: list[float] = []
-    out_low: list[float] = []
-    out_close: list[float] = []
-    out_volume: list[float] = []
-    index = 0
-    while index < size:
-        end = min(index + factor, size)
-        out_stamp.append(int(stamps[index]))
-        out_open.append(float(opens[index]))
-        out_high.append(float(highs[index:end].max()))
-        out_low.append(float(lows[index:end].min()))
-        out_close.append(float(closes[end - 1]))
-        out_volume.append(float(volumes[index:end].sum()))
-        index = end
-    return (
-        np.array(out_stamp, np.int64),
-        np.array(out_open, float),
-        np.array(out_high, float),
-        np.array(out_low, float),
-        np.array(out_close, float),
-        np.array(out_volume, float),
+    if not len(stamps):
+        return data
+    period = factor * MINUTE_MS
+    times = np.asarray(stamps, dtype=np.int64)
+    bucket = times // period
+    starts = np.concatenate(([0], np.flatnonzero(np.diff(bucket)) + 1))
+    counts = np.diff(np.concatenate((starts, [len(times)])))
+    ends = starts + counts - 1
+    # Whole buckets only: `factor` rows, first to last exactly `factor - 1`
+    # minutes apart (so none is missing and none is doubled).
+    whole = (counts == factor) & (
+        times[ends] - times[starts] == (factor - 1) * MINUTE_MS
     )
+    starts = starts[whole]
+    if not len(starts):
+        return tuple(np.empty(0, dtype=np.asarray(column).dtype) for column in data)
+    rows = starts[:, None] + np.arange(factor)
+    return (
+        bucket[starts] * period,
+        np.asarray(opens, dtype=float)[starts],
+        np.asarray(highs, dtype=float)[rows].max(axis=1),
+        np.asarray(lows, dtype=float)[rows].min(axis=1),
+        np.asarray(closes, dtype=float)[rows[:, -1]],
+        np.asarray(volumes, dtype=float)[rows].sum(axis=1),
+    )
+
+
+def step_ms(resolution: str) -> int:
+    """How far apart two neighbouring bars are, in milliseconds."""
+    return FACTOR.get(resolution, 1) * MINUTE_MS
+
+
+def gap_flags(stamps, step: int, next_stamp: int | None = None):
+    """One flag per bar: True when the next bar is more than one step later.
+
+    That is a hole in the data (an outage, a missing year), and the walk will not
+    hold a position through it. `next_stamp` is the first bar after this series,
+    when the series is one piece of a longer one. Stamps that are not further
+    apart than a step (or are not in milliseconds at all, as in a synthetic
+    series) are never a hole.
+    """
+    import numpy as np
+
+    times = np.asarray(stamps, dtype=np.int64)
+    flags = np.zeros(len(times), dtype=bool)
+    if len(times) > 1:
+        flags[:-1] = np.diff(times) > step
+    if len(times) and next_stamp is not None:
+        flags[-1] = int(next_stamp) - int(times[-1]) > step
+    return flags
 
 
 def span_columns(span: ColumnSpan) -> dict:
@@ -485,18 +520,39 @@ def span_columns(span: ColumnSpan) -> dict:
 
 
 def _stream_chunks(years: list[int], resolution: str, target: int):
-    """The span a year at a time as column tuples, stopping at bar `target`."""
+    """The span a year at a time as column tuples, stopping at bar `target`.
+
+    Yields `(offset, columns, next_stamp)`: `next_stamp` is the stamp of the bar
+    that follows the piece (None at the very end), so a hole between two years
+    is found the way a hole inside one is.
+    """
     from bi_trading.data import candles
 
     factor = FACTOR.get(resolution, 1)
+
+    def pieces():
+        for year in sorted(years):
+            data = candles.arrays(candle_file(year))
+            if data is None or not len(data[0]):
+                continue
+            data = _compact_arrays(data, factor)
+            if len(data[0]):
+                yield data
+
     seen = 0
-    for year in sorted(years):
-        if seen >= target:
-            return
-        data = candles.arrays(candle_file(year))
-        if data is None or not len(data[0]):
-            continue
-        data = _compact_arrays(data, factor)
+    held = None
+    for data in pieces():
+        if held is not None:
+            yield held[0], held[1], int(data[0][0])
+            seen = held[0] + len(held[1][0])
+            if seen >= target:
+                return
         take = min(len(data[0]), target - seen)
-        yield seen, tuple(column[:take] for column in data)
-        seen += take
+        if take <= 0:
+            return
+        held = (seen, tuple(column[:take] for column in data))
+        if take < len(data[0]):
+            yield seen, held[1], int(data[0][take])
+            return
+    if held is not None:
+        yield held[0], held[1], None

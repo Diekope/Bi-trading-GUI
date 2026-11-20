@@ -130,6 +130,9 @@ class ParamsTile(Card):
         # close. Zero means no limit.
         self.hold_field = self._field(defaults.hold, 0.0, 1_000_000.0)
         self.hold_field.setToolTip("Most candles a trade may stay open; 0 is no limit")
+        # Not a field on the tile: the share of a bar's traded value one fill may
+        # take comes from Settings (`backtest.participation`), 0 = off.
+        self._participation = float(getattr(defaults, "participation", 0.0))
         self.warmup_field = self._field(defaults.warmup, 0.0, 1_000_000.0)
         self.warmup_field.setToolTip(
             "Bars of history before a signal counts, so indicators have settled; "
@@ -244,6 +247,7 @@ class ParamsTile(Card):
             "slippage": _number(self.slippage_field.text()),
             "hold": _number(self.hold_field.text()),
             "warmup": _number(self.warmup_field.text()),
+            "participation": self._participation,
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
             "venue": self.venue.currentText(),

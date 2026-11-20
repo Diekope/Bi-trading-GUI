@@ -9,12 +9,13 @@ from __future__ import annotations
 from typing import Any
 
 from bi_trading.engine.formula_eval import SignalStream
+from bi_trading.engine.stats import underwater_runs
 
 import random
 from bi_trading.engine.core import DEFAULT_HOLD
 from collections import deque
 from dataclasses import dataclass, field
-from bi_trading.ui.strat.playback_data import (BOLLINGER_DEVIATIONS, BOLLINGER_PERIOD, CHART_BARS, Candle, ColumnSpan, DEFAULT_STRATEGY, _stream_chunks, count_bars, iter_candles, load_span, plan_stride, sample_candles, span_columns,)
+from bi_trading.ui.strat.playback_data import (BOLLINGER_DEVIATIONS, BOLLINGER_PERIOD, CHART_BARS, Candle, ColumnSpan, DEFAULT_STRATEGY, _stream_chunks, count_bars, gap_flags, iter_candles, load_span, plan_stride, sample_candles, span_columns, step_ms,)
 from bi_trading.ui.strat.playback_walk import (Playback, _bollinger,)
 
 
@@ -40,6 +41,27 @@ def bollinger_entries(bars: list[Candle]) -> list[bool]:
         if band is not None and bar.close < band[2]:
             entries[index] = True
     return entries
+
+
+def benchmark_value(settings, first_close: float, close):
+    """Buy and hold: the book if the run's cash had bought at the first bar and kept it.
+
+    It puts in what `Max cash` lets the run trade with, not the whole book, and
+    pays the same fee and slippage on the way in, so the strategy and the
+    benchmark risk the same money and cost the same. The rest stays in cash.
+    `close` is a price or an array of them. There is no cost on the way out: it
+    is marked to market, never sold.
+    """
+    capital = float(settings["capital"])
+    cash = float(settings.get("max_cash", capital))
+    base = min(capital, cash) if cash > 0 else 0.0
+    fee = float(settings.get("fee", 0.0))
+    slip = float(settings.get("slippage", 0.0))
+    if not first_close:
+        return capital + 0.0 * close
+    notional = base / (1.0 + fee)
+    units = notional / (first_close * (1.0 + slip))
+    return (capital - base) + units * close
 
 
 def _random_draws(size: int, seed: int = 1234):
@@ -80,7 +102,8 @@ def bollinger_entries_columns(closes) -> list[bool]:
 
 
 def random_entries(
-    highs, lows, closes, settings, seed: int = 1234, chance: float = 0.03
+    highs, lows, closes, settings, seed: int = 1234, chance: float = 0.03,
+    gaps=None,
 ) -> list[bool]:
     """The coin-flip baseline over the span's columns, via the core when built."""
     from bi_trading.engine import core
@@ -96,6 +119,7 @@ def random_entries(
         settings.get("max_hold", DEFAULT_HOLD),
         chance,
         settings.get("side") == "short",
+        gaps,
     )
 
 
@@ -123,6 +147,8 @@ class ChunkRun:
         self.best_win = 0
         self.worst_loss = 0
         self.fees = 0.0
+        self.under = 0             # bars in the run of bars below the peak now
+        self.longest_under = 0
 
     def take(self, trades, equity, stamps, offset: int, end_state) -> None:
         """Fold in a piece's trades and equity (one value per bar)."""
@@ -166,6 +192,13 @@ class ChunkRun:
             self.max_drawdown = min(
                 self.max_drawdown, float(np.nanmin(values / running - 1.0))
             )
+        below = values < running
+        runs = underwater_runs(below)
+        if runs.size:
+            if below[0] and self.under:       # the run carries over the piece's edge
+                runs[0] += self.under
+            self.longest_under = max(self.longest_under, int(runs.max()))
+        self.under = int(runs[-1]) if below[-1] else 0
         self.peak = float(running[-1])
         self.max_gain = max(self.max_gain, float(values.max() / self.capital - 1.0))
         series = np.concatenate(([self.last_equity], values))
@@ -240,6 +273,8 @@ class BacktestSession:
     random_entries_arr: Any = None
     exit_formula: Any = None
     short_entries_arr: Any = None
+    # One flag per bar: the last before a hole in the data (see `gap_flags`).
+    gaps: Any = None
     # A span too long to hold is walked in pieces: (years, resolution, rule,
     # entry formula, short formula, exit formula). A formula is None for the
     # built-in rules; the short one only for a strategy that trades both ways.
@@ -280,9 +315,11 @@ class BacktestSession:
 
     def buy_and_hold(self) -> float:
         play = self.strategy
-        if not play.first_close:
+        if not play.first_close or self.settings is None:
             return play.capital
-        return play.capital * play.close_price() / play.first_close
+        return float(
+            benchmark_value(self.settings, play.first_close, play.close_price())
+        )
 
     def _grow(self, value: float) -> None:
         if not self.low:
@@ -370,6 +407,7 @@ class BacktestSession:
         highs = self.span.highs[:target]
         lows = self.span.lows[:target]
         args = (closes, highs, lows)
+        gaps = None if self.gaps is None else self.gaps[:target]
 
         def run(entries, exit_formula, shorts=None):
             return core.walk(
@@ -379,7 +417,8 @@ class BacktestSession:
                 s["max_cash"], s["fee"], s.get("max_hold", DEFAULT_HOLD),
                 s.get("dynamic_tp", False), s.get("reverse", 0.0),
                 s.get("side", "long"), exit_formula, shorts,
-                s.get("slippage", 0.0),
+                s.get("slippage", 0.0), 0, None, gaps,
+                self.span.volumes[:target], s.get("participation", 0.0),
             )
 
         strategy_trades, strategy_equity = run(
@@ -449,19 +488,22 @@ class BacktestSession:
             flags[picked - offset] = True
             return flags
 
-        def walk(run, entries, closes, highs, lows, offset, exit_rule=None, shorts=None):
+        def walk(run, entries, closes, highs, lows, offset, gaps, volumes, exit_rule=None, shorts=None):
             trades, equity, end = core.walk_chunk(
                 closes, highs, lows, entries, capital, s["tp"], s["sl"],
                 s["position"], s["sizing"], s["max_cash"], s["fee"],
                 s.get("max_hold", DEFAULT_HOLD), s.get("dynamic_tp", False),
                 s.get("reverse", 0.0), s.get("side", "long"), exit_rule, shorts,
-                s.get("slippage", 0.0), offset, run.state,
+                s.get("slippage", 0.0), offset, run.state, gaps,
+                volumes, s.get("participation", 0.0),
             )
             return trades, np.asarray(equity, dtype=float), end
 
-        for offset, data in _stream_chunks(years, resolution, target):
-            stamps, _opens, highs, lows, closes, _volumes = data
+        step = step_ms(resolution)
+        for offset, data, next_stamp in _stream_chunks(years, resolution, target):
+            stamps, _opens, highs, lows, closes, volumes = data
             size = len(stamps)
+            holes = gap_flags(stamps, step, next_stamp)
             tail.add(data)
 
             mine_short = None
@@ -488,6 +530,7 @@ class BacktestSession:
             flags, random_state = core.random_entries_chunk(
                 highs, lows, closes, spare, s["tp"], s["sl"],
                 s.get("max_hold", DEFAULT_HOLD), 0.03, short, offset, random_state,
+                holes,
             )
             spare = spare[random_state[3]:]
             other = np.asarray(flags, dtype=bool)
@@ -498,7 +541,7 @@ class BacktestSession:
             for run, entries in ((strategy, mine), (baseline, other)):
                 own = run is strategy
                 trades, equity, end = walk(
-                    run, entries, closes, highs, lows, offset,
+                    run, entries, closes, highs, lows, offset, holes, volumes,
                     exit_formula if own else None, mine_short if own else None,
                 )
                 run.take(trades, equity, stamps, offset, end)
@@ -511,13 +554,15 @@ class BacktestSession:
                 position = next_tick - offset - 1
                 strategy_curve.append(float(equities[0][position]))
                 random_curve.append(float(equities[1][position]))
-                benchmark.append(capital * float(closes[position]) / tail.first_close)
+                benchmark.append(
+                    float(benchmark_value(s, tail.first_close, float(closes[position])))
+                )
                 next_tick += stride
         # A last, shorter tick when the walk does not end on a multiple of the stride.
         if walked and next_tick - stride < walked:
             strategy_curve.append(strategy.last_equity)
             random_curve.append(baseline.last_equity)
-            benchmark.append(capital * last_close / tail.first_close)
+            benchmark.append(float(benchmark_value(s, tail.first_close, last_close)))
         return strategy, baseline, tail, walked, strategy_curve, random_curve, benchmark
 
     def _chunk_apply(self, target: int, walked) -> None:
@@ -569,7 +614,7 @@ class BacktestSession:
         # The benchmark and the scale, over the whole span, in array maths
         # rather than a Python pass per bar.
         if len(closes):
-            self.benchmark = (s["capital"] * closes / float(closes[0])).tolist()
+            self.benchmark = benchmark_value(s, float(closes[0]), closes).tolist()
         else:
             self.benchmark = []
         self.low = self.high = s["capital"]
@@ -632,6 +677,8 @@ def _walk_settings(params: dict) -> dict:
         # The tile takes a percent; the walk a fraction per side.
         "fee": float(params.get("fee") or 0.0) / 100.0,
         "slippage": float(params.get("slippage") or 0.0) / 100.0,
+        # The most a fill may take of a bar's traded value, as a fraction; 0 off.
+        "participation": float(params.get("participation") or 0.0) / 100.0,
         "dynamic_tp": dynamic_tp,
         "reverse": float(params.get("dyn_tp_reverse") or 0.0) if dynamic_tp else 0.0,
         "side": "short" if params.get("side") == "short" else "long",
@@ -771,8 +818,12 @@ def build_session(
             strategy_entries = [False] * total
         session.strategy_entries = strategy_entries
         session.short_entries = short_entries
+        session.gaps = gap_flags(span.stamps, step_ms(resolution))
         session.random_entries = _after_warmup(
-            random_entries(span.highs, span.lows, span.closes, settings), warmup
+            random_entries(
+                span.highs, span.lows, span.closes, settings, gaps=session.gaps
+            ),
+            warmup,
         )
         import numpy as np
 
@@ -791,22 +842,24 @@ def build_session(
                 None if short_entries is None
                 else set(i for i, on in enumerate(short_entries) if on)
             ),
-            exit_formula=exit_formula,
+            exit_formula=exit_formula, step_ms=step_ms(resolution),
             **settings,
         )
         random_buy = Playback(
             None, rule="random", total=total, stride=stride, span=span,
             entries=set(i for i, on in enumerate(session.random_entries) if on),
+            step_ms=step_ms(resolution),
             **settings,
         )
     else:
         feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
         strategy = Playback(
             feeds[0], rule=rule, total=total, stride=stride,
-            exit_formula=exit_formula, **settings,
+            exit_formula=exit_formula, step_ms=step_ms(resolution), **settings,
         )
         random_buy = Playback(
-            feeds[1], rule="random", total=total, stride=stride, **settings
+            feeds[1], rule="random", total=total, stride=stride,
+            step_ms=step_ms(resolution), **settings,
         )
         # Too long to hold, so the core walks it a year at a time.
         session.settings = settings

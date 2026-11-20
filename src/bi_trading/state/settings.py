@@ -71,7 +71,8 @@ TEMPLATE = {
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "hold": 7,
-        "warmup": 0,
+        "warmup": 100,
+        "participation": 1.0,
         "venues": {name: dict(costs) for name, costs in VENUE_COSTS.items()},
         "sizing": "balance",
         "timeframe": "1m",
@@ -135,7 +136,8 @@ class BacktestDefaults:
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     hold: int = 7                      # candles a trade may run; 0 = no limit
-    warmup: int = 0                    # bars of history before a signal counts; 0 = off
+    warmup: int = 100                  # bars of history before a signal counts; 0 = off
+    participation: float = 1.0         # most a fill may take of the bar's traded value, percent; 0 = off
     venues: dict = field(              # per-venue fee and slippage presets, percent
         default_factory=lambda: _venue_costs(None)
     )
@@ -210,6 +212,11 @@ class BacktestDefaults:
             ),
             warmup=int(
                 _clamp(_number(values.get("warmup"), defaults.warmup), 0, 1_000_000)
+            ),
+            participation=_clamp(
+                _number(values.get("participation"), defaults.participation),
+                0.0,
+                100.0,
             ),
             venues=_venue_costs(values.get("venues")),
             sizing=_choice(values.get("sizing"), defaults.sizing),
@@ -451,6 +458,7 @@ def save_backtest_defaults(
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
         "hold": defaults.hold,
         "warmup": defaults.warmup,
+        "participation": defaults.participation,
         "venues": defaults.venues,
         "sizing": defaults.sizing,
         "timeframe": defaults.timeframe,
