@@ -6,6 +6,18 @@ export const HL_WS = "wss://api.hyperliquid.xyz/ws";
 export const GAMMA = "https://gamma-api.polymarket.com";
 export const CLOB = "https://clob.polymarket.com";
 export const PM_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
+// Where the calls go. Defaults are the venues themselves; `detectProxy` switches to the local relay (serve.py) when it is there.
+export const endpoints = { gamma: GAMMA, clob: CLOB, hlInfo: HL_INFO, pmWs: PM_WS, proxied: false };
+export async function detectProxy(env = defaultEnv(), loc = globalThis.location) {
+  try {
+    if (!loc || !/^https?:$/.test(loc.protocol)) return false;
+    const r = await env.fetch("/__proxy/config"); if (!r.ok) return false;
+    const j = await r.json(); if (typeof j?.wsPort !== "number") return false;
+    Object.assign(endpoints, { gamma: "/__proxy/gamma", clob: "/__proxy/clob", hlInfo: "/__proxy/hl/info", proxied: true });
+    if (j.wsPort) endpoints.pmWs = `ws://${loc.hostname}:${j.wsPort}/pm`;
+    return true;
+  } catch { return false; }
+}
 export const SLUG_PREFIX = "btc-updown-5m";
 export const WINDOW_MS = 300000;
 export const INTERVAL_MS = { "1m": 60e3, "3m": 180e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3 };
@@ -14,10 +26,16 @@ const CANDLE_COUNT = 300;
 // -- shared state and a small event log -------------------------------------
 
 export const feed = {
-  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [] },
-  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null },
+  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [], lastMsg: 0 },
+  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null, lastMsg: 0 },
 };
 export const events = [];
+// "live" (data arriving), "stale" (connected but silent), or the raw status (connecting, error, off...).
+export function health(S, now = Date.now(), staleMs = 12000) {
+  if (S.status !== "live") return { ok: false, label: S.status === "off" ? "offline" : S.status, why: S.error || "" };
+  if (S.lastMsg && now - S.lastMsg > staleMs) return { ok: false, label: "stale", why: `no data for ${Math.round((now - S.lastMsg) / 1000)} s` };
+  return { ok: true, label: "live", why: "" };
+}
 const listeners = new Set();
 export const onChange = (f) => listeners.add(f);
 export const emit = () => listeners.forEach((f) => f());
@@ -151,8 +169,9 @@ export function dispatchHL(S, raw) {
     case "bbo": { const u = parseBBO(d); if (u) { S.mids[u[0]] = u[1]; if (u[0] === "BTC") { S.btcMid = u[1]; pushTick(S, u[1]); } } return !!u; }
     case "l2Book": { const b = parseHLBook(d); if (b.coin && b.coin === S.coin) { S.book = b; return true; } return false; }
     case "candle": {
-      const key = `${d?.s}|${d?.i}`, c = parseCandles([d])[0], arr = S.series[key];
-      if (!c || !arr) return false;
+      const key = `${d?.s}|${d?.i}`, c = parseCandles([d])[0];
+      if (!c) return false;
+      const arr = (S.series[key] ??= []);
       const last = arr.at(-1);
       if (last && last.t === c.t) arr[arr.length - 1] = c; else if (!last || c.t > last.t) { arr.push(c); if (arr.length > CANDLE_COUNT) arr.shift(); } else { const i = arr.findIndex((x) => x.t === c.t); if (i >= 0) arr[i] = c; }
       return true;
@@ -186,7 +205,7 @@ export const validAddress = (a) => /^0x[0-9a-fA-F]{40}$/.test(String(a || "").tr
 
 export const defaultEnv = () => ({ fetch: (...a) => fetch(...a), WebSocket: globalThis.WebSocket, now: () => Date.now(), setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: (t) => clearTimeout(t), setInterval: (f, ms) => setInterval(f, ms), clearInterval: (t) => clearInterval(t) });
 const sleep = (env, ms) => new Promise((r) => env.setTimeout(r, ms));
-const hlPost = async (env, body) => { const r = await env.fetch(HL_INFO, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); };
+const hlPost = async (env, body) => { const r = await env.fetch(endpoints.hlInfo, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); };
 
 export function startHL(env = defaultEnv()) {
   const S = feed.hl; S._now = env.now;
@@ -213,7 +232,7 @@ export function startHL(env = defaultEnv()) {
       tries = 0; S.status = "live"; S.error = ""; logEvent("info", "System", "—", "CONNECTION", "Hyperliquid connected", env.now());
       wanted().forEach((s) => send("subscribe", s));
     };
-    ws.onmessage = (e) => { if (dispatchHL(S, e.data)) S._dirty = true; };
+    ws.onmessage = (e) => { S.lastMsg = env.now(); if (dispatchHL(S, e.data)) S._dirty = true; };
     ws.onclose = () => { if (stopped) return; S.status = "reconnecting"; logEvent("warn", "System", "—", "CONNECTION", "Hyperliquid disconnected", env.now()); tries++; env.setTimeout(connect, Math.min(15000, 500 * 2 ** tries)); emit(); };
     ws.onerror = () => { S.error = "websocket error"; };
   }
@@ -261,7 +280,7 @@ async function fetchTarget(env, startMs) {
 }
 
 export async function fetchResolved(env, slug) {
-  try { const r = await env.fetch(`${GAMMA}/markets?slug=${encodeURIComponent(slug)}`); return r.ok ? resolvedSide(await r.json()) : null; } catch { return null; }
+  try { const r = await env.fetch(`${endpoints.gamma}/markets?slug=${encodeURIComponent(slug)}`); return r.ok ? resolvedSide(await r.json()) : null; } catch { return null; }
 }
 
 // Each window keeps its target so the chart can scroll old windows left instead of restarting every 5 minutes.
@@ -273,7 +292,7 @@ export function rememberWindow(S, m, target) {
 
 export function startPM(env = defaultEnv()) {
   const S = feed.pm; let stopped = false, ws = null; const timers = [];
-  const probe = async () => { const t0 = env.now(); try { const r = await env.fetch(`${CLOB}/time`); if (r.ok) { S.latency = Math.round(env.now() - t0); emit(); } } catch { /* keep last */ } };
+  const probe = async () => { const t0 = env.now(); try { const r = await env.fetch(`${endpoints.clob}/time`); if (r.ok) { S.latency = Math.round(env.now() - t0); emit(); } } catch { /* keep last */ } };
   probe(); timers.push(env.setInterval(probe, 5000));
   timers.push(env.setInterval(() => { if (S._dirty) { S._dirty = false; emit(); } }, 250));
   async function session(m) {
@@ -281,10 +300,10 @@ export function startPM(env = defaultEnv()) {
     while (!stopped && env.now() < m.endMs) {
       await new Promise((resolve) => {
         let done = false; const fin = () => { if (!done) { done = true; env.clearTimeout(t); resolve(); } };
-        ws = new env.WebSocket(PM_WS);
+        ws = new env.WebSocket(endpoints.pmWs);
         const t = env.setTimeout(() => { try { ws.close(); } catch { /* closed */ } fin(); }, Math.max(0, m.endMs - env.now()) + 1000);
         ws.onopen = () => { ws.send(JSON.stringify({ assets_ids: tokens, type: "market" })); S.status = "live"; S.error = ""; logEvent("info", "System", "—", "CONNECTION", "Polymarket connected", env.now()); };
-        ws.onmessage = (e) => { if (dispatchPM(S, e.data)) S._dirty = true; };
+        ws.onmessage = (e) => { S.lastMsg = env.now(); if (dispatchPM(S, e.data)) S._dirty = true; };
         ws.onclose = () => { if (env.now() < m.endMs && !stopped) { S.status = "reconnecting"; logEvent("warn", "System", "—", "CONNECTION", "Polymarket reconnecting", env.now()); } fin(); };
         ws.onerror = () => { S.error = "websocket error"; };
       });
@@ -296,7 +315,7 @@ export function startPM(env = defaultEnv()) {
       const slug = marketSlug(env.now());
       try {
         S.status = "connecting"; emit();
-        const r = await env.fetch(`${GAMMA}/markets?slug=${encodeURIComponent(slug)}`); if (!r.ok) throw new Error("HTTP " + r.status);
+        const r = await env.fetch(`${endpoints.gamma}/markets?slug=${encodeURIComponent(slug)}`); if (!r.ok) throw new Error("HTTP " + r.status);
         const m = parseMarket(await r.json());
         if (!m) { S.error = "market not listed yet"; await sleep(env, 2000); continue; }
         S.market = m; S.books = {}; S.trades = []; S.target = null; emit();

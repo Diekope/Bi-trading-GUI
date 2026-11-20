@@ -1,6 +1,6 @@
 import { candles, equity as equity_, tape, market, stats, pmStats, dataFor, strategies, palette, features, heat, trades, histogram, rng } from "./synth.js";
 import { drawCandles, drawLines, drawArea } from "./chart.js";
-import { feed, events } from "./feeds.js";
+import { feed, events, health } from "./feeds.js";
 import { paintBtc } from "./btcchart.js";
 import { P, equity, startEquity, dayPnl, markOf, pnlOf, FEE } from "./paper.js";
 
@@ -67,7 +67,7 @@ export const latency = () => ({ pm: feed.pm.latency, hl: feed.hl.latency, cls: l
 
 function pmData() {
   const S = feed.pm, m = S.market;
-  if (!(S.status === "live" && m)) return { live: false, why: S.error || S.status, title: market.title, win: "21:00–21:05 UTC", closes: market.closesIn, up: { bid: 0.8, ask: 0.81, mid: 0.805 }, down: { bid: 0.19, ask: 0.2, mid: 0.195 }, spread: market.spread, liquidity: market.liquidity, depth: market.depth, target: market.target, btc: market.btc, tape: tape().map((t) => ({ time: t.time, side: t.side, px: t.px / 100, size: t.size })) };
+  if (!(health(S).ok && m)) return { live: false, why: S.error || S.status, title: market.title, win: "21:00–21:05 UTC", closes: market.closesIn, up: { bid: 0.8, ask: 0.81, mid: 0.805 }, down: { bid: 0.19, ask: 0.2, mid: 0.195 }, spread: market.spread, liquidity: market.liquidity, depth: market.depth, target: market.target, btc: market.btc, tape: tape().map((t) => ({ time: t.time, side: t.side, px: t.px / 100, size: t.size })) };
   const pick = (n, i) => m.outcomes.find((o) => o.name.toLowerCase() === n) ?? m.outcomes[i];
   const u = pick("up", 0), d = pick("down", 1);
   const side = (o) => { const b = S.books[o.token], bid = b?.bids[0]?.price ?? null, ask = b?.asks[0]?.price ?? null; return { bid, ask, mid: bid != null && ask != null ? (bid + ask) / 2 : (bid ?? ask ?? o.price) }; };
@@ -79,9 +79,9 @@ function pmData() {
 }
 function hlData() {
   const S = feed.hl, c = S.series[`${S.coin}|${S.interval}`];
-  return c && c.length > 5 && S.status === "live" ? { live: true, candles: c, price: S.mids[S.coin] ?? c.at(-1).c } : { live: false, candles: cs, price: cs.at(-1).c };
+  return c && c.length >= 2 && health(S).ok ? { live: true, candles: c, price: S.mids[S.coin] ?? c.at(-1).c } : { live: false, candles: cs, price: cs.at(-1).c };
 }
-const statusChip = (S, name) => (S.status === "live" ? `<span class="up" style="font-size:11px">● live</span>` : `<span class="muted" style="font-size:11px" title="${S.error || ""}">○ ${S.status === "off" ? "offline" : S.status}${S.error ? " · " + S.error : ""} · synthetic</span>`);
+const statusChip = (S) => { const h = health(S); return h.ok ? `<span class="up" style="font-size:11px">● live</span>` : `<span class="accent" style="font-size:11px" title="${h.why}">○ ${h.label} · demo data${h.why ? " · " + h.why : ""}</span>`; };
 
 const pmCard = () => { const d = pmData(), pl = feed.pm.latency, sel = state.pmSel === "DOWN" ? d.down : d.up, ret = sel.ask ? (1 / sel.ask - 1) * 100 : null, delta = d.btc && d.target ? ((d.btc - d.target) / d.target) * 100 : null;
   const tile = (n, o) => `<div class="tile ${state.pmSel === n ? (n === "UP" ? "up" : "down") : ""}" data-set="pmSel=${n}" style="cursor:pointer" title="Show ${n} details"><div class="row between"><b class="${n === "UP" ? "up" : "down"}">${n}</b><span class="${n === "UP" ? "up" : "down"}" style="font-size:24px;font-weight:700">${(o.mid * 100).toFixed(1)}¢</span></div><div style="height:3px;background:var(--${n === "UP" ? "up" : "down"});width:${Math.min(100, o.mid * 100)}%;margin:4px 0 8px;border-radius:2px"></div><div class="row between" style="font-size:11px"><span class="faint">bid ${cents(o.bid)} · ask ${cents(o.ask)}</span><b class="${n === "UP" ? "muted" : "down"}">${o.ask ? "×" + (1 / o.ask).toFixed(2) : ""}</b></div></div>`;
@@ -93,7 +93,7 @@ const pmCard = () => { const d = pmData(), pl = feed.pm.latency, sel = state.pmS
       <div class="grid g2" style="gap:8px">${tile("UP", d.up)}${tile("DOWN", d.down)}</div>
       <div class="grid g2" style="font-size:11px;gap:2px 20px">${[["SPREAD", sel.bid != null && sel.ask != null ? `${Math.round((sel.ask - sel.bid) * 100)}¢` : d.spread, "LIQUIDITY", d.liquidity], ["DEPTH", d.depth, "TARGET", d.target ? pxFmt(d.target) : "—"], ["BTC", d.btc ? pxFmt(d.btc) : "—", "Δ OPEN", delta == null ? "—" : (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"], ["RETURN", ret == null ? "—" : "+" + ret.toFixed(0) + "%", "PER $100", sel.ask ? "$" + (100 / sel.ask).toFixed(0) : "—"]].map(([a, b, c, e]) => `<div class="row"><span class="faint" style="width:56px">${a}</span><b>${b}</b></div><div class="row"><span class="faint" style="width:70px">${c}</span><b class="${c === "Δ OPEN" && delta != null ? (delta >= 0 ? "up" : "down") : ""}">${e}</b></div>`).join("")}</div>
       <div class="cap" style="padding:2px 0"><b class="${state.pmSel === "UP" ? "up" : "down"}">${state.pmSel}</b> selected: ${state.pmSel} at ${cents(sel.ask)} pays ${sel.ask ? "$" + (100 / sel.ask).toFixed(0) : "—"} per $100 if it wins. Click a tile to switch.</div>
-      <div class="row between" style="margin-top:6px"><b class="sec" style="color:var(--muted)">BTC / USD</b><b class="${delta == null ? "muted" : delta >= 0 ? "up" : "down"}" style="font-size:11px">${delta == null ? "" : (delta >= 0 ? "ABOVE " : "BELOW ") + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"}</b></div><canvas id="btc"></canvas>
+      <div class="row between" style="margin-top:6px"><b class="sec" style="color:var(--muted)">BTC / USD${health(feed.hl).ok ? "" : " · demo"}</b><b class="${delta == null ? "muted" : delta >= 0 ? "up" : "down"}" style="font-size:11px">${delta == null ? "" : (delta >= 0 ? "ABOVE " : "BELOW ") + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"}</b></div><canvas id="btc"></canvas>
       <b class="sec" style="color:var(--muted)">Tape</b><div class="mono" style="font-size:11px;color:var(--muted);display:grid;gap:1px">${d.tape.map((t) => `<div style="display:grid;grid-template-columns:80px 70px 1fr auto"><span>${t.time}</span><span class="${t.side === "UP" ? "up" : "down"}">${t.side}</span><span style="text-align:right;padding-right:30px">${cents(t.px)}</span><span>× ${(+t.size).toFixed(2)}</span></div>`).join("") || `<div>waiting for trades…</div>`}</div></section>`; };
 
 const COINS = ["HYPE", "BTC", "ETH", "SOL"];
@@ -285,7 +285,7 @@ export function draw() {
 // The Polymarket BTC chart: live samples when the feeds are up, otherwise a synthetic walk so the animation still shows.
 const demo = { t: 0, pts: [], p: 75740 };
 function btcFeed() {
-  const m = feed.pm.market, ticks = feed.hl.btcTicks || [], live = feed.hl.status === "live" && ticks.length > 1, now = Date.now();
+  const m = feed.pm.market, ticks = feed.hl.btcTicks || [], live = health(feed.hl).ok && ticks.length > 1, now = Date.now();
   if (live) {
     const c = feed.hl.series["BTC|1m"] || [], first = ticks[0].t, back = c.filter((x) => x.t + 60000 < first && x.t + 60000 > now - 16 * 60e3).flatMap((x) => [{ t: x.t, p: x.o }, { t: x.t + 60000, p: x.c }]);
     return { points: [...back, ...ticks], target: feed.pm.target, startMs: m?.startMs, endMs: m?.endMs, windows: feed.pm.windows, key: `${location.hash}|btc`, mode: "1m" };

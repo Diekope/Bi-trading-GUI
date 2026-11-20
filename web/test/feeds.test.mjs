@@ -47,6 +47,31 @@ test("BTC ticks feed the rolling chart", async () => {
   assert.equal(B.xFrac(5000, 5000), 1); assert.equal(B.xFrac(5000 - B.SPAN, 5000), 0); assert.equal(B.xFrac(5000 - B.SPAN / 2, 5000), 0.5);
 });
 
+test("health: live, stale, or the raw status", () => {
+  assert.deepEqual(F.health({ status: "live", lastMsg: 1000 }, 2000), { ok: true, label: "live", why: "" });
+  assert.equal(F.health({ status: "live", lastMsg: 1000 }, 20000).label, "stale");
+  assert.equal(F.health({ status: "error", error: "HTTP 403" }).why, "HTTP 403");
+  assert.equal(F.health({ status: "off" }).label, "offline");
+});
+
+test("detectProxy switches the endpoints only when the relay answers", async () => {
+  const loc = { protocol: "http:", hostname: "localhost" };
+  assert.equal(await F.detectProxy({ fetch: async () => ({ ok: false }) }, loc), false);
+  assert.equal(await F.detectProxy({ fetch: async () => { throw new Error("x"); } }, loc), false);
+  assert.equal(await F.detectProxy({ fetch: async () => json({ wsPort: 8001 }) }, { protocol: "file:" }), false);
+  assert.equal(F.endpoints.proxied, false);
+  assert.equal(await F.detectProxy({ fetch: async () => json({ wsPort: 8001 }) }, loc), true);
+  assert.equal(F.endpoints.gamma, "/__proxy/gamma"); assert.equal(F.endpoints.pmWs, "ws://localhost:8001/pm");
+  Object.assign(F.endpoints, { gamma: F.GAMMA, clob: F.CLOB, hlInfo: F.HL_INFO, pmWs: F.PM_WS, proxied: false });
+});
+
+test("a candle stream builds the series even if the REST snapshot failed", () => {
+  const S = { coin: "HYPE", series: {}, mids: {}, book: null };
+  F.dispatchHL(S, JSON.stringify({ channel: "candle", data: { s: "HYPE", i: "1m", t: 1, o: "1", h: "1", l: "1", c: "1", v: "1" } }));
+  F.dispatchHL(S, JSON.stringify({ channel: "candle", data: { s: "HYPE", i: "1m", t: 2, o: "1", h: "2", l: "1", c: "2", v: "1" } }));
+  assert.equal(S.series["HYPE|1m"].length, 2);
+});
+
 test("windows are remembered across rollovers, newest last, capped", () => {
   const S = { windows: [] };
   for (let i = 0; i < 8; i++) F.rememberWindow(S, { startMs: i * 300000, endMs: (i + 1) * 300000 }, 100 + i);

@@ -1,5 +1,5 @@
 import { views, state, draw, normalize, latency, balances, paintAll } from "./views.js";
-import { feed, onChange, startHL, startPM, logEvent } from "./feeds.js";
+import { feed, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const rail = [
@@ -30,7 +30,7 @@ function chrome(key) {
   document.body.dataset.venue = state.venue;
   morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
   const extra = v.topExtra ? v.topExtra() : "";
-  morph($("#topbar"), `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`);
+  morph($("#topbar"), `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${feedChips()}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`);
 }
 const usd = (n) => `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</span>`;
 const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -66,6 +66,10 @@ function morph(el, html, full) {
   for (let i = oc.length - 1; i >= nc.length; i--) el.removeChild(oc[i]);
 }
 let lastKey = "";
+function feedChips() {
+  const chip = (name, S) => { const h = health(S); return h.ok ? "" : `<a class="bal" href="#logs" title="${h.why || h.label}"><span class="mode paper">${name} ${h.label.toUpperCase()}</span> <span class="muted">demo data</span></a>`; };
+  return chip("PM", feed.pm) + chip("HL", feed.hl);
+}
 let hlHandle = null;
 function render() {
   normalize();
@@ -116,7 +120,12 @@ addEventListener("keydown", (e) => {
 });
 onChange(schedule);
 (function frame() { paintAll(); requestAnimationFrame(frame); })();
-hlHandle = startHL(); startPM();
-try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); } catch { /* storage blocked */ }
+(async () => {
+  const proxied = await detectProxy();
+  logEvent("info", "System", "—", "FEED", proxied ? "Using the local relay (serve.py) for REST and the Polymarket socket" : "Calling the venues directly from the browser (run web/serve.py if Polymarket stays on demo data)");
+  hlHandle = startHL(); startPM();
+  try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); } catch { /* storage blocked */ }
+  render();
+})();
 setInterval(() => { paperTick(feed); schedule(); }, 1000);
 render();
