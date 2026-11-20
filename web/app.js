@@ -36,7 +36,7 @@ const usd = (n) => `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"
 const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function balChips() {
   const b = balances();
-  return `<a class="bal" href="#portfolio" title="Paper account, marked to the live books"><span class="mode paper">PAPER</span> <b>${money(b.paper)}</b> ${usd(b.paperPnl)}</a><a class="bal" href="#portfolio" title="Live balance: Hyperliquid account value, read-only. Add an address in Settings."><span class="mode live">LIVE</span> <b>${b.live != null ? money(b.live) : "—"}</b>${b.liveNote === "error" ? ` <span class="down">!</span>` : ""}</a>`;
+  return `<a class="bal" href="#portfolio" title="Paper account, marked to the live books"><span class="mode paper">PAPER</span> <b>${money(b.paper)}</b> ${usd(b.paperPnl)} <span class="${b.paperPct >= 0 ? "up" : "down"}">${b.paperPct >= 0 ? "+" : ""}${b.paperPct.toFixed(2)}%</span></a><a class="bal" href="#portfolio" title="Live balance: Hyperliquid account value, read-only. Add an address in Settings."><span class="mode live">LIVE</span> <b>${b.live != null ? money(b.live) : "—"}</b>${b.liveNote === "error" ? ` <span class="down">!</span>` : ""}</a>`;
 }
 // Patch the DOM in place instead of replacing it: hover, focus, scroll and canvases survive a live repaint
 // (replacing every node each 400 ms is what made the UP/DOWN tiles blink under the pointer).
