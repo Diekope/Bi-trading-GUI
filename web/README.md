@@ -4,7 +4,7 @@ Static HTML/CSS/JS replica of every screen, fed by seeded synthetic data (`synth
 
     uv run python web/serve.py      # then open http://localhost:8000
 
-**Venue context.** The rail's top switch picks Polymarket (PM), Hyperliquid (HL) or both (`Alt+1/2/3`). Each screen adapts: Live (PM bets and edge, or HL book and trade form), Builder (variables and wording), Backtest (bet value or position value), ML, Settings, Logs. Strategy work is per venue: in "general" (both) the Builder, Backtest and ML tabs are hidden (and their routes redirect home), and Home shows a portfolio card instead. The PAPER / LIVE switch (top right) chooses which book receives orders; `#portfolio` shows both books side by side, updating every 1.5 s.
+**Venue context.** The rail's top switch picks Polymarket (PM), Hyperliquid (HL) or both (`Alt+1/2/3`). Each screen adapts: Live (PM bets and edge, or HL book and trade form), Builder (variables and wording), Backtest (bet value or position value), ML, Settings, Logs. Strategy work is per venue: in "general" (both) the Builder, Backtest and ML tabs are hidden (and their routes redirect home), and Home shows a portfolio card instead. The general Live screen trades both venues: a Polymarket bet bar and a Hyperliquid order bar (size, leverage, TP, SL, Buy/Long, Sell/Short) in the footer, with each venue's open paper positions listed under its chart. The PAPER / LIVE switch (top right) chooses which book receives orders; `#portfolio` shows both books side by side, updating every 1.5 s.
 
 Screens (hash routes, rail icons, `Ctrl/Cmd+1..8`): `#home`, `#portfolio`, `#live`, `#builder` (rules / formula / code, results overview and compare), `#backtest` (overview and trades), `#logs`, `#ml`, `#model`, `#settings`.
 
