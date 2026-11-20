@@ -1,4 +1,6 @@
-import { views, state, draw, normalize, tick } from "./views.js";
+import { views, state, draw, normalize, latency } from "./views.js";
+import { feed, onChange, startHL, startPM, logEvent } from "./feeds.js";
+import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const rail = [
   ["home", "Home", I('<path d="M3 11l9-8 9 8M5 10v10h14V10"/>')],
@@ -14,35 +16,68 @@ const tail = [
 ];
 const keys = ["home", "portfolio", "live", "builder", "backtest", "ml", "logs", "settings"];
 const titles = { home: "Home", portfolio: "Portfolio", live: "Live", builder: "Strategy builder", backtest: "Backtest engine", ml: "ML strategy builder", model: "Model builder", logs: "Logs", settings: "Settings" };
+const liveViews = new Set(["home", "portfolio", "live", "logs"]);
 const $ = (s) => document.querySelector(s);
 const link = ([k, t, i], key) => `<a href="#${k}" title="${t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}</a>`;
 const vs = [["Polymarket", "pm", "PM"], ["Hyperliquid", "hl", "HL"], ["Both", "", "⇄"]];
-function render() {
-  normalize();
-  let key = location.hash.slice(1) || "home"; if (!views[key]) key = "home";
-  const v = views[key];
+const curKey = () => { const k = location.hash.slice(1) || "home"; return views[k] ? k : "home"; };
+
+function chrome(key) {
+  const v = views[key], L = latency(), cls = (ms) => L.cls(ms), fmt = (ms) => (ms == null ? "—" : ms + "ms");
   document.body.classList.toggle("hub", !!v.hub);
   document.body.classList.toggle("live-mode", !!state.live);
   document.body.dataset.venue = state.venue;
-  $("#rail").innerHTML = `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span class="pm" style="color:#5b82ff">PM</span>26ms<span style="color:#97fce4">HL</span>217ms</div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`;
+  $("#rail").innerHTML = `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`;
   const extra = v.topExtra ? v.topExtra() : "";
   $("#topbar").innerHTML = `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`;
+}
+let hlHandle = null;
+function render() {
+  normalize();
+  const key = curKey(), v = views[key];
+  hlHandle?.setWatch(state.coin, state.tf);
+  chrome(key);
+  const scrolls = [...document.querySelectorAll(".scroll")].map((e) => e.scrollTop);
   const main = $("#main");
   main.style.gridTemplateColumns = v.grid; main.style.gridTemplateRows = v.rowsPx || v.rows;
   main.innerHTML = v.html();
+  document.querySelectorAll(".scroll").forEach((e, i) => { if (scrolls[i]) e.scrollTop = scrolls[i]; });
   const f = $("#footer"); const foot = v.foot ? v.foot() : ""; f.style.display = foot ? "flex" : "none"; f.innerHTML = foot;
   requestAnimationFrame(draw);
 }
+// Live data repaints the screens that show it, but never while the user is typing.
+let timer = null;
+const typing = () => /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "") && document.activeElement.type !== "checkbox";
+function schedule() {
+  if (timer) return;
+  timer = setTimeout(() => { timer = null; const key = curKey(); if (liveViews.has(key) && !typing()) render(); else chrome(key); }, 400);
+}
+function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t.className = err ? "err show" : "show"; clearTimeout(toast.h); toast.h = setTimeout(() => (t.className = ""), 3500); }
+function act(a) {
+  const f = state.form;
+  if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
+  if (state.live && !a.startsWith("close-")) { toast("Live trading is not available in this sandbox. Switch to PAPER to place orders.", true); return; }
+  let r;
+  if (a.startsWith("pm-")) r = placePM(feed, a.slice(3), Number(f.pmStake ?? 20));
+  else if (a.startsWith("hl-")) r = placeHL(feed, { coin: feed.hl.coin, side: a.slice(3), size: Number(f.hlSize ?? 500), lev: Number(f.hlLev ?? 5), tp: Number(f.hlTp ?? 2) || 0, sl: Number(f.hlSl ?? 1) || 0 });
+  else if (a.startsWith("close-")) r = closePosition(feed, Number(a.slice(6)));
+  if (!r) return;
+  if (!r.ok) { logEvent("warn", a.startsWith("pm-") ? "Polymarket" : "Hyperliquid", "Manual", "REJECT", r.error); toast(r.error, true); } else toast(a.startsWith("close-") ? "Position closed." : "Paper order filled.");
+  render();
+}
 document.addEventListener("click", (e) => {
+  const x = e.target.closest("[data-act]"); if (x) { act(x.dataset.act); return; }
   const s = e.target.closest("[data-set]"); if (!s) return;
   const [k, ...v] = s.dataset.set.split("="), val = v.join("="); state[k] = val !== "" && !isNaN(val) ? Number(val) : val; render();
 });
 document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } });
+document.addEventListener("input", (e) => { const b = e.target.dataset?.bind; if (b) state.form[b] = e.target.value; });
 addEventListener("hashchange", render); addEventListener("resize", draw);
 addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); location.hash = keys[e.key - 1]; }
   if (e.altKey && ["1", "2", "3"].includes(e.key)) { state.venue = ["Polymarket", "Hyperliquid", "Both"][e.key - 1]; render(); }
 });
-// The books tick so the portfolio reads as live.
-setInterval(() => { if (location.hash === "#portfolio") { tick.n++; render(); } }, 1500);
+onChange(schedule);
+hlHandle = startHL(); startPM();
+setInterval(() => { paperTick(feed); schedule(); }, 1000);
 render();

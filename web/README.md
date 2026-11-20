@@ -14,4 +14,14 @@ Screens (hash routes, rail icons, `Ctrl/Cmd+1..8`): `#home`, `#portfolio`, `#liv
 
 Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `web/assets/`.
 
+## Live feeds and paper trading
+
+`feeds.js` connects to the public endpoints the Qt app uses (Hyperliquid `info` + WebSocket: candles, `l2Book`, `allMids`, `bbo`; Polymarket Gamma + the market WebSocket for the current 5-minute BTC window). `paper.js` fills paper orders against those live books: Polymarket bets walk the ask side and settle on Gamma's resolved outcome (falling back to BTC vs the window-open price after 30 s, flagged "est."); Hyperliquid perps walk the book, charge 0.06% per side, and close on TP, SL or at 90% of margin lost. The paper account (PM $1,000, HL $10,000) is saved in `localStorage`; **Reset paper account** is on the Portfolio.
+
+- Serve over http (`python3 -m http.server`), not `file://`: the venues' REST endpoints are called from the browser.
+- If a feed cannot connect (offline, or the browser blocks a cross-origin call), the screen says so in its status chip and falls back to synthetic data.
+- `test/mock.html` runs the same app against fake endpoints, for working offline: open `http://localhost:8000/test/mock.html`.
+- `node --test test/feeds.test.mjs` checks the parsers, dispatchers, subscriptions and paper fills.
+- LIVE mode is read-only here: no keys, no real orders.
+
 Edit here to try a layout, then port the result to the Qt code.
