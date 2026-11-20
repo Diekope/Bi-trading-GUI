@@ -67,7 +67,7 @@ export const views = {
 
   builder: {
     html: () => `<div style="display:grid;grid-template-rows:auto 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:12px"><b class="sec">Strategy</b><div class="row"><input type="text" value="${strat().name}" style="font-family:var(--ui)"><input type="text" value="${strat().tf}" style="width:70px;font-family:var(--ui)"></div></section>${stratList()}</div>
-      <div style="display:grid;grid-template-rows:1.3fr 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:10px 12px"><div class="row between"><span class="row"><button class="pill ${state.ruleSide === "entry" ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=entry">ENTRY RULES</button><button class="pill ${state.ruleSide === "exit" ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=exit">EXIT RULES</button></span>${pills("mode", ["Rules", "Formula", "Code"])}</div>
+      <div style="display:grid;grid-template-rows:1.6fr 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:10px 12px"><div class="row between"><span class="row"><button class="pill ${state.ruleSide === "entry" ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=entry">ENTRY RULES</button><button class="pill ${state.ruleSide === "exit" ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=exit">EXIT RULES</button></span>${pills("mode", ["Rules", "Formula", "Code"])}</div>
       ${state.mode === "Code" ? codeMode() : state.mode === "Rules" ? rulesMode() : formulaMode()}</section>
       ${resultsCard()}</div>`,
     grid: "280px 1fr", rows: "1fr",
