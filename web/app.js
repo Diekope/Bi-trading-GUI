@@ -18,7 +18,7 @@ const venueOnly = new Set(["builder", "backtest", "ml", "model"]); // strategy w
 const shown = (k) => state.venue !== "Both" || !venueOnly.has(k);
 const keys = () => ["home", "portfolio", "live", "builder", "backtest", "ml", "logs", "settings"].filter(shown);
 const titles = { home: "Home", portfolio: "Portfolio", live: "Live", builder: "Strategy builder", backtest: "Backtest engine", ml: "ML strategy builder", model: "Model builder", logs: "Logs", settings: "Settings" };
-const ADDR_KEY = "bi-trading-sandbox-hl-address";
+const ADDR_KEY = "bi-trading-sandbox-hl-address", PM_ADDR_KEY = "bi-trading-sandbox-pm-address";
 const liveViews = new Set(["home", "portfolio", "live", "logs"]);
 const $ = (s) => document.querySelector(s);
 const link = ([k, t, i], key) => `<a href="#${k}" title="${t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}</a>`;
@@ -72,7 +72,7 @@ function feedChips() {
   const chip = (name, S) => { const h = health(S); return h.ok ? "" : `<a class="bal" href="#logs" title="${h.why || h.label}"><span class="mode paper">${name} ${h.label.toUpperCase()}</span> <span class="muted">demo data</span></a>`; };
   return chip("PM", feed.pm) + chip("HL", feed.hl);
 }
-let hlHandle = null;
+let hlHandle = null, pmHandle = null;
 function render() {
   normalize();
   if (!shown(curKey())) { location.hash = "#home"; return; } // a strategy screen while on "general": go home (hashchange re-renders)
@@ -99,6 +99,8 @@ function act(a) {
   const f = state.form;
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
   if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
+  if (a === "pm-connect") { const addr = (f.pmAddr ?? feed.pm.account?.address ?? "").trim(); pmHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(PM_ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Polymarket positions value connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
+  if (a === "pm-disconnect") { pmHandle.setAddress(""); try { localStorage.removeItem(PM_ADDR_KEY); } catch { /* storage blocked */ } state.form.pmAddr = ""; toast("Polymarket wallet disconnected."); render(); return; }
   if (a === "hl-disconnect") { hlHandle.setAddress(""); try { localStorage.removeItem(ADDR_KEY); } catch { /* storage blocked */ } state.form.hlAddr = ""; toast("Live balance disconnected."); render(); return; }
   if (state.live && !a.startsWith("close-")) { toast("Live trading is not available in this sandbox. Switch to PAPER to place orders.", true); return; }
   let r;
@@ -126,8 +128,8 @@ onChange(schedule);
 (async () => {
   const proxied = await detectProxy();
   logEvent("info", "System", "—", "FEED", proxied ? "Using the local relay (serve.py) for REST and the Polymarket socket" : "Calling the venues directly from the browser (run web/serve.py if Polymarket stays on demo data)");
-  hlHandle = startHL(); startPM();
-  try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); } catch { /* storage blocked */ }
+  hlHandle = startHL(); pmHandle = startPM();
+  try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); const p = localStorage.getItem(PM_ADDR_KEY); if (p) pmHandle.setAddress(p); } catch { /* storage blocked */ }
   render();
 })();
 setInterval(() => { paperTick(feed); schedule(); }, 1000);

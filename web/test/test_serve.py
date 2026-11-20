@@ -44,7 +44,7 @@ class RelayTest(unittest.IsolatedAsyncioTestCase):
         self.up = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
         threading.Thread(target=self.up.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{self.up.server_address[1]}"
-        os.environ.update(BT_GAMMA=base, BT_CLOB=base, BT_HL=base)
+        os.environ.update(BT_GAMMA=base, BT_CLOB=base, BT_HL=base, BT_DATA=base)
         import importlib, serve
         self.serve = importlib.reload(serve)
         import websockets
@@ -91,6 +91,11 @@ class RelayTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.call("/__proxy/clob/time"))[0], 200)
         status, body = await self.call("/__proxy/hl/info", data=json.dumps({"type": "candleSnapshot"}).encode(), headers={"Content-Type": "application/json"})
         self.assertEqual(status, 200); self.assertEqual(json.loads(body)["body"], {"type": "candleSnapshot"})
+
+    async def test_data_api_value(self):
+        status, body = await self.call("/__proxy/data/v2/value?user=0xabc")
+        self.assertEqual(status, 200); self.assertEqual(json.loads(body)["path"], "/v2/value?user=0xabc")
+        self.assertEqual((await self.call("/__proxy/data/positions?user=0xabc"))[0], 403)
 
     async def test_allowlist(self):
         self.assertEqual((await self.call("/__proxy/gamma/events"))[0], 403)

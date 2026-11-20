@@ -12,6 +12,7 @@ What it relays (an allowlist, read-only market data, bound to 127.0.0.1):
     GET  /__proxy/gamma/markets?...       -> Polymarket Gamma  /markets
     GET  /__proxy/clob/time | /book       -> Polymarket CLOB   /time, /book
     POST /__proxy/hl/info                 -> Hyperliquid       /info
+    GET  /__proxy/data/value | /v2/value  -> Polymarket Data API  (positions value of a public address)
     ws://localhost:<port+1>/pm            -> the Polymarket market WebSocket (the browser would send an Origin)
 Nothing from the browser (cookies, headers) is forwarded, and nothing is logged beyond the request line.
 """
@@ -33,6 +34,7 @@ UPSTREAM = {
     "gamma": os.environ.get("BT_GAMMA", "https://gamma-api.polymarket.com"),
     "clob": os.environ.get("BT_CLOB", "https://clob.polymarket.com"),
     "hl": os.environ.get("BT_HL", "https://api.hyperliquid.xyz"),
+    "data": os.environ.get("BT_DATA", "https://data-api.polymarket.com"),
 }
 PM_WS = os.environ.get("BT_PM_WS", "wss://ws-subscriptions-clob.polymarket.com/ws/market")
 # (service, method) -> allowed path prefixes. Anything else is refused.
@@ -40,6 +42,7 @@ ALLOWED = {
     ("gamma", "GET"): ("/markets",),
     ("clob", "GET"): ("/time", "/book"),
     ("hl", "POST"): ("/info",),
+    ("data", "GET"): ("/value", "/v2/value"),
 }
 MAX_BODY = 64 * 1024
 state = {"ws_port": 0, "relay": False}

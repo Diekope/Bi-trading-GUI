@@ -141,6 +141,19 @@ test("read-only HL account", async () => {
   await h.setAddress(""); assert.equal(F.feed.hl.account, null); h.stop();
 });
 
+test("Polymarket positions value: v2 and v1 shapes, v2 first then v1", async () => {
+  assert.deepEqual(F.parsePMValue({ data: { proxy_wallet: "0x1", value: "12.5" } }), { value: 12.5 });
+  assert.deepEqual(F.parsePMValue({ data: [{ value: 3 }] }), { value: 3 });
+  assert.deepEqual(F.parsePMValue([{ user: "0x1", value: 7.25 }]), { value: 7.25 });
+  assert.equal(F.parsePMValue({}), null); assert.equal(F.parsePMValue({ data: { value: "x" } }), null);
+  const urls = []; const e1 = { fetch: async (u) => { urls.push(u); return u.includes("/v2/") ? { ok: false, status: 404 } : json([{ value: 9 }]); } };
+  assert.deepEqual(await F.fetchPMValue(e1, "0x" + "a".repeat(40)), { value: 9 }); assert.equal(urls.length, 2); assert.ok(urls[0].includes("/v2/value?user=0x"));
+  await assert.rejects(() => F.fetchPMValue({ fetch: async () => ({ ok: false, status: 500 }) }, "0x1"), /HTTP 500/);
+  const pm = F.startPM({ ...F.defaultEnv(), WebSocket: FakeWS, fetch: async (u) => (u.includes("/value") ? json({ data: { value: "55.5" } }) : json([])) });
+  assert.ok(!(await pm.setAddress("bad")).ok); assert.ok((await pm.setAddress("0x" + "d".repeat(40))).ok); assert.equal(F.feed.pm.account.value, 55.5);
+  await pm.setAddress(""); assert.equal(F.feed.pm.account, null); pm.stop();
+});
+
 test("paper: HL long fills on the ask, TP closes it, fees counted", () => {
   const feed = F.feed; P.resetPaper(); const S = feed.hl; S.status = "live"; S.coin = "HYPE";
   S.book = { coin: "HYPE", bids: [{ px: 99, sz: 100 }], asks: [{ px: 100, sz: 5 }, { px: 101, sz: 100 }] }; S.mids.HYPE = 100;

@@ -5,15 +5,16 @@ export const HL_INFO = "https://api.hyperliquid.xyz/info";
 export const HL_WS = "wss://api.hyperliquid.xyz/ws";
 export const GAMMA = "https://gamma-api.polymarket.com";
 export const CLOB = "https://clob.polymarket.com";
+export const DATA = "https://data-api.polymarket.com";
 export const PM_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 // Where the calls go. Defaults are the venues themselves; `detectProxy` switches to the local relay (serve.py) when it is there.
-export const endpoints = { gamma: GAMMA, clob: CLOB, hlInfo: HL_INFO, pmWs: PM_WS, proxied: false };
+export const endpoints = { gamma: GAMMA, clob: CLOB, hlInfo: HL_INFO, pmWs: PM_WS, data: DATA, proxied: false };
 export async function detectProxy(env = defaultEnv(), loc = globalThis.location) {
   try {
     if (!loc || !/^https?:$/.test(loc.protocol)) return false;
     const r = await env.fetch("/__proxy/config"); if (!r.ok) return false;
     const j = await r.json(); if (typeof j?.wsPort !== "number") return false;
-    Object.assign(endpoints, { gamma: "/__proxy/gamma", clob: "/__proxy/clob", hlInfo: "/__proxy/hl/info", proxied: true });
+    Object.assign(endpoints, { gamma: "/__proxy/gamma", clob: "/__proxy/clob", hlInfo: "/__proxy/hl/info", data: "/__proxy/data", proxied: true });
     if (j.wsPort) endpoints.pmWs = `ws://${loc.hostname}:${j.wsPort}/pm`;
     return true;
   } catch { return false; }
@@ -27,7 +28,7 @@ const CANDLE_COUNT = 300;
 
 export const feed = {
   hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [], lastMsg: 0 },
-  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null, lastMsg: 0 },
+  pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null, lastMsg: 0, account: null },
 };
 export const events = [];
 // "live" (data arriving), "stale" (connected but silent), or the raw status (connecting, error, off...).
@@ -199,6 +200,24 @@ export function parseHLAccount(j) {
   const m = j?.marginSummary, v = num(m?.accountValue);
   return v === null ? null : { value: v, marginUsed: num(m.totalMarginUsed) ?? 0, notional: num(m.totalNtlPos) ?? 0 };
 }
+// Polymarket: only the value of a public address's positions is readable without credentials (USDC cash needs auth).
+// v2 answers {data:{proxy_wallet, value}}; v1 answered [{user, value}]. Accept either.
+export function parsePMValue(j) {
+  const row = j?.data !== undefined ? (Array.isArray(j.data) ? j.data[0] : j.data) : Array.isArray(j) ? j[0] : j;
+  const v = num(row?.value);
+  return v === null ? null : { value: v };
+}
+export async function fetchPMValue(env, address) {
+  let last = "unexpected response";
+  for (const path of ["/v2/value", "/value"]) {
+    try {
+      const r = await env.fetch(`${endpoints.data}${path}?user=${encodeURIComponent(address)}`);
+      if (!r.ok) { last = "HTTP " + r.status; continue; }
+      const p = parsePMValue(await r.json()); if (p) return p;
+    } catch (e) { last = e.message; }
+  }
+  throw new Error(last);
+}
 export const validAddress = (a) => /^0x[0-9a-fA-F]{40}$/.test(String(a || "").trim());
 
 // -- connections ----------------------------------------------------------------
@@ -292,6 +311,13 @@ export function rememberWindow(S, m, target) {
 
 export function startPM(env = defaultEnv()) {
   const S = feed.pm; let stopped = false, ws = null; const timers = [];
+  async function refreshAccount() {
+    const a = S.account; if (!a?.address) return;
+    try { S.account = { ...a, ...(await fetchPMValue(env, a.address)), error: "", at: env.now() }; }
+    catch (e) { S.account = { ...a, error: e.message, at: env.now() }; }
+    emit();
+  }
+  timers.push(env.setInterval(refreshAccount, 10000));
   const probe = async () => { const t0 = env.now(); try { const r = await env.fetch(`${endpoints.clob}/time`); if (r.ok) { S.latency = Math.round(env.now() - t0); emit(); } } catch { /* keep last */ } };
   probe(); timers.push(env.setInterval(probe, 5000));
   timers.push(env.setInterval(() => { if (S._dirty) { S._dirty = false; emit(); } }, 250));
@@ -327,5 +353,14 @@ export function startPM(env = defaultEnv()) {
       }
     }
   })();
-  return { stop() { stopped = true; timers.forEach((t) => env.clearInterval(t)); try { ws && ws.close(); } catch { /* closed */ } } };
+  return {
+    async setAddress(address) {
+      address = String(address || "").trim();
+      if (!address) { S.account = null; emit(); return { ok: true }; }
+      if (!validAddress(address)) return { ok: false, error: "That is not a 0x address (42 characters)." };
+      S.account = { address, value: null, error: "", at: 0 }; await refreshAccount();
+      return S.account.error ? { ok: false, error: S.account.error } : { ok: true };
+    },
+    stop() { stopped = true; timers.forEach((t) => env.clearInterval(t)); try { ws && ws.close(); } catch { /* closed */ } },
+  };
 }
