@@ -41,6 +41,9 @@ test("BTC ticks feed the rolling chart", async () => {
   assert.equal(S.btcTicks.length, 2); assert.equal(S.btcTicks[0].p, 101);
   F.dispatchHL(S, JSON.stringify({ channel: "bbo", data: { coin: "BTC", bbo: [{ px: "200" }, { px: "202" }] } }));
   assert.equal(S.btcMid, 201); assert.equal(S.btcTicks.at(-1).p, 201);
+  assert.deepEqual(B.axisFor("2m", 1e6, 0, 0), { t0: 1e6 - 120e3, span: 120e3 });
+  assert.deepEqual(B.axisFor("Window", 1e6, 900e3, 1200e3), { t0: 900e3, span: 300e3 });
+  assert.deepEqual(B.axisFor("Window", 1e6, null, null), { t0: 1e6 - 120e3, span: 120e3 });
   assert.equal(B.xFrac(5000, 5000), 1); assert.equal(B.xFrac(5000 - B.SPAN, 5000), 0); assert.equal(B.xFrac(5000 - B.SPAN / 2, 5000), 0.5);
 });
 

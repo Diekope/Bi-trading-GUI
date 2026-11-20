@@ -28,9 +28,9 @@ function chrome(key) {
   document.body.classList.toggle("hub", !!v.hub);
   document.body.classList.toggle("live-mode", !!state.live);
   document.body.dataset.venue = state.venue;
-  $("#rail").innerHTML = `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`;
+  morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
   const extra = v.topExtra ? v.topExtra() : "";
-  $("#topbar").innerHTML = `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`;
+  morph($("#topbar"), `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`);
 }
 const usd = (n) => `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</span>`;
 const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -38,24 +38,51 @@ function balChips() {
   const b = balances();
   return `<a class="bal" href="#portfolio" title="Paper account, marked to the live books"><span class="mode paper">PAPER</span> <b>${money(b.paper)}</b> ${usd(b.paperPnl)}</a><a class="bal" href="#portfolio" title="Live balance: Hyperliquid account value, read-only. Add an address in Settings."><span class="mode live">LIVE</span> <b>${b.live != null ? money(b.live) : "—"}</b>${b.liveNote === "error" ? ` <span class="down">!</span>` : ""}</a>`;
 }
+// Patch the DOM in place instead of replacing it: hover, focus, scroll and canvases survive a live repaint
+// (replacing every node each 400 ms is what made the UP/DOWN tiles blink under the pointer).
+function syncAttrs(o, n) {
+  const keep = o.tagName === "CANVAS" ? new Set(["width", "height"]) : null; // the painter owns the bitmap size
+  for (const at of [...o.attributes]) if (!n.hasAttribute(at.name) && !keep?.has(at.name)) o.removeAttribute(at.name);
+  for (const at of n.attributes) if (!keep?.has(at.name) && o.getAttribute(at.name) !== at.value) o.setAttribute(at.name, at.value);
+}
+function patch(o, n) {
+  if (o.nodeType === 3) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return; }
+  syncAttrs(o, n);
+  if (o.tagName === "CANVAS") return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(o.tagName)) {
+    if (o === document.activeElement) return;
+    if (o.type === "checkbox" || o.type === "radio") o.checked = n.checked; else if (o.tagName !== "SELECT") o.value = n.getAttribute("value") ?? ""; else o.selectedIndex = n.selectedIndex;
+    return;
+  }
+  const oc = [...o.childNodes], nc = [...n.childNodes], same = (x, y) => x.nodeType === y.nodeType && (x.nodeType === 3 || x.tagName === y.tagName);
+  nc.forEach((c, i) => { if (!oc[i]) o.appendChild(c); else if (same(oc[i], c)) patch(oc[i], c); else o.replaceChild(c, oc[i]); });
+  for (let i = oc.length - 1; i >= nc.length; i--) o.removeChild(oc[i]);
+}
+function morph(el, html, full) {
+  if (full) { el.innerHTML = html; return; }
+  const t = document.createElement(el.tagName); t.innerHTML = html;
+  const oc = [...el.childNodes], nc = [...t.childNodes];
+  nc.forEach((c, i) => { if (!oc[i]) el.appendChild(c); else if (oc[i].nodeType === c.nodeType && (c.nodeType === 3 || oc[i].tagName === c.tagName)) patch(oc[i], c); else el.replaceChild(c, oc[i]); });
+  for (let i = oc.length - 1; i >= nc.length; i--) el.removeChild(oc[i]);
+}
+let lastKey = "";
 let hlHandle = null;
 function render() {
   normalize();
   const key = curKey(), v = views[key];
   hlHandle?.setWatch(state.coin, state.tf);
   chrome(key);
-  const scrolls = [...document.querySelectorAll(".scroll")].map((e) => e.scrollTop);
+  const full = key !== lastKey; lastKey = key;
   const main = $("#main");
   main.style.gridTemplateColumns = v.grid; main.style.gridTemplateRows = v.rowsPx || v.rows;
-  main.innerHTML = v.html();
-  document.querySelectorAll(".scroll").forEach((e, i) => { if (scrolls[i]) e.scrollTop = scrolls[i]; });
-  const f = $("#footer"); const foot = v.foot ? v.foot() : ""; f.style.display = foot ? "flex" : "none"; f.innerHTML = foot;
+  morph(main, v.html(), full);
+  const f = $("#footer"); const foot = v.foot ? v.foot() : ""; f.style.display = foot ? "flex" : "none"; morph(f, foot, full);
   requestAnimationFrame(draw);
 }
 // Live data repaints the screens that show it, but never while the user is typing.
 let timer = null;
 let lastInput = 0;
-const typing = () => Date.now() - lastInput < 2500 && /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+const typing = () => false; // inputs are preserved by the in-place patch, so repainting is safe while typing
 function schedule() {
   if (timer) return;
   timer = setTimeout(() => { timer = null; const key = curKey(); if (liveViews.has(key) && !typing()) render(); else chrome(key); }, 400);

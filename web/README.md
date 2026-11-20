@@ -23,7 +23,7 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 - `test/mock.html` runs the same app against fake endpoints, for working offline: open `http://localhost:8000/test/mock.html`.
 - `node --test test/feeds.test.mjs` checks the parsers, dispatchers, subscriptions and paper fills.
 - **Balances** sit in the top bar of every screen: PAPER (cash plus open positions, marked live, with PnL since start) and LIVE. The live figure is Hyperliquid's perps account value, read from a public wallet address entered in Settings (`clearinghouseState`, no key, saved in the browser). Polymarket has no public balance, so it shows n/a.
-- **Polymarket chart:** `btcchart.js` animates the BTC line like the Qt `PriceChart` (rolling 15-minute axis, smoothed curve, eased range, pulsing tip, target growing from the window start). Click the UP or DOWN tile to select it: spread, return and per-$100 follow the selected side. Volume and Bollinger toggles are hidden on Polymarket.
+- **Polymarket chart:** `btcchart.js` animates the BTC line like the Qt `PriceChart` (rolling 15-minute axis, smoothed curve, eased range, pulsing tip, target growing from the window start). The pills above the chart pick the axis: a rolling 1, 2 (default) or 5 minutes, or `Window` (the market's own 5 minutes, like Polymarket). The line is backfilled from 1-minute candles so it spans the whole plot. The screen is patched in place on each live update (`morph` in `app.js`), so hover, focus and scroll survive. Click the UP or DOWN tile to select it: spread, return and per-$100 follow the selected side. Volume and Bollinger toggles are hidden on Polymarket.
 - LIVE mode is read-only here: no keys, no real orders.
 
 Edit here to try a layout, then port the result to the Qt code.
