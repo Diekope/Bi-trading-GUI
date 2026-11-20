@@ -626,6 +626,8 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
         "hold": defaults.hold,
         "warmup": defaults.warmup,
         "participation": defaults.participation,
+        "entry": defaults.entry,
+        "limit_through": defaults.limit_through,
         "slippage": defaults.slippage,
         "fee": defaults.fee,
         "dynamic_tp": defaults.dynamic_tp,

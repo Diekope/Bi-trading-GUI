@@ -93,6 +93,9 @@ class TrainConfig:
     position: float = 100.0   # read as `sizing` says
     capital: float = 10_000.0  # the book the test starts with, dollars
     cash: float = float("inf")  # most cash the book may trade with, dollars
+    holdout: float = 0.15     # the last share of the labelled bars, never read until scored once
+    entry: str = "close"      # fill at the signal bar's close, or the next bar's open
+    through: float = 0.0      # a take profit fills only this far (percent) past its price
     max_samples: int = 300_000  # most bars fitted on; the rest are strided out
 
     @property
@@ -124,6 +127,9 @@ class TrainConfig:
             "position": self.position,
             "capital": self.capital,
             "cash": None if self.cash == float("inf") else self.cash,
+            "holdout": self.holdout,
+            "entry": self.entry,
+            "through": self.through,
             "max_samples": self.max_samples,
         }
 
@@ -154,6 +160,9 @@ class TrainConfig:
             position=float(raw.get("position", 100.0)),
             capital=float(raw.get("capital", 10_000.0)),
             cash=float("inf") if raw.get("cash") is None else float(raw["cash"]),
+            holdout=min(0.5, max(0.0, float(raw.get("holdout", 0.0)))),
+            entry="open" if raw.get("entry") == "open" else "close",
+            through=float(raw.get("through", 0.0)),
             max_samples=int(raw.get("max_samples", 300_000)),
         )
 
@@ -182,6 +191,9 @@ class TrainedModel:
     stats: RuleStats = field(default_factory=RuleStats)
     test_start: int = 0  # the first test bar's stamp (ms); 0 when unknown
     test_end: int = 0
+    holdout_start: int = 0  # the hold-out's first bar's stamp (ms); 0 when there is none
+    holdout_end: int = 0
+    trials: int = 0         # models trained against this hold-out, this one included
     span_start: int = 0
     seconds: float = 0.0
     trained_at: float = 0.0
@@ -194,6 +206,7 @@ class TrainedModel:
     test_close: np.ndarray | None = None
     test_high: np.ndarray | None = None
     test_low: np.ndarray | None = None
+    test_open: np.ndarray | None = None
 
     @property
     def gap(self) -> float | None:
@@ -333,6 +346,9 @@ def rule_stats(
     capital: float = 1.0,
     cash: float = float("inf"),
     points: int = 260,
+    open: np.ndarray | None = None,
+    entry_open: bool = False,
+    through: float = 0.0,
 ) -> RuleStats:
     """Trade the calls over a stretch of bars the way the backtest does.
 
@@ -346,6 +362,12 @@ def rule_stats(
     (the backtest's Max cash), read as `sizing` says: a percent of it (`balance`),
     dollars (`fixed`), or a stake sized so a stop-out costs `position` percent of it
     (`risk`). The curve is the book's return from the start, in percent.
+
+    `open` (each bar's open) lets a stop the market gapped past fill at the open,
+    and a target it gapped past at the better open. `entry_open` fills an entry
+    at the open of the bar after the signal, which can then be stopped out in its
+    own bar. `through` is how far (percent) the market must trade past a take
+    profit's price before that limit order counts as filled.
     """
     count = len(p)
     stats = RuleStats()
@@ -356,26 +378,35 @@ def rule_stats(
     equity = np.zeros(count)
     level, last, free, wins, trades = 1.0, 0, 0, 0, 0
     slip, cost = slippage / 100.0, fee / 100.0
+    past = through / 100.0
     for candidate in wanted:
         index = int(candidate)
         if index < free or index >= count - 1:
             continue
         long = bool(p[index] >= up)
-        entry = close[index] * (1.0 + slip if long else 1.0 - slip)
+        basis = open[index + 1] if entry_open and open is not None else close[index]
+        entry = basis * (1.0 + slip if long else 1.0 - slip)
         stop = entry * (1.0 - sl / 100.0 if long else 1.0 + sl / 100.0)
         target = entry * (1.0 + tp / 100.0 if long else 1.0 - tp / 100.0)
-        end = count - 1 if hold <= 0 else min(count - 1, index + hold)
+        born = index + 1 if entry_open and open is not None else index
+        end = count - 1 if hold <= 0 else min(count - 1, born + hold)
         exit_index, exit_price = end, None
         for bar in range(index + 1, end + 1):
             hit_stop = low[bar] <= stop if long else high[bar] >= stop
-            hit_target = high[bar] >= target if long else low[bar] <= target
+            hit_target = (
+                high[bar] >= target * (1.0 + past) if long
+                else low[bar] <= target * (1.0 - past)
+            )
+            here = open[bar] if open is not None else None
             if hit_stop:
-                exit_index, exit_price = bar, stop * (1.0 - slip if long else 1.0 + slip)
+                fill = stop if here is None else (min(stop, here) if long else max(stop, here))
+                exit_index, exit_price = bar, fill * (1.0 - slip if long else 1.0 + slip)
                 break
             if hit_target:
-                exit_index, exit_price = bar, target
+                fill = target if here is None else (max(target, here) if long else min(target, here))
+                exit_index, exit_price = bar, fill
                 break
-        if exit_price is None and (hold <= 0 or index + hold > count - 1):
+        if exit_price is None and (hold <= 0 or born + hold > count - 1):
             # The data ends first: like a backtest, leave the trade open. It is not
             # a trade yet; the book is marked to the last close, the entry fee paid.
             book = level * capital
@@ -423,6 +454,8 @@ def trade_test(trained: TrainedModel, config: TrainConfig) -> RuleStats:
         fee=config.fee, slippage=config.slippage,
         sizing=config.sizing, position=config.position,
         capital=config.capital, cash=config.cash,
+        open=trained.test_open, entry_open=config.entry == "open",
+        through=config.through,
     )
 
 
@@ -513,12 +546,21 @@ def train(
         raise MLError(
             f"only {len(usable)} bars can be labelled: lower the horizon or the minimum move"
         )
+    # The last `holdout` of the labelled bars is set aside before anything else:
+    # no fit, tune, threshold or model choice reads it (see `ml.holdout`).
+    kept = int(len(usable) * (1.0 - config.holdout)) if config.holdout > 0 else len(usable)
+    hold_all = usable[kept:]
+    usable = usable[:kept]
+    if config.holdout > 0 and len(hold_all) < 30:
+        raise MLError("the hold-out would be too small: lower the horizon or add history")
     train_all, valid_all, test_all = time_split(usable, config.split[0], config.split[1])
     # Purge: a label looks `horizon` bars ahead, so the last labels of a part would
     # read closes from the next one. Leave them out and the parts share no price.
     if len(valid_all) and len(test_all):
         train_all = train_all[train_all + config.horizon < valid_all[0]]
         valid_all = valid_all[valid_all + config.horizon < test_all[0]]
+    if len(hold_all) and len(test_all):
+        test_all = test_all[test_all + config.horizon < hold_all[0]]
     if not (len(train_all) and len(valid_all) and len(test_all)):
         raise MLError("the split leaves a part empty")
     classes = config.classes
@@ -527,6 +569,9 @@ def train(
     trained.span_start = int(stamps[0]) if len(stamps) else 0
     trained.test_start = int(stamps[test_all[0]]) if len(stamps) else 0
     trained.test_end = int(stamps[test_all[-1]]) if len(stamps) else 0
+    if len(hold_all):
+        trained.holdout_start = int(stamps[hold_all[0]])
+        trained.holdout_end = int(stamps[hold_all[-1]])
 
     train_rows = _stride(train_all, config.max_samples)
     valid_rows = _stride(valid_all, config.max_samples // 3)
@@ -561,6 +606,8 @@ def train(
     trained.samples = {
         "train": len(train_all), "valid": len(valid_all), "test": len(test_all)
     }
+    if len(hold_all):
+        trained.samples["holdout"] = len(hold_all)
     trained.metrics["train"] = _score(model, matrix, labels, _stride(train_all, 100_000), classes)
     trained.metrics["valid"] = _score(model, matrix, labels, _stride(valid_all, 100_000), classes)
     check()
@@ -570,7 +617,7 @@ def train(
     # trade can still open on them, as in a backtest. A bar the model cannot score
     # (a hole, a warm-up) stays in the stretch with no call, so a trade is never
     # drawn across a missing bar.
-    full = np.arange(int(test_all[0]), total)
+    full = np.arange(int(test_all[0]), int(hold_all[0]) if len(hold_all) else total)
     scorable = np.isfinite(matrix[full]).all(axis=1)
     if spec.is_custom:
         scorable &= full >= first + window - 1
@@ -604,8 +651,13 @@ def train(
     trained.test_close = close[span]
     trained.test_high = np.asarray(columns["high"], dtype=float)[span]
     trained.test_low = np.asarray(columns["low"], dtype=float)[span]
+    trained.test_open = np.asarray(columns["open"], dtype=float)[span]
     trained.stats = trade_test(trained, config)
     trained.config = TrainConfig.from_dict({**config.as_dict(), "spec": spec.as_dict()})
+    if trained.holdout_start:
+        from bi_trading.ml.holdout import bump_trials, trial_key
+
+        trained.trials = bump_trials(trial_key(config.timeframe, trained.holdout_start))
     trained.seconds = time.time() - started
     trained.trained_at = time.time()
     say(1.0, "done")

@@ -17,17 +17,17 @@ Open the visual version: [backtest-audit.html](backtest-audit.html).
 | 1 | Critical (fixed) | No gap handling, though the docs say there is |
 | 2 | Critical (fixed) | Resampling ignores time |
 | 3 | Critical (scoped, not built) | The traded venue is not modelled (Polymarket payoff, perp costs) |
-| 4 | High | Optimistic fills: entry at signal close, TP on touch, stops fill through gaps |
-| 5 | High | ML results are selection-biased (test set reused) |
-| 6 | High | The random benchmark is one draw and does not match the walk |
-| 7 | High | Data source differs from the venue (Binance spot vs Hyperliquid) |
+| 4 | High (fixed) | Optimistic fills: entry at signal close, TP on touch, stops fill through gaps |
+| 5 | High (fixed) | ML results are selection-biased (test set reused) |
+| 6 | High (fixed) | The random benchmark is one draw and does not match the walk |
+| 7 | High (partly fixed) | Data source differs from the venue (Binance spot vs Hyperliquid) |
 | 8 | Medium (partly fixed) | No significance or robustness tooling |
 | 9 | Medium (fixed) | Weak and inconsistent risk metrics |
 | 10 | Medium (fixed) | Buy and hold ignores costs and uses a different capital base |
 | 11 | Medium (fixed) | Warm-up is off by default |
 | 12 | Medium (partly fixed) | Sizing and liquidity are unrealistic |
 | 13 | Low | Two walks to keep in sync by hand (Python and Rust) |
-| 14 | Low | Docs contradict each other on TP and SL on one candle |
+| 14 | Low (fixed) | Docs contradict each other on TP and SL on one candle |
 | 15 | Low | Compare page and walk-forward limits (TODO items) |
 
 ## Critical
@@ -88,6 +88,8 @@ backtest simulates a spot-style position with TP, SL and a hold limit.
 ## High
 
 ### 4. Optimistic fills
+**Status: fixed (2026-11-20).** Entries fill at the next bar's open by default (`backtest.entry`; `close` brings the old behaviour back), and that bar's own range can stop them out. A stop or trail the market gapped past fills at the open; a target it gapped past at the better open. A take profit needs the market to trade through its price by `backtest.limit_through` (0.01% by default). The trailing stop is now a market exit and slips. Done in the Rust core, the Python walk, the whole-span and streamed seeks, the stepped playback and the ML builder's `rule_stats`, with tests in `tests/test_fills.py`. Not modelled: a maker fee for the take profit (every fill pays the one fee, which errs against the strategy) and queue position. The text below is the original finding.
+
 - **Entry:** every entry fills at the close of the bar that produced the signal, with
   slippage only. No next-bar-open option.
 - **Take profit:** fills at its exact price whenever a wick touches it, with no
@@ -100,6 +102,8 @@ backtest simulates a spot-style position with TP, SL and a hold limit.
   limits, trail booked as a market exit.
 
 ### 5. ML results are selection-biased
+**Status: fixed (2026-11-20).** The last 15% of the labelled bars are set aside before any fit, tune or threshold choice, and the test curve stops where they begin. *Score hold-out (once)* trades them with the model's own settings and keeps the answer; asking again returns it and never recomputes. Every training on the same data counts as a variant tried, and the hold-out's p-value is shown raw and multiplied by that count (`ml/holdout.py`, `tests/test_holdout.py`). Still true: the test part is re-traded as thresholds move and those moves are not counted, so read it as a development figure and the hold-out as the verdict. Models saved before this have no hold-out. The text below is the original finding.
+
 A model only has a call on its test part, and the ML builder re-trades those bars while
 you move the thresholds. Auto-tune, model choice and threshold choice all use the same
 data, so the test set stops being out-of-sample after a few changes. There is no second
@@ -109,6 +113,8 @@ that honest models sit near 51 to 54% accuracy and lose money after costs.
 - Fix: a locked final hold-out that the UI scores once, and a counter of variants tried.
 
 ### 6. The random benchmark is one draw and does not match the walk
+**Status: fixed (2026-11-20).** The baseline is now random signals through the same walk (same fills, exits, sizing and costs) at the strategy's own signal rate and long/short mix. A finished run also walks 100 more random runs from their own seeds on a background thread and the results say *beats X% of 100 random runs*, with the 5th, median and 95th percentile (`tests/test_baseline.py`). Limits: a span streamed a year at a time has no signals to copy and uses 3% long only with no band, and a span too long for enough runs shows no band. The text below is the original finding.
+
 `random_entries` uses a fixed seed (1234) and a fixed 3% entry chance.
 
 - "Beats random" is a single sample, not a distribution.
@@ -120,6 +126,8 @@ that honest models sit near 51 to 54% accuracy and lose money after costs.
   strategy's trade count and side mix.
 
 ### 7. Data source differs from the venue
+**Status: partly fixed (2026-11-20).** The venue serves only its latest ~5,000 candles, so its history cannot replace the stored one. `python -m bi_trading.data.basis` compares the stored Binance bars with Hyperliquid's over that window (close gap in basis points, relative bar width, how often a level is touched on one venue and not the other), saves the report and the backtest's evidence line shows it, or says the venue data was not compared (`tests/test_basis.py`). Still open: a backtest on the venue's own candles, which needs a stored feed over time. The text below is the original finding.
+
 History is Binance spot BTCUSDT. Orders go to Hyperliquid perps and Polymarket, whose
 prices, spreads and wicks differ, most of all on 1m bars. A fill that worked on Binance
 data can be impossible on the venue.
@@ -170,6 +178,8 @@ is loaded but never used for fills.
 1 and 4) has to be made twice, plus in `run_random` and `_python_random_entries`.
 
 ### 14. Docs contradict each other
+**Status: fixed (2026-11-20).** The playback section now says the stop is booked, as the code and the run controls do. The text below is the original finding.
+
 The playback section of `docs/backtest.md` says a candle that touches both TP and SL
 pays the target. The code, and the run-controls section, book the stop.
 
@@ -186,8 +196,12 @@ walk-forward covers built-in models only, not custom torch networks.
 - ML splits are time-ordered and purged.
 
 ## Suggested order
-1. Gaps and time-aligned resampling (items 1, 2).
-2. Fill realism (item 4), done once for both walks.
-3. Monte Carlo random baseline and cost stress (items 6, 8, 9).
-4. Decide the target: add a binary-payoff simulator, or state spot-style only (item 3).
-5. Locked ML hold-out (item 5).
+Done: gaps and time-aligned resampling (1, 2), fill realism (4), the locked ML hold-out (5),
+the Monte Carlo random baseline (6) and the cost stress (9).
+
+Next:
+1. Decide the target: add a binary-payoff simulator, or state spot-style only (item 3). It
+   needs historical Polymarket prices, so start by recording the live ones.
+2. Store the venue's own candles over time so the backtest can run on them (rest of item 7).
+3. A bootstrap or permutation test and a full-span sweep (rest of item 8).
+4. Minimum lot, tick rounding and market impact (rest of item 12).

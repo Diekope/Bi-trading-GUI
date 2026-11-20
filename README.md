@@ -41,9 +41,9 @@ Details: [docs/configuration.md](docs/configuration.md).
 | Terminal | Live candle cards, overlays, search over 377 markets, the Polymarket 5m column | [docs/terminal.md](docs/terminal.md) |
 | Strategy builder | Drag-and-drop formula builder, rules, code view, saved strategies | [docs/strategy-builder.md](docs/strategy-builder.md) |
 | Formulas | The entry/exit formula language and its evaluator | [docs/formulas.md](docs/formulas.md) |
-| Backtest | Candle store and download, run controls, results, playback; a trade is never held through a data gap, coarse bars sit on the clock, and the results say how far to trust them (t-stat, yearly Sharpe, costs at 2x, by year) | [docs/backtest.md](docs/backtest.md) |
+| Backtest | Candle store and download, run controls, results, playback; a trade is never held through a data gap, coarse bars sit on the clock, entries fill at the next open and gapped stops at the open, the random baseline is 100 runs through the same walk, and the results say how far to trust them (t-stat, yearly Sharpe, costs at 2x, by year, venue check) | [docs/backtest.md](docs/backtest.md) |
 | Backtest audit | What still keeps the backtest from being viable, by importance, with what is fixed | [docs/backtest-audit.md](docs/backtest-audit.md), [html](docs/backtest-audit.html) |
-| ML strategies | Train a model (boosting, forest, MLP or your own network), trade its P(up) as `model_p` | [docs/ml.md](docs/ml.md) |
+| ML strategies | Train a model (boosting, forest, MLP or your own network), trade its P(up) as `model_p`; a locked final hold-out scored once, with the models tried counted | [docs/ml.md](docs/ml.md) |
 | Logs | The trading record: orders, fills, signals, warnings, with the why | [docs/logs.md](docs/logs.md) |
 | Configuration | Settings, trading safety, saved state, logging | [docs/configuration.md](docs/configuration.md) |
 | Architecture | Why Python, source layout, data sources | [docs/architecture.md](docs/architecture.md) |

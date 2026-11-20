@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import random
 from bi_trading.engine.core import DEFAULT_HOLD, exit_context
 from bi_trading.engine.formula_eval import evaluate_scalar
 from bi_trading.engine.stats import underwater_runs
@@ -87,8 +86,15 @@ class Playback:
         warmup: int = 0,
         step_ms: int = 60_000,
         participation: float = 0.0,
+        entry_open: bool = False,
+        through: float = 0.0,
     ) -> None:
         self.participation = participation
+        # Fill an entry at the open of the bar after the signal, not at the
+        # close of the bar that made it; and how far past a take profit's price
+        # the market must trade before that limit order counts as filled.
+        self.entry_open = entry_open
+        self.through = through
         self.warmup = max(0, int(warmup))
         # How far apart two neighbouring bars are; further than that is a hole.
         self.step_ms = step_ms
@@ -146,9 +152,14 @@ class Playback:
         return factory()
 
     def reset(self) -> None:
-        self._rng = random.Random(self.seed)
+        import numpy as np
+
+        # One draw per bar, from the stream the core's baseline draws from.
+        self._rng = np.random.default_rng(self.seed)
+        self._u = 1.0
         self._feed = self._new_feed() if self._span is None else None
         self._ahead: Candle | None = None   # the next bar, read to see a hole
+        self._pending = ""     # the side the last bar signalled, for the next open
         self._exhausted = False
         self.index = 0
         self.first_close = 0.0
@@ -385,6 +396,10 @@ class Playback:
                 else 0.0
             )
             self._last_equity = float(values[-1])
+        self._pend_from(
+            self._previous,
+            (window(self.index - 2, self.index - 1) or [None])[0],
+        )
 
     def _adopt_trades(self, closed, stamp) -> None:
         """Rebuild the trade log, the markers and the streaks from closed trades."""
@@ -469,6 +484,7 @@ class Playback:
             self._close_total += bar.close
             self._close_squares += bar.close * bar.close
         self._band = self._compute_band()
+        self._pend_from(self._previous, bars[-2] if len(bars) > 1 else None)
         self.peak = max(run.peak, self.capital)
         self.max_drawdown = run.max_drawdown
         self.max_gain = run.max_gain
@@ -478,6 +494,12 @@ class Playback:
         self._returns = run.count
         self._return_mean = run.mean
         self._return_m2 = run.m2
+
+    def _pend_from(self, last, before) -> None:
+        """The signal the last adopted bar made, for the next bar's open."""
+        self._pending = ""
+        if self.entry_open and last is not None and self.index > 0:
+            self._pending = self._wants(last, before or last, self.index - 1)
 
     def _compute_band(self):
         return _bollinger(
@@ -519,13 +541,29 @@ class Playback:
             self.first_close = candle.close
         self._update_band(candle.close)
 
-        if self.in_position:
-            self.bars_in_market += 1
-            self._manage(candle, gap_after)
-        else:
-            side = self._wants(candle, self._previous or candle)
+        if self.rule == "random":
+            self._u = float(self._rng.random())
+        entered = False
+        if not self.in_position:
+            if self.entry_open:
+                # The signal was the bar before's; it holds only if that bar
+                # is the one right before this (no hole between them).
+                side = self._pending
+                if self._previous is None or candle.stamp - self._previous.stamp > self.step_ms:
+                    side = ""
+            else:
+                side = self._wants(candle, self._previous or candle)
             if side and not gap_after:
                 self._enter(candle, side)
+                entered = self.in_position
+        # A position opened at the close has nothing left of its bar to trade;
+        # one opened at the open lives through the whole bar.
+        if self.in_position and (not entered or self.entry_open):
+            if not entered:
+                self.bars_in_market += 1
+            self._manage(candle, gap_after)
+        if self.entry_open:
+            self._pending = self._wants(candle, self._previous or candle)
 
         self._previous = candle
         self._window.append(candle)
@@ -566,7 +604,7 @@ class Playback:
             BOLLINGER_DEVIATIONS,
         )
 
-    def _wants(self, candle: Candle, previous: Candle) -> str:
+    def _wants(self, candle: Candle, previous: Candle, index: int | None = None) -> str:
         """Which way to open on this bar, or "" for neither.
 
         `random` opens on a coin flip: the honest benchmark for any entry rule.
@@ -575,20 +613,21 @@ class Playback:
         run opens where its rules fire; a bar both its long and short rule
         fire on is left alone.
         """
-        if self.index == 0 or self.index < self.warmup:
+        at = self.index if index is None else index
+        if at == 0 or at < self.warmup:
             return ""
         if self._entries is not None or self._short_entries is not None:
-            long = self._entries is not None and self.index in self._entries
+            long = self._entries is not None and at in self._entries
             short = (
                 self._short_entries is not None
-                and self.index in self._short_entries
+                and at in self._short_entries
             )
             if long == short:
                 return ""
             return "short" if short else "long"
         side = "short" if self.side == "short" else "long"
         if self.rule == "random":
-            return side if self._rng.random() < self.entry_chance else ""
+            return side if self._u < self.entry_chance else ""
         if self.rule == "bollinger":
             on = self._band is not None and candle.close < self._band[2]
             return side if on else ""
@@ -609,15 +648,16 @@ class Playback:
 
     def _enter(self, candle: Candle, side: str = "long") -> None:
         notional = self._budget()
+        basis = candle.open if self.entry_open else candle.close
         if self.participation > 0.0:
-            notional = min(notional, candle.volume * candle.close * self.participation)
-        if notional <= 0.0 or candle.close <= 0.0:
+            notional = min(notional, candle.volume * basis * self.participation)
+        if notional <= 0.0 or basis <= 0.0:
             return
         self.direction = side
         cost = notional * self.fee
         # A market order: it fills a little worse than the close it was
         # decided on.
-        fill = candle.close * (
+        fill = basis * (
             (1.0 - self.slippage) if side == "short" else (1.0 + self.slippage)
         )
         self.qty = notional / fill
@@ -630,12 +670,13 @@ class Playback:
         self.entry_fee = cost
         self.entry_cost = notional + cost
         self._peak = candle.low if side == "short" else candle.high
-        self._path = [candle.close]
-        self.markers.append((self.index, "in", candle.close))
+        self._path = [basis]
+        self.markers.append((self.index, "in", basis))
 
     def _manage(self, candle: Candle, gap_after: bool = False) -> None:
         self._path.append(candle.close)
         short = self.direction == "short"
+        prev_peak = self._peak   # the trail as the bars before this one left it
         if short:
             target = self.entry_price * (1.0 - self.tp / 100.0)
             stop = self.entry_price * (1.0 + self.sl / 100.0)
@@ -644,7 +685,7 @@ class Playback:
             trail = (
                 self._peak * (1.0 + self.reverse / 100.0) if self._peak else 0.0
             )
-            hit_tp = self.tp > 0 and candle.low <= target
+            hit_tp = self.tp > 0 and candle.low <= target * (1.0 - self.through)
             hit_sl = self.sl > 0 and candle.high >= stop
             hit_trail = (
                 self.dynamic_tp and self.reverse > 0
@@ -658,7 +699,7 @@ class Playback:
             trail = (
                 self._peak * (1.0 - self.reverse / 100.0) if self._peak else 0.0
             )
-            hit_tp = self.tp > 0 and candle.high >= target
+            hit_tp = self.tp > 0 and candle.high >= target * (1.0 + self.through)
             hit_sl = self.sl > 0 and candle.low <= stop
             hit_trail = (
                 self.dynamic_tp and self.reverse > 0
@@ -668,14 +709,24 @@ class Playback:
         reason = "time"
         # A candle that holds both the target and the stop cannot say which
         # came first, so the stop is taken: the cautious reading.
+        # A bar that opened past the stop or trail fills at its open, not at the
+        # price it jumped over; one that opened past the target gets the open.
+        open_ = candle.open
+        limit = False   # only the take profit is a resting limit order
         if hit_sl:
-            price = stop
+            price = max(stop, open_) if short else min(stop, open_)
             reason = "sl"
         elif hit_tp:
-            price = target
+            price = min(target, open_) if short else max(target, open_)
             reason = "tp"
+            limit = True
         elif hit_trail:
-            price = trail
+            # The trail is a stop that follows the price: a market exit.
+            before = prev_peak * (
+                1.0 + self.reverse / 100.0 if short else 1.0 - self.reverse / 100.0
+            )
+            gapped = open_ >= before if short else open_ <= before
+            price = open_ if gapped else trail
             reason = "tp"
         elif self.exit_formula is not None and evaluate_scalar(
             self.exit_formula,
@@ -699,7 +750,7 @@ class Playback:
             reason = "gap"
         if price is None:
             return
-        if reason != "tp":  # a take profit is a limit order: no slip
+        if not limit:  # every exit but the take profit slips
             price *= (1.0 + self.slippage) if short else (1.0 - self.slippage)
         value = (
             max(0.0, self.qty * (2.0 * self.entry_price - price))

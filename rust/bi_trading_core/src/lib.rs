@@ -31,6 +31,12 @@ struct Settings {
     reverse: f64,
     slippage: f64,
     participation: f64,
+    /// Enter at the bar's open (the signal came from the bar before) rather
+    /// than at the close of the bar that made it.
+    entry_open: bool,
+    /// How far past a resting limit price (a fraction) the market must trade
+    /// before the limit counts as filled: touching it is not enough.
+    through: f64,
 }
 
 fn budget(cash: f64, s: &Settings) -> f64 {
@@ -235,6 +241,7 @@ fn run_walk(
     state: Option<State>,
     gaps: Option<&[bool]>,
     volumes: Option<&[f64]>,
+    opens: Option<&[f64]>,
 ) -> (Vec<Trade>, Vec<f64>, State) {
     let n = closes.len();
 
@@ -266,15 +273,55 @@ fn run_walk(
         // True when the next bar is not the next minute-step: a hole in the data.
         let gap_after = gaps.map_or(false, |g| g[local]);
 
-        if qty > 0.0 {
+        // None when the opens are not known: nothing then gaps past a price.
+        let bar_open = opens.map(|o| o[local]);
+        let mut opened_now = false;
+
+        // An entry is looked at first, while the book is flat: at the close
+        // of the bar that made the signal, or (`entry_open`) at the open of
+        // the bar after it, the signal having been delayed a bar by the caller.
+        if qty == 0.0 && index != 0 && !gap_after && (longs[local] != shorts[local]) {
+            let basis = if s.entry_open { bar_open.unwrap_or(close) } else { close };
+            let mut notional = budget(cash, s);
+            // Take no more than a share of what the bar traded: a position the
+            // market could not have absorbed is not a fill.
+            if s.participation > 0.0 {
+                if let Some(v) = volumes {
+                    notional = notional.min(v[local] * basis * s.participation);
+                }
+            }
+            if notional > 0.0 && basis > 0.0 {
+                let cost = notional * s.fee;
+                short = shorts[local];
+                // The entry is a market order too: it fills a little worse
+                // than the price it was decided on.
+                let fill = basis * if short { 1.0 - s.slippage } else { 1.0 + s.slippage };
+                qty = notional / fill;
+                cash -= notional + cost;
+                entry_price = fill;
+                entry_index = index;
+                entry_fee = cost;
+                entry_notional = notional;
+                entry_cost = notional + cost;
+                best = if short { low } else { high };
+                opened_now = true;
+            }
+        }
+
+        // A position opened at the close has nothing left of its bar to
+        // trade; one opened at the open lives through the whole bar.
+        if qty > 0.0 && (!opened_now || s.entry_open) {
             let (target, stop, hit_tp, hit_sl, hit_trail);
+            // The trail as the bars before this one left it: only an open past
+            // that level is a gap through it.
+            let prev_best = best;
             if short {
                 target = entry_price * (1.0 - s.tp / 100.0);
                 stop = entry_price * (1.0 + s.sl / 100.0);
                 if s.dynamic_tp && s.reverse > 0.0 {
                     best = best.min(low);
                 }
-                hit_tp = s.tp > 0.0 && low <= target;
+                hit_tp = s.tp > 0.0 && low <= target * (1.0 - s.through);
                 hit_sl = s.sl > 0.0 && high >= stop;
                 hit_trail = s.dynamic_tp
                     && s.reverse > 0.0
@@ -287,7 +334,7 @@ fn run_walk(
                 if s.dynamic_tp && s.reverse > 0.0 {
                     best = best.max(high);
                 }
-                hit_tp = s.tp > 0.0 && high >= target;
+                hit_tp = s.tp > 0.0 && high >= target * (1.0 + s.through);
                 hit_sl = s.sl > 0.0 && low <= stop;
                 hit_trail = s.dynamic_tp
                     && s.reverse > 0.0
@@ -302,16 +349,37 @@ fn run_walk(
             let held = (index - entry_index) as i64;
             let mut price: Option<f64> = None;
             let mut reason = "time";
+            // Only the take profit is a resting limit order.
+            let mut limit = false;
             // A candle that holds both the target and the stop cannot say which
-            // came first, so the stop is taken: the cautious reading.
+            // came first, so the stop is taken: the cautious reading. A bar
+            // that opened past the stop or trail fills at its open, not at the
+            // price it jumped over; one that opened past the target gets the
+            // better open.
             if hit_sl {
-                price = Some(stop);
+                price = Some(match bar_open {
+                    Some(o) => if short { stop.max(o) } else { stop.min(o) },
+                    None => stop,
+                });
                 reason = "sl";
             } else if hit_tp {
-                price = Some(target);
+                price = Some(match bar_open {
+                    Some(o) => if short { target.min(o) } else { target.max(o) },
+                    None => target,
+                });
                 reason = "tp";
+                limit = true;
             } else if hit_trail {
-                price = Some(trail);
+                // The trail is a stop that follows the price: a market exit.
+                let before = if short {
+                    prev_best * (1.0 + s.reverse / 100.0)
+                } else {
+                    prev_best * (1.0 - s.reverse / 100.0)
+                };
+                price = Some(match bar_open {
+                    Some(o) if (short && o >= before) || (!short && o <= before) => o,
+                    _ => trail,
+                });
                 reason = "tp";
             } else if let Some(program) = rule {
                 let ratio = if entry_price != 0.0 { close / entry_price - 1.0 } else { 0.0 };
@@ -337,10 +405,9 @@ fn run_walk(
                 reason = "gap";
             }
             if let Some(mut price) = price {
-                // A take profit is a resting limit order and fills at its
-                // price; every other exit is a market order and slips against
-                // the trade.
-                if reason != "tp" {
+                // Every exit but the resting take profit is a market order and
+                // slips against the trade.
+                if !limit {
                     price *= if short { 1.0 + s.slippage } else { 1.0 - s.slippage };
                 }
                 // A long is worth qty * price; a short is its margin back plus
@@ -372,30 +439,6 @@ fn run_walk(
                 entry_cost = 0.0;
                 best = 0.0;
             }
-        } else if index != 0 && !gap_after && (longs[local] != shorts[local]) {
-            let mut notional = budget(cash, s);
-            // Take no more than a share of what the bar traded: a position the
-            // market could not have absorbed is not a fill.
-            if s.participation > 0.0 {
-                if let Some(v) = volumes {
-                    notional = notional.min(v[local] * close * s.participation);
-                }
-            }
-            if notional > 0.0 && close > 0.0 {
-                let cost = notional * s.fee;
-                short = shorts[local];
-                // The entry is a market order too: it fills a little worse
-                // than the close it was decided on.
-                let fill = close * if short { 1.0 - s.slippage } else { 1.0 + s.slippage };
-                qty = notional / fill;
-                cash -= notional + cost;
-                entry_price = fill;
-                entry_index = index;
-                entry_fee = cost;
-                entry_notional = notional;
-                entry_cost = notional + cost;
-                best = if short { low } else { high };
-            }
         }
 
         // Marked to market: an open long is worth qty at the close, an open
@@ -426,7 +469,8 @@ fn run_walk(
 #[pyfunction]
 #[pyo3(signature = (closes, highs, lows, longs, shorts, capital, tp, sl, position,
                     sizing, max_cash, fee, max_hold, dynamic_tp=false, reverse=0.0,
-                    rule=None, slots=0, slippage=0.0, gaps=None, volumes=None, participation=0.0))]
+                    rule=None, slots=0, slippage=0.0, gaps=None, volumes=None, participation=0.0,
+                    opens=None, entry_open=false, through=0.0))]
 #[allow(clippy::too_many_arguments)]
 fn walk(
     py: Python<'_>,
@@ -451,11 +495,14 @@ fn walk(
     gaps: Option<PyReadonlyArray1<bool>>,
     volumes: Option<PyReadonlyArray1<f64>>,
     participation: f64,
+    opens: Option<PyReadonlyArray1<f64>>,
+    entry_open: bool,
+    through: f64,
 ) -> PyResult<(Vec<Trade>, Vec<f64>)> {
     let (trades, equity, _) = walk_chunk(
         py, closes, highs, lows, longs, shorts, capital, tp, sl, position, sizing,
         max_cash, fee, max_hold, dynamic_tp, reverse, rule, slots, slippage, 0, None, gaps,
-        volumes, participation,
+        volumes, participation, opens, entry_open, through,
     )?;
     Ok((trades, equity))
 }
@@ -468,7 +515,8 @@ fn walk(
 #[pyo3(signature = (closes, highs, lows, longs, shorts, capital, tp, sl, position,
                     sizing, max_cash, fee, max_hold, dynamic_tp=false, reverse=0.0,
                     rule=None, slots=0, slippage=0.0, offset=0, state=None, gaps=None,
-                    volumes=None, participation=0.0))]
+                    volumes=None, participation=0.0, opens=None, entry_open=false,
+                    through=0.0))]
 #[allow(clippy::too_many_arguments)]
 fn walk_chunk(
     py: Python<'_>,
@@ -495,6 +543,9 @@ fn walk_chunk(
     gaps: Option<PyReadonlyArray1<bool>>,
     volumes: Option<PyReadonlyArray1<f64>>,
     participation: f64,
+    opens: Option<PyReadonlyArray1<f64>>,
+    entry_open: bool,
+    through: f64,
 ) -> PyResult<(Vec<Trade>, Vec<f64>, PyState)> {
     let closes = closes.as_slice()?;
     let highs = highs.as_slice()?;
@@ -514,6 +565,8 @@ fn walk_chunk(
         reverse,
         slippage,
         participation,
+        entry_open,
+        through,
     };
     let state = state.map(State::from);
     let gaps = match &gaps {
@@ -526,10 +579,14 @@ fn walk_chunk(
     };
     // The bar loop touches no Python object, so let go of the GIL: a worker
     // thread can walk a long span while the window keeps painting.
+    let opens = match &opens {
+        Some(o) => Some(o.as_slice()?),
+        None => None,
+    };
     let (trades, equity, end) = py.allow_threads(|| {
         run_walk(
             closes, highs, lows, longs, shorts, capital, &s, rule.as_deref(), slots,
-            offset, state, gaps, volumes,
+            offset, state, gaps, volumes, opens,
         )
     });
     Ok((trades, equity, end.into()))

@@ -165,7 +165,7 @@ def _train_and_save(name: str, years: list[int]):
         columns, stamps,
         TrainConfig(
             spec=ModelSpec("t", "gbm", {"trees": 30, "depth": 3}),
-            features=default_features(), horizon=1, min_move=0.0, max_samples=10_000,
+            features=default_features(), horizon=1, min_move=0.0, holdout=0.0, max_samples=10_000,
         ),
         name,
     )
@@ -250,7 +250,7 @@ def test_the_ml_screens_trades_are_the_backtests_trades(kind, side_thresholds, s
         columns, stamps,
         TrainConfig(
             spec=ModelSpec("t", kind, {"trees": 30, "depth": 3}),
-            features=default_features(), horizon=1, min_move=0.0, max_samples=8000,
+            features=default_features(), horizon=1, min_move=0.0, holdout=0.0, max_samples=8000,
             up=up, down=down, tp=0.3, sl=0.2, hold=5, fee=0.06, slippage=0.01,
             sizing=sizing, position=position, capital=10_000.0, cash=8_000.0,
         ),

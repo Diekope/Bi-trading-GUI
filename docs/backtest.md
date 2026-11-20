@@ -42,8 +42,14 @@ flattens the others into the axis. In percent the two strategies stay readable,
 and buy and hold is left to run off the top, with its number in the legend and
 a note when it does.
 
-Random buy is the benchmark that matters: it opens on a coin flip with the same
-exits, sizing and fees, so an entry rule that cannot beat it has no edge. Buy
+Random buy is the benchmark that matters: it opens on a coin flip and goes through the
+same walk as the strategy, with the same fills, exits, sizing and fees, so an entry rule
+that cannot beat it has no edge. Its signals come at the strategy's own rate and long/short
+mix (a strategy with no signals to copy, or a span streamed a year at a time, falls back to
+3% of bars, long only). That is the curve on the chart. For a verdict the chart is one
+draw, so a finished run also walks 100 more random runs, each from its own seed, in the
+background; the evidence line then reads *beats X% of 100 random runs*, with the 5th,
+median and 95th percentile of those runs. Spans too long to give enough runs show none. Buy
 and hold puts in what `Max cash` lets the run trade with (not the whole book), pays
 the same fee and slippage once on the way in, keeps the rest in cash and never
 sells, so it risks the same money as the strategy and costs the same.
@@ -93,14 +99,20 @@ that in mind. It does **not** model:
   applied and a Polymarket strategy cannot be validated here. Test those in paper mode.
 - **Hyperliquid perps.** No funding, leverage, margin or liquidation.
 - **A different venue's candles.** Spreads, wicks and fills on the venue you trade
-  differ from Binance spot, most on 1m bars.
-- **Queue position or trade-through.** A take profit fills at its price on any touch;
-  a stop fills at its price even if the bar gapped past it; the entry fills at the
-  signal bar's close.
+  differ from Binance spot, most on 1m bars. The venue serves only its latest ~5,000
+  candles, so the history cannot be swapped; `python -m bi_trading.data.basis` compares
+  the stored Binance bars with Hyperliquid's over that window (close gap in basis points,
+  how wide its bars are, how often a level is touched on one venue and not the other),
+  saves the report, and the evidence line shows it. Until it is run the line says the
+  venue data was not compared.
+- **Queue position and maker fees.** A take profit needs the market to trade through its
+  price (see Fills) but still fills in full with no queue, and every fill pays the one
+  flat fee.
 
 The ML builder's own test-set simulator (`rule_stats` in `ml/train.py`) is separate from
-the walk: it does not apply the data-gap rule or the volume cap. Use a backtest of the
-saved strategy for the figure that counts.
+the walk. It has the same fill model (next-open entry, gapped stops, trade-through) from the
+same Settings, but not the data-gap rule, the volume cap or the trailing stop. Use a backtest
+of the saved strategy for the figure that counts.
 
 The full list of weaknesses, by importance, is in [backtest-audit.md](backtest-audit.md).
 
@@ -157,6 +169,18 @@ entry fills that much worse than the close it was decided on — higher for a
 long, lower for a short — and every exit slips against the trade, except the
 take profit, which is a resting limit order and fills at its price. The fee is
 charged on top. The builder's previews use the same 0.01%.
+
+**Fills.** Three settings under `backtest` in the settings file (no tile field) decide how
+orders fill. `entry` is `open` by default: a signal on one bar fills at the **open of the next**,
+a little worse by the slippage, and that bar's own range can stop it out or fill its target;
+`close` fills at the close of the signal bar, which no one can do. A signal on the last bar before
+a hole is dropped. `limit_through` (percent, 0.01 by default) is how far the market must trade
+past a take profit's price before that limit counts as filled: touching it is not enough. A
+stop, or a trail, that the market gapped past fills at the bar's open, not at the price it
+jumped over; a target it gapped past fills at the better open. The trailing stop is a market
+exit and slips; only the plain take profit is a resting limit order with no slippage. The ML
+builder, the whole-span seek, the streamed seek and the stepped playback all use the same
+rules.
 
 **Venue costs.** The *Venue costs* pick fills the fee and the slippage with a
 venue's own (Hyperliquid 0.045% + 0.01%, Polymarket 0% + 0% to start); typing
@@ -294,9 +318,8 @@ otherwise take about two and a half days to watch.
 
 A span with nothing on disk falls back to a fixed-seed sample and says so.
 
-Fills are the optimistic kind in other ways (see **What this backtest is not**):
-the target and the stop are read off one candle's range. When one candle touches
-both, the stop is booked, as in the run controls above.
+The target and the stop are read off one candle's range (see **Fills**). When one candle
+touches both, the stop is booked, as in the run controls above.
 
 Nothing runs when the window opens: the tile sits idle until **Run** (in its
 header) or **Start backtest** (in the history tile) is pressed. A change of

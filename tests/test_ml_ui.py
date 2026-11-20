@@ -550,3 +550,26 @@ def test_the_builder_says_how_far_ahead_the_model_looks(app, no_candles) -> None
         assert "75 min ahead" in widget.horizon_note.text() and "backtests only" in widget.horizon_note.text()
     finally:
         widget.close()
+
+
+def test_the_holdout_is_locked_until_saved_and_scores_only_once(app, market) -> None:
+    import time
+
+    widget = view(app)
+    try:
+        train_it(app, widget)
+        assert "locked" in widget.holdout_value.text()
+        assert widget.trials_value.text() == "1"
+        assert not widget.holdout_button.isEnabled()       # it is scored by name: save first
+        widget.save()
+        assert widget.holdout_button.isEnabled()
+        widget._score_holdout()
+        end = time.time() + 30
+        while widget._hold_worker is not None and time.time() < end:
+            pump(app)
+            time.sleep(0.01)
+        pump(app)
+        assert "scored once" in widget.holdout_value.text()
+        assert not widget.holdout_button.isEnabled()       # not offered a second time
+    finally:
+        widget.close()

@@ -69,7 +69,7 @@ from bi_trading.ui.ml.ml_style import (
     read_number,
     rule,
 )
-from bi_trading.ui.ml.workers import TrainWorker, available_years
+from bi_trading.ui.ml.workers import HoldoutWorker, TrainWorker, available_years
 from bi_trading.ui.palette import AMBER_DOT, DOWN_SOFT, UP
 
 log = logging.getLogger(__name__)
@@ -219,6 +219,7 @@ class MLBuilderView(QWidget):
 
         self._trained: TrainedModel | None = None
         self._worker: TrainWorker | None = None
+        self._hold_worker: HoldoutWorker | None = None
         self._saved_name = ""
         self._name_touched = False
         self._exit = ""
@@ -435,6 +436,21 @@ class MLBuilderView(QWidget):
         layout.addLayout(self._row("Signals", self.signals_value))
         layout.addLayout(self._row("Hit rate", self.hit_value))
         layout.addLayout(self._row("Period", self._period_label()))
+        layout.addWidget(rule())
+        layout.addWidget(label("FINAL HOLD-OUT", "mlGroup"))
+        self.trials_value = label("—", "mlMono")
+        self.holdout_value = label("not scored", "mlMono", wrap=True)
+        self.holdout_value.setToolTip(
+            "The last slice of the data. No training, tuning or threshold ever reads "
+            "it. Score it once: the answer is kept and cannot be redrawn. The p-value "
+            "is multiplied by the models tried on this data."
+        )
+        self.holdout_button = button("Score hold-out (once)")
+        self.holdout_button.setEnabled(False)
+        self.holdout_button.clicked.connect(self._score_holdout)
+        layout.addLayout(self._row("Models tried", self.trials_value))
+        layout.addWidget(self.holdout_value)
+        layout.addWidget(self.holdout_button)
         layout.addStretch(1)
         actions = QHBoxLayout()
         actions.setSpacing(8)
@@ -657,6 +673,8 @@ class MLBuilderView(QWidget):
             position=backtest.position,
             capital=backtest.initial_capital,
             cash=min(backtest.cash, backtest.initial_capital),
+            entry=backtest.entry,
+            through=backtest.limit_through,
         )
 
     # -- events ----------------------------------------------------------------------------
@@ -771,6 +789,7 @@ class MLBuilderView(QWidget):
     def _on_trained(self, trained: TrainedModel) -> None:
         self._trained = trained
         self._saved_name = ""
+        self._refresh_holdout()
         test = trained.metrics.get("test", {}).get("accuracy")
         self._log(
             "info", "TRAIN",
@@ -793,6 +812,61 @@ class MLBuilderView(QWidget):
         minutes, rest = divmod(int(round(seconds)), 60)
         return f"{minutes}m {rest:02d}s" if minutes else f"{rest}s"
 
+    def _refresh_holdout(self) -> None:
+        """The hold-out rows: variants tried, and whether it can be scored."""
+        trained = self._trained
+        if trained is None:
+            return
+        self.trials_value.setText(f"{trained.trials}" if trained.trials else "—")
+        has = bool(trained.holdout_start)
+        if not has:
+            self.holdout_value.setText("none: retrain to set a slice aside")
+        else:
+            self.holdout_value.setText(
+                f"locked, unread: {_day(trained.holdout_start)} → {_day(trained.holdout_end)}"
+            )
+        self.holdout_button.setEnabled(has and bool(self._saved_name))
+        self.holdout_button.setToolTip(
+            "" if self._saved_name or not has else "Save the model first: it is scored by name"
+        )
+
+    def _score_holdout(self) -> None:
+        if self._hold_worker is not None or not self._saved_name:
+            return
+        self.holdout_button.setEnabled(False)
+        self.holdout_value.setText("scoring…")
+        worker = HoldoutWorker(
+            self._saved_name, self._years,
+            self._trained.config.timeframe if self._trained else "1m", self,
+        )
+        worker.done.connect(self._on_holdout)
+        worker.failed.connect(self._on_holdout_failed)
+        worker.finished.connect(self._hold_done)
+        self._hold_worker = worker
+        worker.start()
+
+    def _hold_done(self) -> None:
+        worker, self._hold_worker = self._hold_worker, None
+        if worker is not None:
+            worker.deleteLater()
+
+    def _on_holdout(self, result) -> None:
+        hit = "—" if result.hit_rate is None else f"{result.hit_rate * 100:.0f}%"
+        p = "—" if result.p_value is None else f"{result.p_value:.3f}"
+        adjusted = "—" if result.adjusted_p is None else f"{result.adjusted_p:.3f}"
+        head = "scored before, kept: " if result.again else "scored once: "
+        self.holdout_value.setText(
+            f"{head}{result.signals} trades, hit {hit}, ML {result.strategy_return:+.1f}% "
+            f"vs buy & hold {result.hold_return:+.1f}%. p {p}, {adjusted} after "
+            f"{result.trials} model(s) tried".replace("-", "−")
+        )
+        self.holdout_button.setEnabled(False)   # scored: it is not asked twice
+        self._log("info", "ML", f"Hold-out scored for “{self._saved_name}”")
+
+    def _on_holdout_failed(self, reason: str) -> None:
+        self.holdout_value.setText(f"could not score: {reason}")
+        self.holdout_button.setEnabled(bool(self._saved_name))
+
     def wait_for_training(self, timeout_ms: int = 600_000) -> None:
         """Block until a running training ends (tests, and closing the view)."""
         if self._worker is not None:
@@ -814,6 +888,14 @@ class MLBuilderView(QWidget):
             worker.setParent(None)
             _DETACHED.append(worker)
             worker.finished.connect(lambda w=worker: _DETACHED.remove(w) if w in _DETACHED else None)
+        hold, self._hold_worker = self._hold_worker, None
+        if hold is not None:
+            for signal in (hold.done, hold.failed):
+                with contextlib.suppress(RuntimeError, TypeError):
+                    signal.disconnect()
+            hold.setParent(None)
+            _DETACHED.append(hold)
+            hold.finished.connect(lambda w=hold: _DETACHED.remove(w) if w in _DETACHED else None)
         super().closeEvent(event)
 
     # -- showing a result ---------------------------------------------------------------------------
@@ -944,6 +1026,7 @@ class MLBuilderView(QWidget):
             )
         )
         self._saved_name = name
+        self._refresh_holdout()
         self._log("info", "ML", f"Saved ML strategy “{name}”")
         self._say(f"saved “{name}”: its rules read model_p; backtest {_day(trained.test_start)} onwards")
         self.saved.emit(name)
@@ -1014,6 +1097,7 @@ class MLBuilderView(QWidget):
         self._exit = saved.exit if saved else ""
         self._trained = trained
         self._saved_name = name if saved else ""
+        self._refresh_holdout()
         self.progress.setValue(1000)
         self.progress_text.setText(f"loaded · trained in {self._duration(trained.seconds)}")
         self._show(trained)

@@ -133,6 +133,10 @@ class ParamsTile(Card):
         # Not a field on the tile: the share of a bar's traded value one fill may
         # take comes from Settings (`backtest.participation`), 0 = off.
         self._participation = float(getattr(defaults, "participation", 0.0))
+        # Likewise the fill model: `backtest.entry` (open of the next bar, or the
+        # close of the signal bar) and `backtest.limit_through`, in percent.
+        self._entry = str(getattr(defaults, "entry", "close"))
+        self._through = float(getattr(defaults, "limit_through", 0.0))
         self.warmup_field = self._field(defaults.warmup, 0.0, 1_000_000.0)
         self.warmup_field.setToolTip(
             "Bars of history before a signal counts, so indicators have settled; "
@@ -248,6 +252,8 @@ class ParamsTile(Card):
             "hold": _number(self.hold_field.text()),
             "warmup": _number(self.warmup_field.text()),
             "participation": self._participation,
+            "entry": self._entry,
+            "limit_through": self._through,
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
             "venue": self.venue.currentText(),

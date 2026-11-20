@@ -73,6 +73,8 @@ TEMPLATE = {
         "hold": 7,
         "warmup": 100,
         "participation": 1.0,
+        "entry": "open",
+        "limit_through": 0.01,
         "venues": {name: dict(costs) for name, costs in VENUE_COSTS.items()},
         "sizing": "balance",
         "timeframe": "1m",
@@ -138,6 +140,8 @@ class BacktestDefaults:
     hold: int = 7                      # candles a trade may run; 0 = no limit
     warmup: int = 100                  # bars of history before a signal counts; 0 = off
     participation: float = 1.0         # most a fill may take of the bar's traded value, percent; 0 = off
+    entry: str = "open"                # fill an entry at the next bar's open, or at the signal bar's close
+    limit_through: float = 0.01        # a take profit fills only this far (percent) past its price
     venues: dict = field(              # per-venue fee and slippage presets, percent
         default_factory=lambda: _venue_costs(None)
     )
@@ -217,6 +221,10 @@ class BacktestDefaults:
                 _number(values.get("participation"), defaults.participation),
                 0.0,
                 100.0,
+            ),
+            entry="close" if values.get("entry") == "close" else "open",
+            limit_through=_clamp(
+                _number(values.get("limit_through"), defaults.limit_through), 0.0, 10.0
             ),
             venues=_venue_costs(values.get("venues")),
             sizing=_choice(values.get("sizing"), defaults.sizing),
@@ -459,6 +467,8 @@ def save_backtest_defaults(
         "hold": defaults.hold,
         "warmup": defaults.warmup,
         "participation": defaults.participation,
+        "entry": defaults.entry,
+        "limit_through": defaults.limit_through,
         "venues": defaults.venues,
         "sizing": defaults.sizing,
         "timeframe": defaults.timeframe,
