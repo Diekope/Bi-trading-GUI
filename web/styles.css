@@ -123,3 +123,7 @@ body[data-venue="Both"] .venue-only { display: none !important; }
 body:not([data-venue="Both"]) .both-only { display: none !important; }
 body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
 .bar-foot input { font-size: 12px; } .bar-foot label.cap { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.stile { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--inner); color: var(--text); text-decoration: none; cursor: pointer; font-size: 12px; }
+.stile:hover { border-color: #3a3b41; } .stile.on, .stile.on:hover { border-color: var(--accent); background: var(--accent-bg); }
+.stile.new { place-items: center; border-style: dashed; color: var(--accent); background: none; min-height: 64px; }
+.statrow { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; } .statrow > .card { min-width: 0; }
