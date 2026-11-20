@@ -2,15 +2,11 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>bi-trading (design sandbox)</title><link rel="stylesheet" href="styles.css"></head>
 <body>
-<div class="topbar">
-  <span>Design sandbox · synthetic data</span>
-  <span class="tabs"><button data-v="terminal" class="on">Terminal</button><button data-v="backtest">Backtest</button></span>
-  <span class="spacer"></span>
-  <label><input type="checkbox" id="vol" checked> Volume</label>
-  <label><input type="checkbox" id="bb"> Bollinger</label>
-  <span class="ok">PM ● 26 ms</span><span class="warn">HL ● 217 ms</span>
+<nav class="rail" id="rail"></nav>
+<div class="col">
+  <div class="topbar" id="topbar"></div>
+  <main id="main"></main>
+  <div class="footer" id="footer"></div>
 </div>
-<main id="main"></main>
-<div class="footer" id="footer"></div>
 <script type="module" src="app.js"></script>
 </body></html>
