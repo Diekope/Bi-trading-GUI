@@ -34,10 +34,10 @@ export const market = { title: "Bitcoin Up or Down - November 8, 4:00PM-4:05PM E
 export const stats = { PnL: "-0.42%", Equity: "$9,958", Sharpe: "-0.00", Drawdown: "-2.65%", "Max DD": "-2.72%", "Max gain": "+2.29%", Streak: "L4", "Best W": "10", "Worst L": "19", Trades: "2,383", "Win rate": "44%", Fees: "$572" };
 
 export const strategies = [
-  { name: "Volume spike", tf: "1m", pnl: null, draft: true, note: "Buys when the close falls below the lower band on volume." },
-  { name: "Edge vs model", tf: "5m", pnl: 3.01, note: "model_p above 0.60 against the market price." },
-  { name: "Late favorite", tf: "5m", pnl: 3.35, note: "Backs the favorite in the last minute." },
-  { name: "Bollinger reversion", tf: "1m", pnl: 0.57, note: "Buys when the close falls below the lower band (20 bars, 2σ)." },
+  { venue: "Hyperliquid", name: "Volume spike", tf: "1m", pnl: null, draft: true, note: "Buys when the close falls below the lower band on volume." },
+  { venue: "Polymarket", name: "Edge vs model", tf: "5m", pnl: 3.01, note: "model_p above 0.60 against the market price." },
+  { venue: "Polymarket", name: "Late favorite", tf: "5m", pnl: 3.35, note: "Backs the favorite in the last minute." },
+  { venue: "Hyperliquid", name: "Bollinger reversion", tf: "1m", pnl: 0.57, note: "Buys when the close falls below the lower band (20 bars, 2σ)." },
 ];
 
 export const palette = {
@@ -83,3 +83,9 @@ export function logRows(n = 30, seed = 5) {
   }
   return rows;
 }
+
+// Venue-specific data.
+export const dataFor = (v) => (v === "Polymarket"
+  ? ["price", "model_p", "edge", "spread", "liquidity", "days_left", "btc", "target"]
+  : ["open", "high", "low", "close", "volume", "funding", "oi", "model_p"]);
+export const pmStats = { PnL: "-1.84%", Equity: "$981", Sharpe: "-0.21", Drawdown: "-6.10%", "Max DD": "-7.40%", "Max gain": "+4.20%", Streak: "W2", "Best W": "7", "Worst L": "9", Bets: "3,114", "Win rate": "54%", "Avg entry": "61¢" };
