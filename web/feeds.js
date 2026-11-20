@@ -14,7 +14,7 @@ const CANDLE_COUNT = 300;
 // -- shared state and a small event log -------------------------------------
 
 export const feed = {
-  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null },
+  hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [] },
   pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, latency: null },
 };
 export const events = [];
@@ -134,13 +134,21 @@ export function parseTrade(msg) {
 
 // -- dispatch (pure apart from the held state) --------------------------------
 
+// BTC mid samples for the Polymarket chart's rolling 15-minute line (at most one per 150 ms).
+export function pushTick(S, p, t = Date.now()) {
+  const a = (S.btcTicks ??= []), last = a.at(-1);
+  if (last && t - last.t < 150) { last.p = p; return; }
+  a.push({ t, p });
+  while (a.length && a[0].t < t - 16 * 60e3) a.shift();
+}
+
 export function dispatchHL(S, raw) {
   let m; try { m = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return false; }
   if (!m || typeof m !== "object") return false;
   const d = m.data;
   switch (m.channel) {
-    case "allMids": Object.assign(S.mids, parseMids(d)); return true;
-    case "bbo": { const u = parseBBO(d); if (u) { S.mids[u[0]] = u[1]; if (u[0] === "BTC") S.btcMid = u[1]; } return !!u; }
+    case "allMids": { Object.assign(S.mids, parseMids(d)); const b = S.mids.BTC; if (b != null && S.btcMid == null) pushTick(S, b); return true; }
+    case "bbo": { const u = parseBBO(d); if (u) { S.mids[u[0]] = u[1]; if (u[0] === "BTC") { S.btcMid = u[1]; pushTick(S, u[1]); } } return !!u; }
     case "l2Book": { const b = parseHLBook(d); if (b.coin && b.coin === S.coin) { S.book = b; return true; } return false; }
     case "candle": {
       const key = `${d?.s}|${d?.i}`, c = parseCandles([d])[0], arr = S.series[key];

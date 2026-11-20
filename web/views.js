@@ -1,9 +1,10 @@
 import { candles, equity as equity_, tape, market, stats, pmStats, dataFor, strategies, palette, features, heat, trades, histogram, rng } from "./synth.js";
 import { drawCandles, drawLines, drawArea } from "./chart.js";
 import { feed, events } from "./feeds.js";
+import { paintBtc } from "./btcchart.js";
 import { P, equity, startEquity, dayPnl, markOf, pnlOf, FEE } from "./paper.js";
 
-export const state = { tf: "1m", btTf: "1m", vol: true, bb: false, strat: 3, ruleSide: "entry", mode: "Formula", res: "Overview", btTab: "Overview", logSel: -1, logSrc: "All", model: "Gradient boosting", autobet: false, mlSel: 0, view: "Visual", sec: "x", venue: "Both", focus: "Hyperliquid", live: 0, side: "Long", pfTab: "All", coin: "HYPE", form: {} };
+export const state = { tf: "1m", btTf: "1m", vol: true, bb: false, strat: 3, ruleSide: "entry", mode: "Formula", res: "Overview", btTab: "Overview", logSel: -1, logSrc: "All", model: "Gradient boosting", autobet: false, mlSel: 0, view: "Visual", sec: "x", venue: "Both", focus: "Hyperliquid", live: 0, side: "Long", pfTab: "All", coin: "HYPE", form: {}, pmSel: "UP" };
 
 const p2 = (n, w = 2) => String(n).padStart(w, "0");
 const lgRows = () => events.map((e) => { const d = new Date(e.t); return { time: `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${p2(d.getMilliseconds(), 3)}`, level: e.level.toUpperCase(), source: e.source, origin: e.origin, event: e.event, message: e.message }; }).filter((r) => (state.logSrc === "All" || r.source === state.logSrc) && (state.venue === "Both" || r.source === state.venue || r.source === "System" || r.source === "Strategy"));
@@ -82,15 +83,16 @@ function hlData() {
 }
 const statusChip = (S, name) => (S.status === "live" ? `<span class="up" style="font-size:11px">● live</span>` : `<span class="muted" style="font-size:11px" title="${S.error || ""}">○ ${S.status === "off" ? "offline" : S.status}${S.error ? " · " + S.error : ""} · synthetic</span>`);
 
-const pmCard = () => { const d = pmData(), pl = feed.pm.latency, ret = d.up.ask ? (1 / d.up.ask - 1) * 100 : null, delta = d.btc && d.target ? ((d.btc - d.target) / d.target) * 100 : null;
-  const tile = (n, o, cls) => `<div class="tile ${cls}"><div class="row between"><b class="${n === "UP" ? "up" : "down"}">${n}</b><span class="${n === "UP" ? "up" : "down"}" style="font-size:24px;font-weight:700">${(o.mid * 100).toFixed(1)}¢</span></div><div style="height:3px;background:var(--${n === "UP" ? "up" : "down"});width:${Math.min(100, o.mid * 100)}%;margin:4px 0 8px;border-radius:2px"></div><div class="row between" style="font-size:11px"><span class="faint">bid ${cents(o.bid)} · ask ${cents(o.ask)}</span><b class="${n === "UP" ? "muted" : "down"}">${o.ask ? "×" + (1 / o.ask).toFixed(2) : ""}</b></div></div>`;
+const pmCard = () => { const d = pmData(), pl = feed.pm.latency, sel = state.pmSel === "DOWN" ? d.down : d.up, ret = sel.ask ? (1 / sel.ask - 1) * 100 : null, delta = d.btc && d.target ? ((d.btc - d.target) / d.target) * 100 : null;
+  const tile = (n, o) => `<div class="tile ${state.pmSel === n ? (n === "UP" ? "up" : "down") : ""}" data-set="pmSel=${n}" style="cursor:pointer" title="Show ${n} details"><div class="row between"><b class="${n === "UP" ? "up" : "down"}">${n}</b><span class="${n === "UP" ? "up" : "down"}" style="font-size:24px;font-weight:700">${(o.mid * 100).toFixed(1)}¢</span></div><div style="height:3px;background:var(--${n === "UP" ? "up" : "down"});width:${Math.min(100, o.mid * 100)}%;margin:4px 0 8px;border-radius:2px"></div><div class="row between" style="font-size:11px"><span class="faint">bid ${cents(o.bid)} · ask ${cents(o.ask)}</span><b class="${n === "UP" ? "muted" : "down"}">${o.ask ? "×" + (1 / o.ask).toFixed(2) : ""}</b></div></div>`;
   return `<section class="card" style="padding:16px 18px;gap:6px">
       <div class="row between"><div class="row"><b class="sec" style="color:var(--muted)">Polymarket</b><span class="pill">5m</span></div>${statusChip(feed.pm)}</div>
       <div style="font-size:17px;font-weight:600;margin-top:4px">${d.title}</div>
       <div class="row between muted" style="font-size:11px"><span>${d.win}</span><span>closes in <b style="font-size:20px;color:var(--text);margin-left:6px">${d.closes}</b></span></div>
       <span class="${latCls(pl)}" style="font-size:11px;font-weight:700;letter-spacing:.1em">PM DELAY ● ${pl ?? "—"} ms</span>
-      <div class="grid g2" style="gap:8px">${tile("UP", d.up, "up")}${tile("DOWN", d.down, "")}</div>
-      <div class="grid g2" style="font-size:11px;gap:2px 20px">${[["SPREAD", d.spread, "LIQUIDITY", d.liquidity], ["DEPTH", d.depth, "TARGET", d.target ? pxFmt(d.target) : "—"], ["BTC", d.btc ? pxFmt(d.btc) : "—", "Δ OPEN", delta == null ? "—" : (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"], ["RETURN", ret == null ? "—" : "+" + ret.toFixed(0) + "%", "PER $100", d.up.ask ? "$" + (100 / d.up.ask).toFixed(0) : "—"]].map(([a, b, c, e]) => `<div class="row"><span class="faint" style="width:56px">${a}</span><b>${b}</b></div><div class="row"><span class="faint" style="width:70px">${c}</span><b class="${c === "Δ OPEN" && delta != null ? (delta >= 0 ? "up" : "down") : ""}">${e}</b></div>`).join("")}</div>
+      <div class="grid g2" style="gap:8px">${tile("UP", d.up)}${tile("DOWN", d.down)}</div>
+      <div class="grid g2" style="font-size:11px;gap:2px 20px">${[["SPREAD", sel.bid != null && sel.ask != null ? `${Math.round((sel.ask - sel.bid) * 100)}¢` : d.spread, "LIQUIDITY", d.liquidity], ["DEPTH", d.depth, "TARGET", d.target ? pxFmt(d.target) : "—"], ["BTC", d.btc ? pxFmt(d.btc) : "—", "Δ OPEN", delta == null ? "—" : (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"], ["RETURN", ret == null ? "—" : "+" + ret.toFixed(0) + "%", "PER $100", sel.ask ? "$" + (100 / sel.ask).toFixed(0) : "—"]].map(([a, b, c, e]) => `<div class="row"><span class="faint" style="width:56px">${a}</span><b>${b}</b></div><div class="row"><span class="faint" style="width:70px">${c}</span><b class="${c === "Δ OPEN" && delta != null ? (delta >= 0 ? "up" : "down") : ""}">${e}</b></div>`).join("")}</div>
+      <div class="cap" style="padding:2px 0"><b class="${state.pmSel === "UP" ? "up" : "down"}">${state.pmSel}</b> selected: ${state.pmSel} at ${cents(sel.ask)} pays ${sel.ask ? "$" + (100 / sel.ask).toFixed(0) : "—"} per $100 if it wins. Click a tile to switch.</div>
       <div class="row between" style="margin-top:6px"><b class="sec" style="color:var(--muted)">BTC / USD</b><b class="${delta == null ? "muted" : delta >= 0 ? "up" : "down"}" style="font-size:11px">${delta == null ? "" : (delta >= 0 ? "ABOVE " : "BELOW ") + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "%"}</b></div><canvas id="btc"></canvas>
       <b class="sec" style="color:var(--muted)">Tape</b><div class="mono" style="font-size:11px;color:var(--muted);display:grid;gap:1px">${d.tape.map((t) => `<div style="display:grid;grid-template-columns:80px 70px 1fr auto"><span>${t.time}</span><span class="${t.side === "UP" ? "up" : "down"}">${t.side}</span><span style="text-align:right;padding-right:30px">${cents(t.px)}</span><span>× ${(+t.size).toFixed(2)}</span></div>`).join("") || `<div>waiting for trades…</div>`}</div></section>`; };
 
@@ -158,10 +160,10 @@ export const views = {
     html: () => (state.venue === "Polymarket" ? pmView() : state.venue === "Hyperliquid" ? hlView() : pmCard() + hlCard()),
     get grid() { return state.venue === "Polymarket" ? "1.1fr 1fr" : state.venue === "Hyperliquid" ? "minmax(0,1fr) 330px" : "1fr 1fr"; },
     rows: "1fr",
-    topExtra: () => `<span class="muted" style="font-size:11px">${ck("Volume", state.vol, "vol")}${ck("Bollinger", state.bb, "bb")}</span>`,
+    topExtra: () => (state.venue === "Polymarket" ? "" : `<span class="muted" style="font-size:11px">${ck("Volume", state.vol, "vol")}${ck("Bollinger", state.bb, "bb")}</span>`),
     foot: () => (state.venue === "Hyperliquid"
       ? `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:170px;font:12px var(--ui)">${strategies.find((x) => x.venue === "Hyperliquid" && x === strat())?.name || "Bollinger reversion"}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b><span class="tag">signal</span><b class="down">FALSE</b><div class="field" style="flex:1;font:12px var(--ui);color:var(--muted)">Position : none</div>${ck("Auto-trade", state.autobet, "autobet")}${modeBadge()}</div>`
-      : `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:150px;font:12px var(--ui)">${strat().name}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span>${isPM() ? `<span class="tag">model_p</span><b>0.64</b><span class="tag">price</span><b>0.805</b><span class="tag">edge</span><b class="down">-0.165</b>` : `<span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b>`}<span class="tag">signal</span><b class="down">FALSE</b><span style="flex:1"></span>${ck("Auto-bet", state.autobet, "autobet")}<input type="text" ${bind("pmStake", 20)} style="width:70px;text-align:right">${modeBadge()}<button class="btn up" data-act="pm-UP">Bet UP ${cents(pmData().up.ask)}</button><button class="btn down" data-act="pm-DOWN">Bet DOWN ${cents(pmData().down.ask)}</button></div>`),
+      : `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:150px;font:12px var(--ui)">${strat().name}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span>${isPM() ? `<span class="tag">model_p</span><b>0.64</b><span class="tag">price</span><b>0.805</b><span class="tag">edge</span><b class="down">-0.165</b>` : `<span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b>`}<span class="tag">signal</span><b class="down">FALSE</b><span style="flex:1"></span>${ck("Auto-bet", state.autobet, "autobet")}<input type="text" ${bind("pmStake", 20)} style="width:70px;text-align:right">${modeBadge()}<button class="btn up ${state.pmSel === "UP" ? "sel" : ""}" data-act="pm-UP">Bet UP ${cents(pmData().up.ask)}</button><button class="btn down ${state.pmSel === "DOWN" ? "sel" : ""}" data-act="pm-DOWN">Bet DOWN ${cents(pmData().down.ask)}</button></div>`),
   },
 
   builder: {
@@ -265,11 +267,8 @@ function codeMode() {
 export function draw() {
   const o = { volume: state.vol, bands: state.bb }, bt = location.hash === "#backtest", r = rng(3);
   if ($("#hl")) drawCandles($("#hl"), (location.hash === "#live" ? hlData().candles : cs).slice(-120), { ...o, markers: bt ? [{ i: 3, side: "buy" }, { i: 25, side: "sell" }, { i: 50, side: "buy" }, { i: 70, side: "sell" }, { i: 98, side: "buy" }] : [], axis: bt ? 0 : 64 });
-  const btcSeries = () => { const c = feed.hl.series["BTC|1m"]; if (!(c && c.length > 3)) return null; const v = c.slice(-30).map((x) => x.c); if (feed.hl.btcMid) v.push(feed.hl.btcMid); return v; };
-  const btcLines = (cv) => { const v = btcSeries(); if (!v) return false; const tg = feed.pm.target, ser = [{ v, color: "--up", fill: true }]; if (tg) ser.push({ v: v.map(() => tg), color: "--accent", dash: [4, 4] }); drawLines(cv, ser, { grid: true, fmt: (x) => x.toLocaleString("en-US", { maximumFractionDigits: 0 }), lo: Math.min(...v, tg ?? Infinity), hi: Math.max(...v, tg ?? -Infinity) }); return true; };
   if ($("#pf")) drawLines($("#pf"), [{ v: JSON.parse($("#pf").dataset.series), color: "--indigo" }], { grid: true, fmt: (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%" });
-  if ($("#btc2") && !btcLines($("#btc2"))) drawLines($("#btc2"), [{ v: cs.map((c) => c.c * 1000), color: "--up", fill: true }, { v: cs.map(() => cs[0].c * 1000 - 120), color: "--accent", dash: [4, 4] }], { grid: true, fmt: (x) => x.toFixed(0) });
-  if ($("#btc") && btcLines($("#btc"))) { /* live */ } else if ($("#btc")) { const v = cs.slice(0, 90).map((c, i) => c.c + Math.exp(-i / 6) * 0.6); drawLines($("#btc"), [{ v, color: "--up", fill: true }], { grid: true, fmt: (x) => (x * 1000).toFixed(0), pad: 0 }); }
+  paintAll();
   if ($("#eq")) {
     const s = [{ v: eq.strategy, color: "--accent" }, { v: eq.random, color: "--indigo" }, { v: eq.hold.map((x) => x * 0.3), color: "--muted", dash: [3, 3] }];
     if (state.res === "Compare" && location.hash === "#builder") s.push({ v: eq.hold.map((x, i) => x * 0.25 + eq.strategy[i]), color: "--up" });
@@ -277,4 +276,25 @@ export function draw() {
   }
   if ($("#dd")) drawArea($("#dd"), eq.strategy.map((x, i, a) => x - Math.max(...a.slice(0, i + 1))));
   if ($("#mini")) drawLines($("#mini"), [{ v: [0, 1, 2.2, 3, 3.6, 3.2, 3.8, 2.6, 1, 0.2], color: "--accent" }, { v: [0, -.3, -.8, -1.2, -1.6, -2, -2.2, -2.4, -2.6, -2.8], color: "--indigo" }]);
+}
+
+// The Polymarket BTC chart: live samples when the feeds are up, otherwise a synthetic walk so the animation still shows.
+const demo = { t: 0, pts: [], p: 75740 };
+function btcFeed() {
+  const m = feed.pm.market, ticks = feed.hl.btcTicks || [], live = feed.hl.status === "live" && ticks.length > 1, now = Date.now();
+  if (live) {
+    const c = feed.hl.series["BTC|1m"] || [], first = ticks[0].t, back = c.filter((x) => x.t + 60000 < first && x.t + 60000 > now - 16 * 60e3).map((x) => ({ t: x.t + 60000, p: x.c }));
+    return { points: [...back, ...ticks], target: feed.pm.target, startMs: m?.startMs, endMs: m?.endMs, key: `${location.hash}|${m?.slug || "live"}` };
+  }
+  if (!demo.t) { demo.t = now - 16 * 60e3; }
+  const r = rng(Math.floor(now / 500));
+  while (demo.t < now) { demo.t += 500; demo.p += (r() - 0.5) * 14 + (75740 - demo.p) * 0.01; demo.pts.push({ t: demo.t, p: demo.p }); }
+  while (demo.pts.length && demo.pts[0].t < now - 16 * 60e3) demo.pts.shift();
+  const start = Math.floor(now / 300e3) * 300e3;
+  return { points: demo.pts, target: demo.pts.find((x) => x.t >= start)?.p ?? demo.pts[0].p, startMs: start, endMs: start + 300e3, key: `${location.hash}|demo` };
+}
+export function paintAll() {
+  const els = ["#btc", "#btc2"].map((s) => $(s)).filter(Boolean);
+  if (!els.length) return;
+  const f = btcFeed(); els.forEach((cv) => paintBtc(cv, f));
 }

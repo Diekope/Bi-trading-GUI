@@ -1,4 +1,4 @@
-import { views, state, draw, normalize, latency, balances } from "./views.js";
+import { views, state, draw, normalize, latency, balances, paintAll } from "./views.js";
 import { feed, onChange, startHL, startPM, logEvent } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -88,6 +88,7 @@ addEventListener("keydown", (e) => {
   if (e.altKey && ["1", "2", "3"].includes(e.key)) { state.venue = ["Polymarket", "Hyperliquid", "Both"][e.key - 1]; render(); }
 });
 onChange(schedule);
+(function frame() { paintAll(); requestAnimationFrame(frame); })();
 hlHandle = startHL(); startPM();
 try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); } catch { /* storage blocked */ }
 setInterval(() => { paperTick(feed); schedule(); }, 1000);

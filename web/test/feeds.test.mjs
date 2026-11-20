@@ -34,6 +34,16 @@ test("dispatch HL candle upsert and book", () => {
   assert.equal(S.book.asks[0].px, 2);
 });
 
+test("BTC ticks feed the rolling chart", async () => {
+  const B = await import("../btcchart.js");
+  const S = { coin: "HYPE", series: {}, mids: {}, book: null, btcTicks: [] };
+  F.pushTick(S, 100, 1000); F.pushTick(S, 101, 1100); F.pushTick(S, 102, 1300);
+  assert.equal(S.btcTicks.length, 2); assert.equal(S.btcTicks[0].p, 101);
+  F.dispatchHL(S, JSON.stringify({ channel: "bbo", data: { coin: "BTC", bbo: [{ px: "200" }, { px: "202" }] } }));
+  assert.equal(S.btcMid, 201); assert.equal(S.btcTicks.at(-1).p, 201);
+  assert.equal(B.xFrac(5000, 5000), 1); assert.equal(B.xFrac(5000 - B.SPAN, 5000), 0); assert.equal(B.xFrac(5000 - B.SPAN / 2, 5000), 0.5);
+});
+
 test("dispatch PM book, change, trade", () => {
   const S = { books: {}, trades: [] };
   F.dispatchPM(S, [{ event_type: "book", asset_id: "a", bids: [{ price: "0.5", size: "10" }, { price: "0.6", size: "5" }], asks: [{ price: "0.9", size: "5" }, { price: "0.7", size: "5" }], timestamp: "1" }]);
