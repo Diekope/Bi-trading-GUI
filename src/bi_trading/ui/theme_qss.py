@@ -79,7 +79,8 @@ QSplitter#formulaSplit::handle:vertical {{
 
 /* Plain containers inside a card must not paint the canvas colour. */
 #resolutionPicker, #paramsGrid, #entryPages, #entryPage, #resultsPage,
-#formulaBuilder, #formulaCanvas, #stripArea, #stripHolder,
+#formulaBuilder, #formulaCanvas, #stripArea, #stripHolder, #stripScroll,
+#stripScroll > QWidget > QWidget,
 #paletteInner, #paletteBlocks, #dropZone, #stratColumn {{
     background-color: transparent;
 }}
@@ -88,4 +89,20 @@ QSplitter#formulaSplit::handle:vertical {{
 
 # The sheet is one string, in five parts so no file is a wall of CSS. The order is
 # the order the rules were written in, which is the order they win in.
-STYLESHEET = _BASE + _BUILDER + _RULES + _FORMS + _HUB
+# The design sets its text a step larger than the first draft of this sheet did
+# (11 to 13px where it was 9 to 11), so every pixel font size in the sheet is
+# scaled once here instead of being edited in a hundred rules.
+FONT_SCALE = 1.2
+
+
+def _scaled(sheet: str) -> str:
+    import re
+
+    return re.sub(
+        r"font-size:\s*(\d+)px",
+        lambda match: f"font-size: {round(int(match.group(1)) * FONT_SCALE)}px",
+        sheet,
+    )
+
+
+STYLESHEET = _scaled(_BASE + _BUILDER + _RULES + _FORMS + _HUB)

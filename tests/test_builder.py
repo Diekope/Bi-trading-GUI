@@ -183,7 +183,10 @@ def test_the_naming_tile_is_small_on_the_rail(
 ) -> None:
     tile = builder.strategy_tile
 
-    assert [label.text() for label in tile.findChildren(QLabel)] == ["STRATEGY"]
+    # The title, and the venue's logo that says which venue the strategy is for.
+    labels = tile.findChildren(QLabel)
+    assert [label.text() for label in labels if label.objectName() != "venueLogo"] == ["STRATEGY"]
+    assert [label.objectName() for label in labels].count("venueLogo") == 1
     assert tile.findChildren(QLabel)[0].objectName() == "tileTitle"
 
     # Only as tall as its title and row, and it spans the rail's width.
@@ -928,7 +931,7 @@ def test_the_live_values_reach_both_panels(
     assert builder.entry.formula.result is result
 
 
-def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
+def test_only_the_formula_lines_scroll_not_the_whole_panel(
     app: QApplication, builder: StrategyBuilderWindow
 ) -> None:
     builder.resize(1000, 800)
@@ -938,9 +941,10 @@ def test_the_formula_panel_scrolls_rather_than_growing_the_tile(
     app.processEvents()
 
     formula = builder.entry.formula
-    # It sits in a scroll area, so the tile keeps whatever width the window
-    # gives it and the panel moves under the cursor when it does not fit.
-    assert formula.parentWidget().objectName() == "qt_scrollarea_viewport"
+    # The panel itself does not scroll: its lines do, in a box of their own, so
+    # the title, the number row and the formula text stay where they are.
+    assert formula.parentWidget().objectName() != "qt_scrollarea_viewport"
+    assert formula.findChild(QScrollArea, "stripScroll") is not None
     # And it is modest enough that the tile fits the window's own minimum.
     assert formula.minimumSizeHint().width() < 620
     assert builder.minimumWidth() >= formula.minimumSizeHint().width()

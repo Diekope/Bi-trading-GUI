@@ -112,8 +112,8 @@ def test_chart_paints_without_a_backend(app: QApplication, window: MainWindow) -
     image = window.main_card.chart.grab().toImage()
     assert image.width() > 0
     # Something was actually drawn: the placeholder is not the only content.
-    colors = {image.pixelColor(x, y).name() for x in range(0, image.width(), 17)
-              for y in range(0, image.height(), 11)}
+    colors = {image.pixelColor(x, y).name() for x in range(0, image.width(), 5)
+              for y in range(0, image.height(), 3)}
     assert len(colors) > 1
 
 

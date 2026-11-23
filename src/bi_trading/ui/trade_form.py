@@ -13,13 +13,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QSlider,
+    QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 from bi_trading.state.orders import HL_BTC, armed, config_for, service
 from bi_trading.state.positions import store
 from bi_trading.ui.badges import refresh_badge, testnet_badge
+from bi_trading.ui.venue_icons import venue_mark
 from bi_trading.ui.theme import UP
 
 # What the shortcut buttons scale, in dollars.
@@ -54,101 +56,26 @@ class TradeForm(QWidget):
 
         defaults = Settings.load().trading
         self.price: float | None = None
+        self.bar_enabled = True   # False once the form is laid out as a card
         # One paper position at a time, shared so it survives a view rebuild.
         self._position: dict | None = store().get()
         self._pending: str | None = None   # side of an order in flight
         self._wired = False                # the order service connected yet?
         self._fill: tuple[float, float] | None = None   # (size, dollars) of the order in flight
 
+        # In the card, under the chart: the open positions (the design's "Paper
+        # positions" strip). The order bar is a separate widget, `bar`, which the
+        # terminal places in the footer under the card.
         column = QVBoxLayout(self)
-        column.setContentsMargins(12, 12, 12, 12)
-        column.setSpacing(12)
+        column.setContentsMargins(0, 8, 0, 0)
+        column.setSpacing(4)
 
-        top = QGridLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setHorizontalSpacing(16)
-        top.setVerticalSpacing(6)
-
-        size_label = QLabel("Size (USD)")
-        size_label.setObjectName("gl")
-        self.size_field = QLineEdit(f"${defaults.size:,.0f}")
-        self.size_field.setObjectName("numberEdit")
-        self.size_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.size_field.textChanged.connect(self._refresh)
-        # `size` is the name the rest of the app (and the tests) use for the
-        # field; it shadows QWidget.size(), which nothing here calls.
-        self.size = self.size_field  # type: ignore[method-assign,assignment]
-        top.addWidget(size_label, 0, 0)
-        top.addWidget(self.size_field, 0, 1)
-
-        shortcuts = QHBoxLayout()
-        shortcuts.setContentsMargins(0, 0, 0, 0)
-        shortcuts.setSpacing(4)
-        for percent in (25, 50, 100):
-            button = QPushButton(f"{percent}%")
-            button.setObjectName("ghostButton")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.clicked.connect(
-                lambda _checked=False, p=percent: self.set_size_share(p)
-            )
-            shortcuts.addWidget(button, 1)
-        top.addLayout(shortcuts, 1, 0, 1, 2)
-
-        leverage_row = QHBoxLayout()
-        leverage_row.setContentsMargins(0, 0, 0, 0)
-        lev_label = QLabel("Leverage")
-        lev_label.setObjectName("gl")
-        self.leverage_value = QLabel(
-            f"{max(1, min(MAX_LEVERAGE, defaults.leverage))}×"
-        )
-        self.leverage_value.setObjectName("readingValue")
-        self.leverage_value.setFont(mono_font(10, bold=True))
-        leverage_row.addWidget(lev_label)
-        leverage_row.addStretch(1)
-        leverage_row.addWidget(self.leverage_value)
-        top.addLayout(leverage_row, 0, 2)
-
-        self.leverage = QSlider(Qt.Orientation.Horizontal)
-        self.leverage.setObjectName("leverageSlider")
-        self.leverage.setRange(1, MAX_LEVERAGE)
-        self.leverage.setValue(max(1, min(MAX_LEVERAGE, defaults.leverage)))
-        self.leverage.valueChanged.connect(self._refresh)
-        top.addWidget(self.leverage, 1, 2)
-
-        self.margin_label = QLabel("Margin —")
-        self.margin_label.setObjectName("gl")
-        self.liq_label = QLabel("Liq. —")
-        self.liq_label.setObjectName("gl")
-        top.addWidget(self.margin_label, 2, 2)
-        top.addWidget(self.liq_label, 2, 3)
-        column.addLayout(top)
-
-        sides = QHBoxLayout()
-        sides.setContentsMargins(0, 0, 0, 0)
-        sides.setSpacing(8)
-        self.buy = QPushButton("Buy / Long")
-        self.buy.setObjectName("buyButton")
-        self.buy.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.buy.clicked.connect(lambda: self._trade("LONG"))
-        self.sell = QPushButton("Sell / Short")
-        self.sell.setObjectName("sellButton")
-        self.sell.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sell.clicked.connect(lambda: self._trade("SHORT"))
-        sides.addWidget(self.buy, 1)
-        sides.addWidget(self.sell, 1)
-        column.addLayout(sides)
-
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.setSpacing(8)
-        self.status_label = QLabel("")
-        self.status_label.setObjectName("gl")
-        self.status_label.setWordWrap(True)
-        status_row.addWidget(self.status_label, 1)
-        # Which network these buttons talk to, when it is not the real one.
-        self.network_badge = testnet_badge(self)
-        status_row.addWidget(self.network_badge, 0)
-        column.addLayout(status_row)
+        self.positions_head = QLabel("Paper positions")
+        self.positions_head.setObjectName("gl")
+        self.none_label = QLabel("none open")
+        self.none_label.setObjectName("gl")
+        column.addWidget(self.positions_head)
+        column.addWidget(self.none_label)
 
         self.position_row = QWidget(self)
         self.position_row.setObjectName("positionRow")
@@ -175,6 +102,129 @@ class TradeForm(QWidget):
         row.addWidget(close, 0)
         self.position_row.setVisible(False)
         column.addWidget(self.position_row)
+
+        # -- the order bar: venue, coin, size, leverage, and the two sides --
+        self.bar = QFrame(self)
+        self.bar.setObjectName("orderBar")
+        self.bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # A narrow column squeezes the bar instead of forcing the column wider.
+        self.bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        bar = QHBoxLayout(self.bar)
+        bar.setContentsMargins(10, 8, 12, 8)
+        bar.setSpacing(8)
+
+        tag = venue_mark("hl", 18)
+        tag.setObjectName("venueLogo")
+        coin = QLabel("BTC")
+        coin.setObjectName("barCoin")
+        bar.addWidget(tag, 0, Qt.AlignmentFlag.AlignVCenter)
+        bar.addWidget(coin, 0, Qt.AlignmentFlag.AlignVCenter)
+        size_label = QLabel("Size $")
+        size_label.setObjectName("gl")
+        self.size_field = QLineEdit(f"${defaults.size:,.0f}")
+        self.size_field.setObjectName("numberEdit")
+        self.size_field.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.size_field.setFixedWidth(64)
+        self.size_field.textChanged.connect(self._refresh)
+        # `size` is the name the rest of the app (and the tests) use for the
+        # field; it shadows QWidget.size(), which nothing here calls.
+        self.size = self.size_field  # type: ignore[method-assign,assignment]
+        bar.addWidget(size_label)
+        bar.addWidget(self.size_field)
+
+        times = QLabel("x")
+        times.setObjectName("gl")
+        self.leverage = QSpinBox()
+        self.leverage.setObjectName("leverageSpin")
+        self.leverage.setRange(1, MAX_LEVERAGE)
+        self.leverage.setValue(max(1, min(MAX_LEVERAGE, defaults.leverage)))
+        self.leverage.setFixedWidth(56)
+        self.leverage.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.leverage.valueChanged.connect(self._refresh)
+        bar.addWidget(times)
+        bar.addWidget(self.leverage)
+
+        # What the old form showed beside the slider; now a tooltip on the field.
+        self.leverage_value = QLabel(f"{self.leverage.value()}×", self.bar)
+        self.margin_label = QLabel("Margin —", self.bar)
+        self.liq_label = QLabel("Liq. —", self.bar)
+        for hidden in (self.leverage_value, self.margin_label, self.liq_label):
+            hidden.hide()
+        # Shown only where the form is laid out as a card (see `place_panel`).
+        self.info_label = QLabel("", self.bar)
+        self.info_label.setObjectName("gl")
+        self.info_label.setWordWrap(True)
+        self.info_label.hide()
+
+        bar.addStretch(1)
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("gl")
+        bar.addWidget(self.status_label)
+        # Which network these buttons talk to, when it is not the real one.
+        self.network_badge = testnet_badge(self)
+        bar.addWidget(self.network_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.mode_badge = QLabel("PAPER")
+        self.mode_badge.setObjectName("modeBadge")
+        bar.addWidget(self.mode_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.buy = QPushButton("Buy / Long")
+        self.buy.setObjectName("buyButton")
+        self.buy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.buy.clicked.connect(lambda: self._trade("LONG"))
+        self.sell = QPushButton("Sell / Short")
+        self.sell.setObjectName("sellButton")
+        self.sell.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sell.clicked.connect(lambda: self._trade("SHORT"))
+        bar.addWidget(self.buy)
+        bar.addWidget(self.sell)
+
+    # -- other arrangements ------------------------------------------------
+
+    def show_bar(self, on: bool) -> None:
+        """Show or hide the order bar, unless the form lives in a card instead."""
+        self.bar.setVisible(on and self.bar_enabled)
+
+    def place_positions(self, layout) -> None:
+        """Put the open-position strip in another card (the Hyperliquid screen)."""
+        self.positions_head.hide()
+        layout.addWidget(self.none_label)
+        layout.addWidget(self.position_row)
+        self.hide()   # what is left in the chart's card is empty
+
+    def place_panel(self, layout, head) -> None:
+        """Lay the form out as a card of its own instead of a bar: the same
+        fields and buttons, stacked."""
+        from PySide6.QtWidgets import QGridLayout
+
+        head.addWidget(self.network_badge)
+        head.addWidget(self.mode_badge)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
+        size_label = QLabel("Size (USD)")
+        size_label.setObjectName("gl")
+        leverage_label = QLabel("Leverage ×")
+        leverage_label.setObjectName("gl")
+        for widget in (self.size_field, self.leverage):
+            widget.setFixedWidth(16_777_215)
+            widget.setMinimumWidth(0)
+        grid.addWidget(size_label, 0, 0)
+        grid.addWidget(leverage_label, 0, 1)
+        grid.addWidget(self.size_field, 1, 0)
+        grid.addWidget(self.leverage, 1, 1)
+        layout.addLayout(grid)
+        self.info_label.show()
+        self.bar_enabled = False   # the bar's job is done here
+        layout.addWidget(self.info_label)
+        layout.addWidget(self.status_label)
+        sides = QHBoxLayout()
+        sides.setContentsMargins(0, 0, 0, 0)
+        sides.setSpacing(8)
+        sides.addWidget(self.buy, 1)
+        sides.addWidget(self.sell, 1)
+        layout.addLayout(sides)
+        self.bar.hide()
 
     # -- values ------------------------------------------------------------
 
@@ -357,9 +407,19 @@ class TradeForm(QWidget):
             self.liq_label.setText(f"Liq. {liq:,.0f}")
         else:
             self.liq_label.setText("Liq. —")
+        self.leverage.setToolTip(f"{self.margin_label.text()} · {self.liq_label.text()}")
+        self.info_label.setText(
+            f"{self.margin_label.text()} · {self.liq_label.text()} · Fee ~0.06%"
+        )
+        live = armed()
+        self.mode_badge.setText("LIVE" if live else "PAPER")
+        self.mode_badge.setProperty("live", "true" if live else "false")
+        self.mode_badge.style().unpolish(self.mode_badge)
+        self.mode_badge.style().polish(self.mode_badge)
 
         position = self._position
         self.position_row.setVisible(position is not None)
+        self.none_label.setVisible(position is None)
         if position is None:
             return
         self.position_label.setText(

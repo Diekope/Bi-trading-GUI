@@ -22,6 +22,7 @@ from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -80,7 +81,7 @@ QLabel#h1 {{ font-size: 18px; font-weight: 600; }}
 QLabel#h2 {{ font-size: 11px; font-weight: 600; letter-spacing: 2px; color: #e2e2e5; }}
 QLabel#caption {{ font-size: 11px; color: {MUTED}; }}
 QLabel#desc {{ font-size: 13px; color: {FAINT}; }}
-QLabel#stat {{ font-family: {MONO}; font-size: 15px; font-weight: 600; color: #ffffff; }}
+QLabel#stat {{ font-size: 18px; font-weight: 600; color: #ffffff; }}
 QLabel#mono {{ font-family: {MONO}; font-size: 12px; color: {SOFT}; }}
 QLabel#monoMuted {{ font-family: {MONO}; font-size: 11px; color: {MUTED}; }}
 QLabel#section {{ font-size: 10px; font-weight: 600; letter-spacing: 1px; color: {MUTED}; }}
@@ -88,6 +89,33 @@ QLabel#formula {{ font-family: {MONO}; font-size: 12px; color: {SOFT}; }}
 QLabel#big {{ font-family: {MONO}; font-size: 20px; font-weight: 600; }}
 QLabel#tileName {{ font-family: {MONO}; font-size: 11px; }}
 QLabel#tileValue {{ font-family: {MONO}; font-size: 18px; font-weight: 600; }}
+/* The strip above every screen: its name, and the venues' round trips. */
+QLabel#topTitle {{ font-size: 12px; font-weight: 600; color: {TEXT}; }}
+QFrame#venueSwitch {{
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+}}
+QFrame#venueSwitch:hover {{ background: {HOVER}; }}
+QFrame#venueSwitch[active="true"] {{ background: #231f10; border-color: #4a3f1a; }}
+QLabel#venueLogo {{ background: transparent; border: none; }}
+QLabel#venueCaption {{
+    background: transparent; font-size: 15px; font-weight: 700; color: {SOFT};
+}}
+QFrame#venueTag[venue="pm"] {{ border-color: #243a7a; }}
+QFrame#venueTag[venue="hl"] {{ border-color: #1f5a4c; }}
+QFrame#venueTag {{ background: {INNER}; border: 1px solid {BORDER}; border-radius: 4px; }}
+QFrame#topChip {{ background: transparent; border: 1px solid {BORDER}; border-radius: 6px; }}
+QLabel#chipValue {{ font-family: {MONO}; font-size: 11px; color: {TEXT}; }}
+QLabel#liveBadge {{
+    font-family: {MONO}; font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {DOWN};
+    background: #2a1414; border: 1px solid #5a2626; border-radius: 4px; padding: 1px 8px;
+}}
+QFrame#modeSwitch {{ background: transparent; border: 1px solid {BORDER}; border-radius: 6px; }}
+QLabel#modePaper, QLabel#modeLive {{
+    font-family: {MONO}; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    color: {MUTED}; padding: 4px 12px; border-radius: 5px;
+}}
+QLabel#modePaper[on="true"] {{ color: {AMBER_DOT}; background: #2a1d0c; }}
+QLabel#modeLive[on="true"] {{ color: {DOWN}; background: #2a1414; }}
 QLabel#railMs {{ font-family: {MONO}; font-size: 10px; color: {SOFT}; }}
 QLabel#railBalance {{ font-family: {MONO}; font-size: 9px; color: {MUTED}; }}
 
@@ -113,12 +141,25 @@ QPushButton#ghost {{
 }}
 QPushButton#ghost:hover {{ border-color: #4a3b1a; color: {TEXT}; }}
 
+QFrame#stile {{ background: {INNER}; border: 1px solid {BORDER}; border-radius: 8px; }}
+QFrame#stile:hover {{ border-color: #3a3b41; }}
+QFrame#stile[selected="true"] {{ background: #231f10; border-color: {ACCENT}; }}
+QFrame#stileNew {{ background: transparent; border: 1px dashed #4a3f1a; border-radius: 8px; }}
+QFrame#stileNew:hover {{ border-color: {ACCENT}; }}
+QWidget#liveBlock {{ background: transparent; }}
+QLabel#stileName {{ font-size: 13px; font-weight: 600; color: {TEXT}; }}
+QLabel#stileMeta {{ font-size: 11px; color: {MUTED}; }}
+QLabel#stileNewText {{ font-size: 12px; color: {ACCENT}; }}
 QFrame#stratRow {{ background: transparent; border-radius: 6px; }}
 QFrame#stratRow:hover {{ background: {HOVER}; }}
 /* Names are interface (Inter); only the return beside them is a number. */
 QLabel#stratName {{ font-size: 12px; color: {SOFT}; }}
 QLabel#stratPnl {{ font-family: {MONO}; font-size: 12px; }}
 """
+
+from bi_trading.ui.qss_hub import BAR_PART  # noqa: E402
+
+QSS = QSS + BAR_PART
 
 # Sidebar sections, in order. "home" is the hub itself.
 SECTIONS: tuple[tuple[str, str], ...] = (
@@ -128,9 +169,18 @@ SECTIONS: tuple[tuple[str, str], ...] = (
     ("backtest", "Backtest engine"),
 )
 
+# What the strip above a screen calls it.
+TITLES: dict[str, str] = {
+    "home": "Home",
+    "live": "Live",
+    "builder": "Strategy builder",
+    "backtest": "Backtest",
+    "logs": "Logs",
+    "settings": "Settings",
+}
+
 # A venue round trip slower than this (ms) is logged as a warning.
 LATENCY_LIMIT_MS = 250
-
 # The venues whose round trip the rail reports: (key, name, dot colour).
 VENUES: tuple[tuple[str, str, str], ...] = (
     ("pm", "Polymarket", PM_DOT),
@@ -138,11 +188,13 @@ VENUES: tuple[tuple[str, str, str], ...] = (
 )
 
 # Section icons live with the widgets they build; the rail re-uses them.
-from bi_trading.ui.venue_icons import has_logo, venue_mark  # noqa: E402
+from bi_trading.ui.venue_icons import has_logo, venue_mark, venue_pixmap  # noqa: E402
 from bi_trading.ui.hub.hub_widgets import (  # noqa: E402
     EquityCurve,
     ProgressBar,
-    StrategyRow,
+    NewTile,
+    StrategyTile,
+    VenueSwitch,
     _accent,
     _button,
     _dot,
@@ -199,6 +251,10 @@ class MainHubWindow(QMainWindow):
         if saved_geometry:
             self.restoreGeometry(QByteArray.fromBase64(saved_geometry.encode()))
 
+        from bi_trading.state import venue as venue_state
+
+        self._venue = venue_state.current()
+        self._venue_buttons: dict[str, QPushButton] = {}
         self._key = "home"
         self._nav_buttons: dict[str, list[QPushButton]] = {}
         self._view: QWidget | None = None
@@ -228,12 +284,24 @@ class MainHubWindow(QMainWindow):
         self.stack = QStackedWidget(root)
         self.stack.setObjectName("hubStack")
         self.stack.addWidget(self.home)
-        self.grid.addWidget(self.stack, 0, 1)
+        # The content column: a strip with the screen's name, then the screen.
+        content = QWidget(root)
+        content.setObjectName("hubStack")
+        column = QVBoxLayout(content)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+        column.addWidget(self._top_bar())
+        column.addWidget(self.stack, 1)
+        self.grid.addWidget(content, 0, 1)
         self.grid.setColumnStretch(0, 0)
         self.grid.setColumnStretch(1, 1)
         self.grid.setRowStretch(0, 1)
 
         self.setCentralWidget(root)
+        self._apply_venue()
+        for number, venue in enumerate(("pm", "hl", "both"), start=1):
+            shortcut = QShortcut(QKeySequence(f"Alt+{number}"), self)
+            shortcut.activated.connect(lambda v=venue: self._set_venue(v))
 
         # -- feeds: the rail's latencies and the Live card read from these --
         from bi_trading.data.feed import MarketFeed
@@ -244,6 +312,8 @@ class MainHubWindow(QMainWindow):
         self.feed.latency.connect(self._on_hl_latency)
         self.feed.connected.connect(self._on_hl_connected)
         self.feed.mids_updated.connect(self._on_mids)
+        self.feed.book_updated.connect(self._on_hl_book)
+        self.feed.track("BTC")
         self.polymarket_feed = PolymarketFeed(self)
         self.polymarket_feed.latency.connect(self._on_pm_latency)
         self.polymarket_feed.status.connect(self._on_pm_status)
@@ -292,8 +362,15 @@ class MainHubWindow(QMainWindow):
 
     def _open(self, key: str, strategy: str | None = None) -> None:
         """Swap the content area to `key`, rebuilding that view from scratch."""
+        from bi_trading.state import venue as venue_state
+
+        if key in ("builder", "backtest") and not venue_state.has_strategies(self._venue):
+            key = "home"   # strategy work is per venue; "both" has none
         self._key = key
         self._destroy_view()
+        self.screen_title.setText(TITLES.get(key, key.title()))
+        self._clear_extras()
+        self._sync_mode()
 
         if key == "home":
             self._refresh_strategies()
@@ -309,8 +386,172 @@ class MainHubWindow(QMainWindow):
                 self._view = view
                 self.stack.addWidget(view)
                 self.stack.setCurrentWidget(view)
+                if key == "live" and self._venue != "pm":
+                    self._live_toggles(view)
 
         self._highlight(key)
+
+    def _set_venue(self, venue: str) -> None:
+        """Switch the venue: remembered, and every screen follows."""
+        from bi_trading.state import venue as venue_state
+
+        if venue not in venue_state.VENUES or venue == self._venue:
+            return
+        self._venue = venue
+        venue_state.save(venue)
+        self._apply_venue()
+        self._open(self._key)
+
+    def _apply_venue(self) -> None:
+        """Everything that reads the venue: the switch, the tag, the rail entries."""
+        from bi_trading.state import venue as venue_state
+
+        for name, button in self._venue_buttons.items():
+            button.setProperty("active", "true" if name == self._venue else "false")
+            style = button.style()
+            style.unpolish(button)
+            style.polish(button)
+        layout = self.venue_tag.layout()
+        while layout.count():
+            widget = layout.takeAt(0).widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        shown = ("pm", "hl") if self._venue == "both" else (self._venue,)
+        for index, key in enumerate(shown):
+            if index:
+                layout.addWidget(_label("+", "caption"))
+            layout.addWidget(venue_mark(key, 16))
+        self.venue_tag.setToolTip(venue_state.NAMES[self._venue])
+        self.venue_tag.setProperty("venue", self._venue)
+        style = self.venue_tag.style()
+        style.unpolish(self.venue_tag)
+        style.polish(self.venue_tag)
+        strategies = venue_state.has_strategies(self._venue)
+        for key in ("builder", "backtest"):
+            for button in self._nav_buttons.get(key, []):
+                button.setVisible(strategies)
+        self._apply_home_venue()
+
+    def _apply_home_venue(self) -> None:
+        """Home shows what the venue has: its balance, its market, its Live block."""
+        venue = self._venue
+        frames = getattr(self, "_stat_frames", None)
+        if frames is None:
+            return
+        for title, shown in (
+            ("Next market", venue != "hl"),
+            ("Hyperliquid balance", venue != "pm"),
+            ("Polymarket balance", venue != "hl"),
+            ("Active strategy", venue != "both"),
+            ("Last backtest", venue != "both"),
+        ):
+            frames[title].setVisible(shown)
+        text = {
+            "pm": "Watch the Polymarket 5m market and the BTC chart, and place bets.",
+            "hl": "Watch the Hyperliquid market and the order book, and place trades.",
+            "both": "Watch both venues and place bets or trades.",
+        }[venue]
+        self._live_desc.setText(text)
+        self._live_pm.setVisible(venue != "hl")
+        self._live_hl.setVisible(venue != "pm")
+        for card in (self._builder_frame, self._backtest_frame):
+            card.setVisible(venue != "both")
+        self._create_button.setVisible(venue != "both")
+
+    def _top_bar(self) -> QWidget:
+        """The strip above every screen: its name and the venues it covers on the
+        left, the screen's own controls beside them (Live: the chart overlays),
+        and on the right the live account value and which mode orders go in."""
+        bar = QWidget()
+        bar.setObjectName("hubStack")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(10)
+        self.screen_title = _label(TITLES["home"], "topTitle")
+        row.addWidget(self.screen_title)
+        # The venues this screen covers, as their logos; filled by `_apply_venue`.
+        self.venue_tag = QFrame()
+        self.venue_tag.setObjectName("venueTag")
+        tag_row = QHBoxLayout(self.venue_tag)
+        tag_row.setContentsMargins(6, 3, 6, 3)
+        tag_row.setSpacing(6)
+        row.addWidget(self.venue_tag)
+        row.addStretch(1)
+        # A screen's own controls live here while it is open.
+        self.top_extras = QHBoxLayout()
+        self.top_extras.setContentsMargins(0, 0, 0, 0)
+        self.top_extras.setSpacing(14)
+        row.addLayout(self.top_extras)
+
+        chip = QFrame()
+        chip.setObjectName("topChip")
+        inside = QHBoxLayout(chip)
+        inside.setContentsMargins(8, 4, 10, 4)
+        inside.setSpacing(8)
+        inside.addWidget(_label("LIVE", "liveBadge"))
+        self.live_value = _label("—", "chipValue")
+        self.live_value.setToolTip("Hyperliquid account value (read only)")
+        inside.addWidget(self.live_value)
+        row.addWidget(chip)
+
+        switch = QFrame()
+        switch.setObjectName("modeSwitch")
+        modes = QHBoxLayout(switch)
+        modes.setContentsMargins(2, 2, 2, 2)
+        modes.setSpacing(2)
+        self.mode_paper = _label("PAPER", "modePaper")
+        self.mode_live = _label("LIVE", "modeLive")
+        for label in (self.mode_paper, self.mode_live):
+            modes.addWidget(label)
+        switch.setToolTip("Where orders go. Change it in Settings: Place real orders.")
+        row.addWidget(switch)
+        self._sync_mode()
+        # The account value is read off the rail, which the balance poll keeps.
+        self._chip_clock = QTimer(self)
+        self._chip_clock.setInterval(1000)
+        self._chip_clock.timeout.connect(self._sync_live_chip)
+        self._chip_clock.start()
+        return bar
+
+    def _sync_live_chip(self) -> None:
+        rail = self._rail_balances.get("hl")
+        if rail is not None and self.live_value.text() != rail.text():
+            self.live_value.setText(rail.text())
+
+    def _sync_mode(self) -> None:
+        """PAPER or LIVE, by whether real orders are switched on in Settings."""
+        from bi_trading.state.orders import armed
+
+        live = armed()
+        for label, on in ((self.mode_paper, not live), (self.mode_live, live)):
+            label.setProperty("on", "true" if on else "false")
+            style = label.style()
+            style.unpolish(label)
+            style.polish(label)
+
+    def _live_toggles(self, live) -> None:
+        """The chart overlays sit in the top bar on Live, as the design has them;
+        the card's own switches stay, hidden, and follow these."""
+        card = live.main_card
+        for caption, toggle in (
+            ("Volume", card.volume_toggle), ("Bollinger", card.bollinger_toggle),
+        ):
+            box = QCheckBox(caption)
+            box.setObjectName("overlayToggle")
+            box.setCursor(Qt.CursorShape.PointingHandCursor)
+            box.setChecked(toggle.isChecked())
+            box.toggled.connect(toggle.setChecked)
+            toggle.setVisible(False)
+            self.top_extras.addWidget(box)
+
+    def _clear_extras(self) -> None:
+        while self.top_extras.count():
+            item = self.top_extras.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
 
     def _destroy_view(self) -> None:
         if self._view is None:
@@ -331,6 +572,7 @@ class MainHubWindow(QMainWindow):
                 feed=self.feed,
                 polymarket_feed=self.polymarket_feed,
                 show_top_bar=False,
+                venue=self._venue,
             )
         if key == "builder":
             from bi_trading.ui.strat.strat_builder import StrategyBuilderWindow
@@ -388,6 +630,25 @@ class MainHubWindow(QMainWindow):
         brand.addStretch(1)
         column.addLayout(brand)
         column.addWidget(self._rail_rule(), 0, Qt.AlignmentFlag.AlignHCenter)
+        # Which venue every screen is about: Polymarket, Hyperliquid, or both.
+        for venue, caption, tip in (
+            ("pm", "PM", "Polymarket"),
+            ("hl", "HL", "Hyperliquid"),
+            ("both", "⇄", "Both venues"),
+        ):
+            # The venues are shown by their own marks, with their round trip under
+            # each, inside the box that lights when the venue is chosen.
+            mark = venue_pixmap(venue, 20) if venue != "both" else None
+            switch = VenueSwitch(venue, caption, mark)
+            switch.setProperty("active", "true" if venue == self._venue else "false")
+            switch.setToolTip(f"{tip} (Alt+{('pm', 'hl', 'both').index(venue) + 1})")
+            switch.clicked.connect(lambda v=venue: self._set_venue(v))
+            self._venue_buttons[venue] = switch
+            if switch.delay is not None:
+                switch.delay.setToolTip(f"Round trip to {tip}")
+                self._latency_labels[venue] = switch.delay
+            column.addWidget(switch, 0, Qt.AlignmentFlag.AlignHCenter)
+        column.addWidget(self._rail_rule(), 0, Qt.AlignmentFlag.AlignHCenter)
 
         for key, name in SECTIONS:
             column.addWidget(
@@ -400,10 +661,12 @@ class MainHubWindow(QMainWindow):
             )
         column.addWidget(self._rail_rule(), 0, Qt.AlignmentFlag.AlignHCenter)
 
-        for key, name, color in VENUES:
-            self._rail_latency(column, key, name, color)
+        # The balances are still read here, but no longer drawn on the rail.
+        for key, name, _color in VENUES:
+            balance = _label("—", "railBalance")
+            balance.setToolTip(f"{name} balance")
+            self._rail_balances[key] = balance
 
-        column.addWidget(self._rail_rule(), 0, Qt.AlignmentFlag.AlignHCenter)
         quit_button = self._rail_icon(
             "quit",
             "Quit bi-trading",
@@ -444,37 +707,23 @@ class MainHubWindow(QMainWindow):
             self._nav_buttons.setdefault(key, []).append(button)
         return button
 
-    def _rail_latency(
-        self, column: QVBoxLayout, key: str, name: str, color: str
-    ) -> None:
-        # A bare layout, not a QWidget: a wrapper would paint the app's canvas
-        # colour and show as a dark box behind the dot.
-        box = QVBoxLayout()
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(2)
-        tip = f"Round trip to {name}"
-        # The venue's own mark where there is one, its coloured dot otherwise.
-        dot = venue_mark(key, 18) if has_logo(key) else _dot(color, 8)
-        dot.setToolTip(tip)
-        box.addWidget(dot, 0, Qt.AlignmentFlag.AlignHCenter)
-        value = _label("—", "railMs")
-        value.setToolTip(tip)
-        box.addWidget(value, 0, Qt.AlignmentFlag.AlignHCenter)
-        self._latency_labels[key] = value
-        balance = _label("—", "railBalance")
-        balance.setToolTip(f"{name} balance")
-        box.addWidget(balance, 0, Qt.AlignmentFlag.AlignHCenter)
-        self._rail_balances[key] = balance
-        column.addLayout(box)
+    def _show_delay(self, key: str, milliseconds: float) -> None:
+        """The round trip under a venue's mark: green when quick, amber, then red."""
+        label = self._latency_labels.get(key)
+        if label is None:
+            return
+        label.setText(f"{milliseconds:.0f}ms")
+        colour = UP if milliseconds <= 120 else AMBER_DOT if milliseconds <= LATENCY_LIMIT_MS else DOWN
+        label.setStyleSheet(f"color: {colour};")
 
     def _on_hl_latency(self, milliseconds: float) -> None:
         self._last_hl = milliseconds
-        self._latency_labels["hl"].setText(f"{milliseconds:.0f}ms")
+        self._show_delay("hl", milliseconds)
         self._watch_latency("hyperliquid", "Hyperliquid", milliseconds)
 
     def _on_pm_latency(self, milliseconds: int) -> None:
         self._last_pm = int(milliseconds)
-        self._latency_labels["pm"].setText(f"{int(milliseconds)}ms")
+        self._show_delay("pm", float(milliseconds))
         self._watch_latency("polymarket", "Polymarket", float(milliseconds))
 
     def _watch_latency(self, source: str, name: str, milliseconds: float) -> None:
@@ -602,7 +851,7 @@ class MainHubWindow(QMainWindow):
         row.addLayout(titles)
         row.addStretch(1)
 
-        create = _button("Create a strategy", "btn")
+        create = self._create_button = _button("Create a strategy", "btn")
         create.clicked.connect(lambda: self._open("builder"))
         row.addWidget(create)
         return panel
@@ -622,8 +871,10 @@ class MainHubWindow(QMainWindow):
         )
         self._stat_values: dict[str, QLabel] = {}
         self._stat_subs: dict[str, QLabel] = {}
+        self._stat_frames: dict[str, QFrame] = {}
         for title, value, sub in cards:
             frame, value_label, sub_label = self._stat_card(title, value, sub)
+            self._stat_frames[title] = frame
             self._stat_values[title] = value_label
             self._stat_subs[title] = sub_label
             row.addWidget(frame, 1)
@@ -811,8 +1062,10 @@ class MainHubWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         row.addWidget(self._live_card(), 1)
-        row.addWidget(self._builder_card(), 1)
-        row.addWidget(self._backtest_card(), 1)
+        self._builder_frame = self._builder_card()
+        self._backtest_frame = self._backtest_card()
+        row.addWidget(self._builder_frame, 1)
+        row.addWidget(self._backtest_frame, 1)
         return row
 
     # -- part cards --------------------------------------------------------
@@ -844,18 +1097,21 @@ class MainHubWindow(QMainWindow):
         line.addWidget(_label(shown, "mono", rich=glyph is not None))
         return line
 
-    def _actions(self, target: str, primary: str, ghosts: tuple[str, ...]) -> QHBoxLayout:
+    def _actions(
+        self, target: str, primary: str, ghosts: tuple[str, ...], wide: bool = False
+    ) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         first = _button(primary, "btn")
         first.clicked.connect(lambda: self._open(target))
-        row.addWidget(first)
+        row.addWidget(first, 1 if wide else 0)
         for text in ghosts:
             button = _button(text, "ghost")
             button.clicked.connect(lambda: self._open(target))
             row.addWidget(button)
-        row.addStretch(1)
+        if not wide:
+            row.addStretch(1)
         return row
 
     def _live_card(self) -> QFrame:
@@ -864,7 +1120,21 @@ class MainHubWindow(QMainWindow):
             "Watch the Polymarket 5m market and the BTC chart, and place bets "
             "or trades.",
         )
+        self._live_desc = outer.itemAt(1).widget()
         body = _body_of(outer)
+        # Two blocks side by side; the venue shows one, or both.
+        holder = QHBoxLayout()
+        holder.setContentsMargins(0, 0, 0, 0)
+        holder.setSpacing(18)
+        body.addLayout(holder, 1)
+        self._live_hl = self._hl_block()
+        pm_block = QWidget()
+        pm_block.setObjectName("liveBlock")
+        self._live_pm = pm_block
+        body = QVBoxLayout(pm_block)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(10)
+        body.addWidget(_label("POLYMARKET · BTC 5M", "section"))
 
         tiles = QHBoxLayout()
         tiles.setContentsMargins(0, 0, 0, 0)
@@ -896,9 +1166,59 @@ class MainHubWindow(QMainWindow):
         btc_row.addWidget(self._btc_value)
         body.addLayout(btc_row)
         body.addStretch(1)
+        holder.addWidget(pm_block, 1)
+        holder.addWidget(self._live_hl, 1)
 
-        outer.addLayout(self._actions("live", "Open live", ()))
+        outer.addLayout(self._actions("live", "Open live", (), wide=True))
         return frame
+
+    def _hl_block(self) -> QWidget:
+        """The Hyperliquid half of the Live card: bid and ask, the spread, BTC."""
+        block = QWidget()
+        block.setObjectName("liveBlock")
+        body = QVBoxLayout(block)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(10)
+        body.addWidget(_label("HYPERLIQUID · BTC PERP", "section"))
+        tiles = QHBoxLayout()
+        tiles.setContentsMargins(0, 0, 0, 0)
+        tiles.setSpacing(8)
+        bid_tile, self._bid_value = self._outcome_tile("BID", "—", UP, UP_BRIGHT, True)
+        ask_tile, self._ask_value = self._outcome_tile("ASK", "—", DOWN, DOWN_SOFT, False)
+        tiles.addWidget(bid_tile, 1)
+        tiles.addWidget(ask_tile, 1)
+        body.addLayout(tiles)
+        spread = QHBoxLayout()
+        spread.setContentsMargins(0, 0, 0, 0)
+        spread.addWidget(_label("spread", "caption"))
+        spread.addStretch(1)
+        self._spread_value = _label("—", "mono")
+        spread.addWidget(self._spread_value)
+        body.addLayout(spread)
+        body.addWidget(_rule())
+        coin = QFrame()
+        coin.setObjectName("stile")
+        coin.setProperty("selected", "true")
+        row = QHBoxLayout(coin)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.addWidget(_label("BTC", "mono"))
+        row.addStretch(1)
+        self._hl_btc = _label("—", "mono")
+        row.addWidget(self._hl_btc)
+        body.addWidget(coin)
+        body.addStretch(1)
+        return block
+
+    def _on_hl_book(self, book) -> None:
+        """Keep the Home card's bid and ask current."""
+        if book.coin != "BTC" or not hasattr(self, "_bid_value"):
+            return
+        bid, ask = book.best_bid, book.best_ask
+        if bid is None or ask is None:
+            return
+        self._bid_value.setText(f"{bid.px:,.1f}")
+        self._ask_value.setText(f"{ask.px:,.1f}")
+        self._spread_value.setText(f"{ask.px - bid.px:,.1f}")
 
     def _builder_card(self) -> QFrame:
         frame, outer = self._part(
@@ -909,12 +1229,14 @@ class MainHubWindow(QMainWindow):
         body = _body_of(outer)
 
         body.addWidget(_label("STRATEGIES", "section"))
-        self._strategy_box = QVBoxLayout()
+        self._strategy_box = QGridLayout()
         self._strategy_box.setContentsMargins(0, 0, 0, 0)
-        self._strategy_box.setSpacing(2)
+        self._strategy_box.setHorizontalSpacing(8)
+        self._strategy_box.setVerticalSpacing(8)
         body.addLayout(self._strategy_box)
         body.addWidget(_rule())
-        body.addWidget(_label("ENTRY FORMULA", "section"))
+        self._formula_head = _label("ENTRY FORMULA", "section")
+        body.addWidget(self._formula_head)
 
         self._formula_well = QFrame()
         self._formula_well.setObjectName("well")
@@ -955,22 +1277,39 @@ class MainHubWindow(QMainWindow):
         from bi_trading.state import strategies
 
         saved = list(reversed(strategies.load()))  # most recent first
-        if not saved:
-            box.addWidget(_label("no saved strategies yet", "monoMuted"))
-            self._formula_label.setText("write a rule to see it here")
-            return
-
-        for strategy in saved[:4]:
+        shown = saved[:4]
+        for index, strategy in enumerate(shown):
             badge, tone = _pnl_badge(
                 strategy.entry, strategy.exit, strategy.timeframe,
                 strategy.side, strategy.short_entry,
             )
-            row = StrategyRow(strategy.name, badge, tone)
-            row.clicked.connect(self._open_saved)
-            box.addWidget(row)
-
+            meta = f"{strategy.timeframe} · {strategy.side}" + (
+                " · selected" if index == 0 else ""
+            )
+            tile = StrategyTile(strategy.name, meta, badge, tone, selected=index == 0)
+            tile.clicked.connect(self._open_saved)
+            # A lone last tile takes the whole line, as the design has it.
+            lone = index == len(shown) - 1 and len(shown) % 2 == 1
+            line, column = divmod(index, 2)
+            if lone:
+                box.addWidget(tile, line, 0, 1, 2)
+            else:
+                box.addWidget(tile, line, column)
+        new = NewTile("+ New strategy")
+        new.clicked.connect(lambda: self._open("builder"))
+        box.addWidget(new, (len(shown) + 1) // 2, 0, 1, 2)
+        box.setColumnStretch(0, 1)
+        box.setColumnStretch(1, 1)
         if len(saved) > 4:
-            box.addWidget(_label(f"+{len(saved) - 4} more", "monoMuted"))
+            box.addWidget(
+                _label(f"+{len(saved) - 4} more", "monoMuted"),
+                (len(shown) + 1) // 2 + 1, 0, 1, 2,
+            )
+        if not saved:
+            self._formula_head.setText("ENTRY FORMULA")
+            self._formula_label.setText("write a rule to see it here")
+            return
+        self._formula_head.setText(f"ENTRY FORMULA · {saved[0].name}")
         self._formula_label.setText(saved[0].entry.replace("\n", " ") or "—")
 
     def _open_saved(self, name: str) -> None:

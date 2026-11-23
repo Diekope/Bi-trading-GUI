@@ -205,6 +205,7 @@ class RulesTile(Card):
         scroll = QScrollArea(page)
         scroll.setObjectName("pageScroll")
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
@@ -222,7 +223,9 @@ class RulesTile(Card):
             functions=self.functions, condition_label=self.condition_label,
         )
         self.formula.changed.connect(self._formula_changed)
-        return self._scroll_page(self.formula)
+        # No scroll around the whole builder: its panels scroll their own lists.
+        layout.addWidget(self.formula, 1)
+        return page
 
     def _code_page(self) -> QWidget:
         """The code on the left, its vocabulary and its values on the right."""
@@ -355,6 +358,7 @@ class RulesTile(Card):
         scroll = QScrollArea(card)
         scroll.setObjectName("listScroll")
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         if not bar:
             scroll.setVerticalScrollBarPolicy(

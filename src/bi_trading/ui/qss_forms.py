@@ -8,10 +8,10 @@ from bi_trading.ui.theme_colors import (
 
 PART = f"""/* -- inputs ---------------------------------------------------------- */
 QLineEdit {{
-    background-color: {PANEL_ALT};
+    background-color: #141519;
     border: 1px solid {BORDER};
-    border-radius: 4px;
-    padding: 3px 7px;
+    border-radius: 6px;
+    padding: 4px 8px;
     color: {TEXT};
     selection-background-color: {ACCENT};
     selection-color: {CANVAS};
@@ -26,10 +26,10 @@ QLineEdit:disabled {{
 }}
 
 QComboBox {{
-    background-color: {PANEL_ALT};
+    background-color: #141519;
     border: 1px solid {BORDER};
-    border-radius: 4px;
-    padding: 2px 6px;
+    border-radius: 6px;
+    padding: 3px 8px;
     color: {TEXT};
     min-width: 54px;
 }}
@@ -53,9 +53,9 @@ QComboBox QAbstractItemView {{
 QPushButton#actionButton {{
     background-color: {PANEL_ALT};
     border: 1px solid {BORDER};
-    border-radius: 4px;
+    border-radius: 6px;
     color: {TEXT};
-    padding: 3px 16px;
+    padding: 7px 16px;
 }}
 QPushButton#actionButton:hover {{
     border-color: {ACCENT};
@@ -75,9 +75,9 @@ QPushButton#actionButton[attention="true"] {{
 QPushButton#startButton {{
     background-color: {ACCENT_BG};
     border: 1px solid {ACCENT_DIM};
-    border-radius: 4px;
+    border-radius: 6px;
     color: {ACCENT};
-    padding: 3px 16px;
+    padding: 7px 16px;
 }}
 QPushButton#startButton:hover {{
     border-color: {ACCENT};

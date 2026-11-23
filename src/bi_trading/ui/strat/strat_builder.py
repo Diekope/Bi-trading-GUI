@@ -47,6 +47,7 @@ from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
 from bi_trading.ui.strat.formula_builder import EXIT_PALETTES
 from bi_trading.logs import install_qt_handler, setup
 from bi_trading.ui.panels import Card
+from bi_trading.ui.venue_icons import venue_mark
 from bi_trading.state import strategies
 from bi_trading.state.strategies import SavedStrategy
 from bi_trading.ui.strat.strat_report import ReportTile
@@ -197,7 +198,18 @@ class StrategyBuilderWindow(QMainWindow):
         self.right_column.setChildrenCollapsible(False)
         self.right_column.setHandleWidth(CARD_GAP)
 
-        self.entry_tile = RulesTile("ENTRY RULES", header=False)
+        # The wording follows the venue: a Polymarket strategy bets and cashes out,
+        # a Hyperliquid one buys and sells.
+        from bi_trading.state import venue as venue_state
+
+        self.venue = venue_state.current()
+        entry_word, exit_word = (
+            ("BET UP WHEN", "CASH OUT WHEN") if self.venue == venue_state.PM
+            else ("BUY WHEN", "SELL WHEN")
+        )
+        self.entry_tile = RulesTile(
+            "ENTRY RULES", header=False, condition_label=entry_word
+        )
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
         self.exit_tile = RulesTile(
@@ -207,12 +219,14 @@ class StrategyBuilderWindow(QMainWindow):
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
             header=False,
-            condition_label="EXIT WHEN",
+            condition_label=exit_word,
         )
         # The two rules are one tile now: their titles switch between them,
         # and the Rules / Formula / Code pills belong to the side on top.
         # A strategy that goes both ways has a second entry rule for its shorts.
-        self.short_tile = RulesTile("SHORT ENTRY RULES", header=False)
+        self.short_tile = RulesTile(
+            "SHORT ENTRY RULES", header=False, condition_label=entry_word
+        )
         self.rules = RulesSwitcher(
             self.entry_tile, self.exit_tile, self.right_column,
             short_entry=self.short_tile,
@@ -254,6 +268,14 @@ class StrategyBuilderWindow(QMainWindow):
         row.addWidget(self.name_edit, 1)
         row.addWidget(self.timeframe)
         self.strategy_tile.body.addLayout(row)
+        # Which venue this strategy is for, as the design marks it.
+        venue_tag = venue_mark("pm" if self.venue == venue_state.PM else "hl", 18)
+        venue_tag.setObjectName("venueLogo")
+        venue_row = QHBoxLayout()
+        venue_row.setContentsMargins(0, 0, 0, 0)
+        venue_row.addWidget(venue_tag)
+        venue_row.addStretch(1)
+        self.strategy_tile.body.addLayout(venue_row)
 
         # The side gets its own row: the rail is too narrow for three fields.
         self.side.setSizePolicy(

@@ -11,15 +11,18 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
 from bi_trading.ui.cards import mono_font
 from bi_trading.ui.panels import Card
+from bi_trading.ui.venue_icons import venue_mark
 from bi_trading.ui.theme import DOWN_SOFT, TEXT_MUTED, UP
 
 STRATEGIES = ("Bollinger reversion", "Random buy")
@@ -36,7 +39,7 @@ class StrategyBar(Card):
         self.setObjectName("strategyBar", )
         self.setProperty("bar", True)
 
-        row = QHBoxLayout()
+        row = self._row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(14)
 
@@ -70,14 +73,40 @@ class StrategyBar(Card):
         self.auto.setObjectName("overlayToggle")
         self.auto.setCursor(Qt.CursorShape.PointingHandCursor)
         row.addWidget(self.auto)
+        # On the Hyperliquid screen the bar carries its own mode badge.
+        self.row_badge = QLabel("PAPER")
+        self.row_badge.setObjectName("modeBadge")
+        self.row_badge.hide()
+        row.addWidget(self.row_badge)
+
+        # The bet controls live in their own bar, which the terminal puts under
+        # the Polymarket card; this bar keeps the strategy and its reading.
+        self.bet_bar = QFrame()
+        self.bet_bar.setObjectName("betBar")
+        self.bet_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # A narrow column squeezes the bar instead of forcing the column wider.
+        self.bet_bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        bets = QHBoxLayout(self.bet_bar)
+        bets.setContentsMargins(10, 8, 12, 8)
+        bets.setSpacing(8)
+        tag = venue_mark("pm", 18)
+        tag.setObjectName("venueLogo")
+        bets.addWidget(tag, 0, Qt.AlignmentFlag.AlignVCenter)
+        stake = QLabel("Stake")
+        stake.setObjectName("gl")
+        bets.addWidget(stake)
 
         self.size_field = QLineEdit("$20")
         self.size_field.setObjectName("numberEdit")
         self.size_field.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.size_field.setFixedWidth(80)
-        row.addWidget(self.size_field)
+        self.size_field.setFixedWidth(64)
+        bets.addWidget(self.size_field)
         # The name the rest of the app uses; it shadows QWidget.size().
         self.size = self.size_field  # type: ignore[method-assign,assignment]
+        bets.addStretch(1)
+        self.mode_badge = QLabel("PAPER")
+        self.mode_badge.setObjectName("modeBadge")
+        bets.addWidget(self.mode_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.bet_up = QPushButton("Bet UP —")
         self.bet_up.setObjectName("betUp")
@@ -87,14 +116,15 @@ class StrategyBar(Card):
         self.bet_down.setObjectName("betDown")
         self.bet_down.setCursor(Qt.CursorShape.PointingHandCursor)
         self.bet_down.clicked.connect(lambda: self.bet.emit("down"))
-        row.addWidget(self.bet_up)
-        row.addWidget(self.bet_down)
+        bets.addWidget(self.bet_up)
+        bets.addWidget(self.bet_down)
 
         # Selling takes whatever is held of a side at the best bids, at once.
         self.sell_up = self._sell_button("up")
         self.sell_down = self._sell_button("down")
-        row.addWidget(self.sell_up)
-        row.addWidget(self.sell_down)
+        bets.addWidget(self.sell_up)
+        bets.addWidget(self.sell_down)
+        self.refresh_mode()
 
         self.body.addLayout(row)
 
@@ -102,6 +132,37 @@ class StrategyBar(Card):
         self.status.setObjectName("gl")
         self.status.setWordWrap(True)
         self.body.addWidget(self.status)
+
+    def set_venue(self, venue: str) -> None:
+        """Fit the bar to the screen it sits on.
+
+        `both`: the bets are in their own bar under the Polymarket card. `pm`:
+        they join this bar. `hl`: there are no bets, the box reads Auto-trade, and
+        the mode badge sits at the end.
+        """
+        if venue == "pm":
+            self.bet_bar.setProperty("inline", "true")
+            self.bet_bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            self._row.addWidget(self.bet_bar)
+            self.bet_bar.show()
+        elif venue == "hl":
+            self.bet_bar.hide()
+            self.auto.setText("Auto-trade")
+            self.row_badge.show()
+        self.refresh_mode()
+
+    def refresh_mode(self) -> None:
+        """PAPER or LIVE on the bet bar, by whether real orders are switched on."""
+        from bi_trading.state.orders import armed
+
+        live = armed()
+        self.mode_badge.setText("LIVE" if live else "PAPER")
+        self.mode_badge.setProperty("live", "true" if live else "false")
+        for badge in (self.mode_badge, self.row_badge):
+            badge.setText("LIVE" if live else "PAPER")
+            badge.setProperty("live", "true" if live else "false")
+            badge.style().unpolish(badge)
+            badge.style().polish(badge)
 
     def _sell_button(self, side: str) -> QPushButton:
         button = QPushButton(f"Sell {side.upper()}")

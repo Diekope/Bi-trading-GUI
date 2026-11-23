@@ -615,7 +615,8 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
     defaults = Settings.load().backtest
     tile = window.params
 
-    assert tile.findChild(QLabel, "tileTitle").text() == "BACKTEST VALUE"
+    # A Polymarket run bets, a Hyperliquid one holds a position.
+    assert tile.findChild(QLabel, "tileTitle").text() == "BET VALUE"
     assert tile.params() == {
         "initial_capital": defaults.initial_capital,
         "sizing": defaults.sizing,

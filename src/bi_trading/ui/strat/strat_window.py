@@ -133,7 +133,7 @@ class StratWindow(QMainWindow):
         self.outer.addWidget(self.results)
         self.outer.setStretchFactor(0, 1)
         self.outer.setStretchFactor(1, 1)
-        self.outer.setSizes([560, 400])
+        self.outer.setSizes([640, 340])
 
         from bi_trading.ui.layout_memory import remember_splitter
 

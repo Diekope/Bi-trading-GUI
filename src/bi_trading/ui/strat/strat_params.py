@@ -96,7 +96,12 @@ class ParamsTile(Card):
         super().__init__(parent)
         defaults = Settings.load().backtest
 
-        title = QLabel("BACKTEST VALUE")
+        from bi_trading.state import venue as venue_state
+
+        # A Polymarket run bets; a Hyperliquid run holds a position.
+        title = QLabel(
+            "BET VALUE" if venue_state.current() == venue_state.PM else "BACKTEST VALUE"
+        )
         title.setObjectName("tileTitle")
         # The venue's costs are a preset for two of the fields below, so the
         # pick sits beside the title instead of taking a grid row of its own.

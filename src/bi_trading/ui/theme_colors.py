@@ -13,7 +13,7 @@ PANEL = "#17181b"       # floating cards, a shade lighter than the canvas
 PANEL_ALT = "#1e1f23"   # hover / striping inside a card, lighter still
 BORDER = "#25262a"      # card edges, splitter hairline
 
-CARD_RADIUS = 6
+CARD_RADIUS = 8
 CARD_GAP = 8
 
 TEXT = "#e4e4e6"
