@@ -56,6 +56,20 @@
     </ul>
   </section>
   <section>
+    <h2>Backtest</h2>
+    <ul>
+    <li data-p="high" data-id="-polymarket-payoff-simulator-the-backtest-is"><input type="checkbox"><span><b>Polymarket payoff simulator.</b> The backtest is spot-style: a share that pays $1 or nothing, and the edge over the ask, cannot be tested. It needs historical Polymarket prices, which the app does not store: start by recording the live ones to disk (audit item 3).</span><span class="tag high">High</span></li>
+    <li data-p="med" data-id="-venue-candles-over-time-hyperliquid-serves-"><input type="checkbox"><span><b>Venue candles over time.</b> Hyperliquid serves only its latest ~5,000 candles. Store its own as they arrive so a backtest can run on them; <code>python -m bi_trading.data.basis</code> reports the gap to the Binance history meanwhile (audit item 7).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-significance-tests-a-bootstrap-or-permutati"><input type="checkbox"><span><b>Significance tests.</b> A bootstrap or permutation test, and a take profit x stop loss sweep over the whole span instead of the last 2,000 bars (audit item 8).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-execution-realism-minimum-lot-tick-roundin"><input type="checkbox"><span><b>Execution realism.</b> Minimum lot, tick rounding and market impact. Give the ML builder&#x27;s own simulator the data-gap rule, the volume cap and the trailing stop too (audit item 12).</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-count-threshold-moves-the-ml-test-part-is-r"><input type="checkbox"><span><b>Count threshold moves.</b> The ML test part is re-traded as thresholds move, and those moves are not counted against the hold-out&#x27;s p-value (audit item 5).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-maker-fee-and-queue-a-take-profit-pays-the-"><input type="checkbox"><span><b>Maker fee and queue.</b> A take profit pays the one flat fee and fills with no queue position (audit item 4).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-baseline-on-streamed-spans-a-span-read-a-ye"><input type="checkbox"><span><b>Baseline on streamed spans.</b> A span read a year at a time has no signal rate to copy and no random band (audit item 6).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-remove-the-old-random-entry-code-random-en"><input type="checkbox"><span><b>Remove the old random-entry code.</b> <code>random_entries*</code> in Rust and Python is unused; remove it when the shared native module can be rebuilt without breaking another branch (audit item 13).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-polymarket-fees-on-settled-bets-a-settled-b"><input type="checkbox"><span><b>Polymarket fees on settled bets.</b> A settled bet pays $1 a share or loses its stake; any fee the market charges is not taken off, for manual and automatic bets alike.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
     <h2>ML</h2>
     <ul>
     <li data-p="med" data-id="-auto-sell-for-ml-bets-a-model-bet-holds-to-"><input type="checkbox"><span><b>Auto-sell for ML bets.</b> A model bet holds to settlement; let a model flip, or a call that turns back inside its thresholds, sell early through the fast path.</span><span class="tag med">Medium</span></li>
