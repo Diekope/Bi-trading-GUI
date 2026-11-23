@@ -45,6 +45,21 @@
     <button data-f="open" aria-pressed="false">Open only</button>
   </div>
   <section>
+    <h2>Design</h2>
+    <ul>
+    <li data-p="med" data-id="-merge-dev-and-ml-the-design-and-the-ven"><input type="checkbox"><span><b>Merge <code>dev</code> and <code>ml</code>.</b> The design and the venue switch are on <code>dev</code>; the ML screens, the backtest fixes and the manual-bet settlement are on <code>ml</code>. Merge them, then restyle the ML screens and the Model builder from the screenshots (<code>web/docs/screens/15</code>, <code>16</code> and <code>20</code> on <code>planning</code>).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-portfolio-screen-and-the-paper-chip-the-des"><input type="checkbox"><span><b>Portfolio screen and the PAPER chip.</b> The design has a Portfolio screen (the live and paper books, day PnL with a percent) and a PAPER equity chip in the top bar. There is no paper account here, only one paper position.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-polymarket-backtest-the-design-s-bet-value"><input type="checkbox"><span><b>Polymarket backtest.</b> The design&#x27;s &quot;Bet value&quot; card (max entry price, min edge, fee on wins, slippage in cents, exit mode, daily loss limit, max bets per day) and its Brier and resolved win and loss figures need a binary-payoff simulator, which needs historical Polymarket prices. Only the card&#x27;s title follows the venue today.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-per-venue-variables-in-the-builder-polymark"><input type="checkbox"><span><b>Per-venue variables in the Builder.</b> Polymarket should offer price, model_p, edge, spread, liquidity, days_left, btc and target; Hyperliquid open, high, low, close, volume, funding, oi and model_p. It is one mixed list now; only the wording follows the venue.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-model-and-edge-on-the-polymarket-live-screen-"><input type="checkbox"><span><b>Model and edge on the Polymarket Live screen.</b> Model P(up) and Edge show a dash until there is a model on this branch.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-hyperliquid-screen-details-the-design-has-c"><input type="checkbox"><span><b>Hyperliquid screen details.</b> The design has coin pills (HYPE, ETH, SOL) and TP % and SL % fields; the terminal is BTC only and an order has no take profit or stop yet.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-backtest-column-without-scrolling-the-right"><input type="checkbox"><span><b>Backtest column without scrolling.</b> The right column (History, values, Strategy, Save and Load run) still scrolls as one block; fit it, or let only its lists scroll.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-paper-live-switch-it-shows-whether-real-o"><input type="checkbox"><span><b>PAPER / LIVE switch.</b> It shows whether real orders are armed but cannot change it: arming stays in Settings. Decide whether a switch in the top bar is safe.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-strategy-tiles-with-a-result-home-s-tiles-s"><input type="checkbox"><span><b>Strategy tiles with a result.</b> Home&#x27;s tiles show a return only when there is candle history on disk to score the rule with.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-number-fields-the-design-right-aligns-numbe"><input type="checkbox"><span><b>Number fields.</b> The design right-aligns numbers in Settings; they are left-aligned.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
     <h2>Logs</h2>
     <ul>
     <li data-p="low" data-id="-polymarket-holdings-from-the-venue-sell-wor"><input type="checkbox"><span><b>Polymarket holdings from the venue.</b> Sell works on the shares this session bought (counted from the fills); read the wallet&#x27;s positions so a restart, or a bet placed elsewhere, can be sold from here too.</span><span class="tag low">Low</span></li>
