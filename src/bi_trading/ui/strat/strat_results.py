@@ -175,7 +175,7 @@ class LiveCurve(QWidget):
         painter.drawText(
             QRectF(left, bottom + 1, 200, 13),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            f"{session.index:,} / {session.total:,} bars",
+            f"{session.index:,} / {session.total:,} {getattr(session, 'unit', 'bars')}",
         )
         if hold and hold[-1] > high:
             painter.setPen(QColor(TEXT_MUTED))

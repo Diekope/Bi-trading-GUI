@@ -76,7 +76,8 @@ class BinaryResult:
     real_windows: int = 0            # of which at least one real price was used
     final_equity: float = 0.0
     max_drawdown: float = 0.0        # as a fraction of the running peak
-    equity: list[float] = field(default_factory=list)
+    equity: list[float] = field(default_factory=list)          # after each bet
+    window_equity: list[float] = field(default_factory=list)   # after each market
 
     @property
     def pnl(self) -> float:
@@ -213,6 +214,7 @@ def run_binary(
     equity = params.capital
     peak = equity
     result.equity.append(equity)
+    result.window_equity.append(equity)
     for start, first in frame.window_rows:
         row = rows.get(start)
         if row is not None and row.prices:
@@ -223,6 +225,7 @@ def run_binary(
             None,
         )
         if decision is None:
+            result.window_equity.append(equity)
             continue
         i = first + decision
         side = signals[i]
@@ -230,6 +233,7 @@ def run_binary(
         entry_price = min(0.99, float(quote) + params.half_spread)
         stake = equity * params.stake_pct / 100.0
         if stake <= 0 or entry_price <= 0:
+            result.window_equity.append(equity)
             continue
         shares = stake / entry_price
         fee_in = stake * params.fee_pct / 100.0
@@ -257,6 +261,7 @@ def run_binary(
         if peak > 0:
             result.max_drawdown = max(result.max_drawdown, (peak - equity) / peak)
         result.equity.append(equity)
+        result.window_equity.append(equity)
         result.trades.append(
             BinaryTrade(
                 start, side, decision + 1, entry_price, exit_minute, exit_price,

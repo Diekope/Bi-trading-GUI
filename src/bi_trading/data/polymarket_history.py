@@ -234,8 +234,13 @@ def coverage() -> tuple[int, int, int]:
 
 
 async def _get(client: httpx.AsyncClient, url: str, params: Any) -> Any:
-    for _ in range(MAX_RETRIES):
-        response = await client.get(url, params=params)
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = await client.get(url, params=params)
+        except (httpx.TimeoutException, httpx.TransportError):
+            # a slow answer or a dropped connection: wait, then ask again
+            await asyncio.sleep(min(2.0 * (attempt + 1), 15.0))
+            continue
         if response.status_code in (429, 503):
             wait = float(response.headers.get("Retry-After", "3"))
             await asyncio.sleep(min(wait, 30.0))
@@ -244,7 +249,7 @@ async def _get(client: httpx.AsyncClient, url: str, params: Any) -> Any:
             return None
         response.raise_for_status()
         return response.json()
-    raise RuntimeError("polymarket kept rate limiting")
+    raise RuntimeError("polymarket did not answer (rate limited or timing out)")
 
 
 async def fetch_windows(client: httpx.AsyncClient, starts: Sequence[int]) -> list[WindowRow]:

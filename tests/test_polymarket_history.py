@@ -72,3 +72,22 @@ def test_store_round_trips_and_a_refetch_replaces(tmp_path, monkeypatch) -> None
     assert ph.coverage()[:2] == (1, 1)
     assert ph.PolymarketHistoryDownloader.missing(START, START + 900_000) == [
         START + 600_000, START + 900_000]
+
+
+def test_a_timeout_is_retried_not_fatal(monkeypatch) -> None:
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(ph.asyncio, "sleep", lambda _s: real_sleep(0))
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, json={"history": []})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await ph._get(client, ph.CLOB, {})
+
+    assert asyncio.run(go()) == {"history": []}
+    assert calls["n"] == 3

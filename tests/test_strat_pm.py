@@ -58,9 +58,11 @@ def test_a_strategy_runs_and_the_result_is_shown(window, app) -> None:
     window._worker.wait(10_000)
     for _ in range(5):
         app.processEvents()
-    text = window.figures.text()
-    assert "bets" in text and "Always UP" in text and "Always DOWN" in text
+    assert window.stat["Bets"].text() not in ("—", "0")
+    assert "finished" in window.note.text()
     assert window.table.rowCount() > 0
+    assert window.curve.session is not None and window.curve.session.unit == "markets"
+    assert window.chart._trade is not None
     assert window.run_button.isEnabled()
 
 
