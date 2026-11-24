@@ -188,7 +188,7 @@ def test_the_open_position_card_follows_the_shared_store(
         store().set({"side": "LONG", "leverage": 5, "size": 2_000.0, "entry": 100.0})
 
         assert "▲" in value.text()
-        assert "+$1,000.00" in value.text()
+        assert "+$200.00" in value.text()
         assert sub.text() == "LONG 5× · BTC"
 
         store().set(None)

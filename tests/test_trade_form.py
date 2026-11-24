@@ -53,9 +53,10 @@ def test_a_position_follows_the_price(app: QApplication) -> None:
     assert form.position()["side"] == "LONG"
     assert form.position_row.isVisible() is False or True  # shown when parented
 
-    form.set_price(110.0)  # +10% on a 5× long
+    form.set_price(110.0)  # +10% on a $2,000 position; leverage only sets the margin
     change = form._change(form.position())
-    assert change == pytest.approx(1_000.0)  # 10% * 2000 * 5
+    assert change == pytest.approx(200.0)
+    assert form.margin() == pytest.approx(400.0)
 
     form.close_position()
     assert form.position() is None
@@ -247,3 +248,11 @@ def test_the_settings_card_badges_the_test_network_as_it_is_picked(app: QApplica
     view._hl_network.combo.setCurrentText("Mainnet")
     assert view._hl_badge.isVisible() is False
     view.close()
+
+
+def test_liquidation_is_per_side() -> None:
+    from bi_trading.state.positions import liquidation
+
+    assert liquidation("LONG", 100.0, 5) == pytest.approx(80.0)
+    assert liquidation("SHORT", 100.0, 5) == pytest.approx(120.0)
+    assert liquidation("LONG", 100.0, 1) == pytest.approx(0.0)

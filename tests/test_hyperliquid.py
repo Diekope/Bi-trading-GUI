@@ -32,6 +32,11 @@ class FakeExchange:
         self.answer = answer
         self.sent: list[dict] = []
         self.prices: list[tuple] = []
+        self.leverage: list[tuple] = []
+
+    def update_leverage(self, leverage, name, is_cross=True):
+        self.leverage.append((leverage, name, is_cross))
+        return {"status": "ok"}
 
     def order(self, name, is_buy, sz, limit_px, order_type, reduce_only=False):
         self.sent.append(dict(name=name, is_buy=is_buy, sz=sz, limit_px=limit_px,
@@ -239,3 +244,21 @@ def test_testnet_orders_are_marked_in_the_log(monkeypatch, log) -> None:
     first, second = log.events()
     assert first.message.endswith("· testnet") and "network: testnet" in " ".join(first.detail["request"])
     assert "testnet" not in second.message
+
+
+def test_leverage_is_set_isolated_before_an_opening_order() -> None:
+    import asyncio
+
+    venue = _venue()
+    asyncio.run(venue.submit(_order(leverage=7)))
+    assert venue._exchange.leverage == [(7, "BTC", False)]
+    assert len(venue._exchange.sent) == 1
+
+
+def test_no_leverage_call_without_leverage_or_on_a_reduce_only_order() -> None:
+    import asyncio
+
+    venue = _venue()
+    asyncio.run(venue.submit(_order()))
+    asyncio.run(venue.submit(_order(leverage=7, reduce_only=True)))
+    assert venue._exchange.leverage == []

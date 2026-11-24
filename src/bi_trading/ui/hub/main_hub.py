@@ -383,6 +383,13 @@ class MainHubWindow(QMainWindow):
                 key = "home"
             else:
                 view.setMinimumSize(320, 240)
+                if key in ("live", "builder", "backtest"):
+                    # These views keep their own 8px canvas margin; next to the
+                    # hub's it doubled the space left of the content.
+                    inner = view.centralWidget().layout() if hasattr(view, "centralWidget") else None
+                    if inner is not None:
+                        m = inner.contentsMargins()
+                        inner.setContentsMargins(0, m.top(), m.right(), m.bottom())
                 self._view = view
                 self.stack.addWidget(view)
                 self.stack.setCurrentWidget(view)

@@ -341,6 +341,7 @@ class TradeForm(QWidget):
             price=limit,
             size=round(usd / price, 5),
             market=True,       # fill-or-cancel at that price: it fills now or says why not
+            leverage=self.leverage.value(),
         )
         self._pending = side
         self._status("sending…")
@@ -403,8 +404,11 @@ class TradeForm(QWidget):
         self.leverage_value.setText(f"{leverage}×")
         self.margin_label.setText(f"Margin ${self.margin():,.0f}")
         if self.price and self.price > 0:
-            liq = self.price * (1.0 - 1.0 / leverage)
-            self.liq_label.setText(f"Liq. {liq:,.0f}")
+            from bi_trading.state.positions import liquidation
+
+            long_liq = liquidation("LONG", self.price, leverage)
+            short_liq = liquidation("SHORT", self.price, leverage)
+            self.liq_label.setText(f"Liq. L {long_liq:,.0f} · S {short_liq:,.0f}")
         else:
             self.liq_label.setText("Liq. —")
         self.leverage.setToolTip(f"{self.margin_label.text()} · {self.liq_label.text()}")
@@ -441,13 +445,9 @@ class TradeForm(QWidget):
         entry = position["entry"]
         if not entry or not self.price:
             return None
-        direction = 1.0 if position["side"] == "LONG" else -1.0
-        return (
-            (self.price / entry - 1.0)
-            * position["size"]
-            * position["leverage"]
-            * direction
-        )
+        from bi_trading.state.positions import change
+
+        return change(position, self.price)
 
 
 __all__ = ["BASE_USD", "MAX_LEVERAGE", "TradeForm"]

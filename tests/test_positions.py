@@ -34,10 +34,10 @@ def test_change_follows_the_side_and_the_leverage() -> None:
     long = {"side": "LONG", "leverage": 5, "size": 2_000.0, "entry": 100.0}
     short = {"side": "SHORT", "leverage": 5, "size": 2_000.0, "entry": 100.0}
 
-    # +10% on a 5× long: 10% * 2000 * 5.
-    assert change(long, 110.0) == pytest.approx(1_000.0)
+    # +10% on a $2,000 long: 10% * 2000. Leverage sets the margin, not the PnL.
+    assert change(long, 110.0) == pytest.approx(200.0)
     # The same move against a short loses the same amount.
-    assert change(short, 110.0) == pytest.approx(-1_000.0)
+    assert change(short, 110.0) == pytest.approx(-200.0)
 
 
 def test_change_needs_a_price_and_an_entry() -> None:

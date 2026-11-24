@@ -48,12 +48,16 @@ def change(position: dict, price: float | None) -> float | None:
     if not entry or not price:
         return None
     direction = 1.0 if position.get("side") == "LONG" else -1.0
-    return (
-        (price / entry - 1.0)
-        * float(position.get("size", 0.0))
-        * float(position.get("leverage", 1))
-        * direction
-    )
+    # `size` is the position value, so leverage only sets the margin and the
+    # liquidation price; it does not scale the PnL a second time.
+    return (price / entry - 1.0) * float(position.get("size", 0.0)) * direction
 
 
-__all__ = ["PositionStore", "change", "store"]
+def liquidation(side: str, entry: float, leverage: int) -> float:
+    """The price at which the margin (`size / leverage`) is gone, ignoring the
+    venue's maintenance margin: below entry for a long, above it for a short."""
+    lev = max(1, leverage)
+    return entry * (1.0 - 1.0 / lev) if side == "LONG" else entry * (1.0 + 1.0 / lev)
+
+
+__all__ = ["PositionStore", "change", "liquidation", "store"]
