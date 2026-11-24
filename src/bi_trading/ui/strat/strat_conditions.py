@@ -867,6 +867,22 @@ class RulesPage(QWidget):
                 names.append(name)
         return names
 
+    def _heading_for(self, name: str) -> str:
+        """Which group of the rail a name sits in, for a Polymarket rule."""
+        from bi_trading.engine.formula import FIELDS, POLYMARKET_FIELDS
+
+        if name in self._defined_names():
+            return "YOURS"
+        if name in POLYMARKET_FIELDS:
+            return "POLYMARKET MARKET"
+        if name in ("entry", "tp", "sl", "pnl", "bars") or (
+            name == "price" and "entry" in self.fields
+        ):
+            return "OPEN BET"
+        if name in FIELDS or name == "price":
+            return "CANDLE · BINANCE"
+        return "INDICATORS"
+
     def _vocabulary(self) -> list[str]:
         names = list(self.choices)
         names += [name for name in self._defined_names() if name not in names]
@@ -879,8 +895,22 @@ class RulesPage(QWidget):
             button.setParent(None)
             button.deleteLater()
         self.variable_buttons = {}
+        for header in getattr(self, "picker_headers", []):
+            self.picker_layout.removeWidget(header)
+            header.setParent(None)
+            header.deleteLater()
+        self.picker_headers: list[QLabel] = []
         self._picker_names = self._defined_names()
+        grouped = "up_price" in self.fields      # a Polymarket rule: name the groups
+        shown = ""
         for name in self._vocabulary():
+            heading = self._heading_for(name) if grouped else ""
+            if heading and heading != shown:
+                shown = heading
+                label = QLabel(heading, self.picker_inner)
+                label.setObjectName("railNote")
+                self.picker_headers.append(label)
+                self.picker_layout.insertWidget(self.picker_layout.count() - 1, label)
             button = QPushButton(name, self.picker_inner)
             button.setObjectName("variablePick")
             button.setCursor(Qt.CursorShape.PointingHandCursor)

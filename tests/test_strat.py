@@ -1206,8 +1206,12 @@ def test_the_create_button_opens_the_builder(app: QApplication, window, monkeypa
 def test_the_hub_sends_create_to_its_own_builder_view(app: QApplication, monkeypatch, tmp_path) -> None:
     from bi_trading.ui.hub.main_hub import MainHubWindow
 
+    from bi_trading.state import venue as venue_state
+
     monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(venue_state, "current", lambda: venue_state.HL)
     hub = MainHubWindow(autostart=False)
+    hub._venue = venue_state.HL
     hub._open("backtest")
     app.processEvents()
     assert hub._key == "backtest"

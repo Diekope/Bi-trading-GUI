@@ -31,12 +31,15 @@ src/bi_trading/
     jsonio.py          JSON parsing: orjson when installed, stdlib otherwise
     feed.py            Hyperliquid streams, latency probe
     polymarket_feed.py one 5m market: resolve, snapshot, stream, roll over
+    polymarket_history.py past 5m markets: download and Parquet store
 
   engine/          the pure backtest engine (no Qt)
     core.py            the walk: the Rust core when built, Python fallback
     formula.py         the entry/exit formula language: parse and check
     formula_eval.py    run a formula over bars: indicators, signals, the walk
     formula_palettes.py the builder's palettes: the sources you drag from
+    binary.py          the Polymarket walk: bets on 5m markets, cash out or settle
+    binary_price.py    a simulated share price where no history exists
 
   state/           config and what persists between runs
     settings.py        chart feel + defaults from ~/.config/bi-trading/settings.json

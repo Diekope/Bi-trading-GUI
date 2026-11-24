@@ -59,7 +59,12 @@ def _write_candles(year: int, count: int) -> None:
 
 
 @pytest.fixture
-def builder(app: QApplication) -> StrategyBuilderWindow:
+def builder(app: QApplication, monkeypatch) -> StrategyBuilderWindow:
+    # These tests describe the Hyperliquid builder (candles only); the
+    # Polymarket one is covered by `pm_builder` below.
+    from bi_trading.state import venue as venue_state
+
+    monkeypatch.setattr(venue_state, "current", lambda: venue_state.HL)
     window = StrategyBuilderWindow()
     window.show()
     # Two passes: the first lays the columns out, the second settles the
@@ -1185,3 +1190,58 @@ def test_the_short_entry_tab_sits_between_entry_and_exit(
         and layout.itemAt(i).widget().objectName() == "sideButton"
     ]
     assert order == ["LONG ENTRY", "SHORT ENTRY", "EXIT RULES"]
+
+
+@pytest.fixture
+def pm_builder(app: QApplication, monkeypatch) -> StrategyBuilderWindow:
+    from bi_trading.state import venue as venue_state
+
+    monkeypatch.setattr(venue_state, "current", lambda: venue_state.PM)
+    window = StrategyBuilderWindow()
+    window.show()
+    app.processEvents()
+    yield window
+    window.close()
+
+
+def test_a_polymarket_rule_can_mix_candles_and_the_share_price(pm_builder) -> None:
+    pm_builder.set_entry_formula("close < bollinger_lower(close, 20, 2) and up_price < 0.45")
+    assert pm_builder.entry_formula_error() == ""
+    pm_builder.set_exit_formula("pnl >= 20 or seconds_left < 60 or up_price > 0.8")
+    assert pm_builder.exit_formula_error() == ""
+    groups = list(pm_builder.entry.formula.blocks)
+    # the Binance candle and the Polymarket market words sit in separate groups
+    assert "Candle · Binance" in groups and "Polymarket market" in groups
+    assert "Indicators" in groups and "Data" not in groups
+    assert groups.index("Candle · Binance") < groups.index("Polymarket market")
+
+
+def test_a_polymarket_strategy_has_a_bet_up_a_bet_down_and_a_cash_out_rule(pm_builder) -> None:
+    rules = pm_builder.rules
+    assert not pm_builder.side.isVisible()
+    assert pm_builder.side_key() == "both"
+    assert rules.side_buttons["entry"].text() == "BET UP RULES"
+    assert rules.side_buttons["short"].text() == "BET DOWN RULES"
+    assert rules.side_buttons["exit"].text() == "CASH OUT RULES"
+    assert not rules.side_buttons["short"].isHidden()
+    assert pm_builder.short_tile.condition_label == "BET DOWN WHEN"
+    pm_builder.set_entry_formula("up_price < 0.4")
+    pm_builder.short.set_text("up_price > 0.6")
+    assert pm_builder.entry_formula_error() == ""
+    assert pm_builder.short.error() == ""
+    assert pm_builder.short_entry_formula() == "up_price > 0.6"
+    # Hyperliquid keeps the long/short wording
+
+
+def test_the_hyperliquid_builder_does_not_know_the_share_price(builder) -> None:
+    builder.set_entry_formula("up_price < 0.45")
+    assert "unknown name 'up_price'" in builder.entry_formula_error()
+
+
+def test_the_polymarket_rail_names_its_groups(pm_builder) -> None:
+    page = pm_builder.entry.conditions
+    headings = [label.text() for label in page.picker_headers]
+    assert headings == ["CANDLE · BINANCE", "POLYMARKET MARKET", "INDICATORS"]
+    exit_page = pm_builder.exit.conditions
+    assert [label.text() for label in exit_page.picker_headers] == [
+        "OPEN BET", "CANDLE · BINANCE", "POLYMARKET MARKET"]

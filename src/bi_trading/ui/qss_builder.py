@@ -51,6 +51,15 @@ QLabel#blockLabel {{
     color: #aebdf0;
 }}
 
+/* Polymarket market words (up_price, minute, ...): blue, the venue's colour. */
+#paletteBlock[group="polymarket"], #formulaChip[group="polymarket"] {{
+    background-color: #141a33;
+    border: 1px solid #2c3b78;
+}}
+#paletteBlock[group="polymarket"] QLabel, #formulaChip[group="polymarket"] QLabel {{
+    color: #7f9bff;
+}}
+
 /* Indicators: amber, the app's accent. */
 #paletteBlock[group="indicator"], #formulaChip[group="indicator"] {{
     background-color: {ACCENT_BG};

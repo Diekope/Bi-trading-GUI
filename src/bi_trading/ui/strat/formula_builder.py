@@ -45,6 +45,8 @@ from bi_trading.engine.formula import (
 )
 from bi_trading.engine.formula_palettes import (
     EXIT_PALETTES,
+    PM_EXIT_PALETTES,
+    PM_PALETTES,
     Item,
     LOGIC_ITEMS,
     MIME,
@@ -574,6 +576,8 @@ class FormulaBuilder(QWidget):
 
 __all__ = [
     "EXIT_PALETTES",
+    "PM_EXIT_PALETTES",
+    "PM_PALETTES",
     "LOGIC_ITEMS",
     "MIME",
     "PALETTES",

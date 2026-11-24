@@ -43,8 +43,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
-from bi_trading.ui.strat.formula_builder import EXIT_PALETTES
+from bi_trading.engine.formula import (
+    ENTRY_FIELDS,
+    EXIT_FIELDS,
+    EXIT_FUNCTIONS,
+    PM_ENTRY_FIELDS,
+    PM_EXIT_FIELDS,
+)
+from bi_trading.ui.strat.formula_builder import EXIT_PALETTES, PM_EXIT_PALETTES, PM_PALETTES
 from bi_trading.logs import install_qt_handler, setup
 from bi_trading.ui.panels import Card
 from bi_trading.ui.venue_icons import venue_mark
@@ -207,15 +213,22 @@ class StrategyBuilderWindow(QMainWindow):
             ("BET UP WHEN", "CASH OUT WHEN") if self.venue == venue_state.PM
             else ("BUY WHEN", "SELL WHEN")
         )
+        short_word = "BET DOWN WHEN" if self.venue == venue_state.PM else entry_word
+        pm = self.venue == venue_state.PM
+        self._default_side = "Both" if pm else "Long"
+        # A Polymarket rule reads the candles and the share price together.
+        entry_palettes = PM_PALETTES if pm else None
+        entry_fields = PM_ENTRY_FIELDS if pm else ENTRY_FIELDS
         self.entry_tile = RulesTile(
-            "ENTRY RULES", header=False, condition_label=entry_word
+            "ENTRY RULES", header=False, condition_label=entry_word,
+            palettes=entry_palettes, fields=entry_fields,
         )
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
         self.exit_tile = RulesTile(
             "EXIT RULES",
-            palettes=EXIT_PALETTES,
-            fields=EXIT_FIELDS,
+            palettes=PM_EXIT_PALETTES if pm else EXIT_PALETTES,
+            fields=PM_EXIT_FIELDS if pm else EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
             placeholder="pnl >= tp or pnl <= 0 - sl",
             header=False,
@@ -225,12 +238,18 @@ class StrategyBuilderWindow(QMainWindow):
         # and the Rules / Formula / Code pills belong to the side on top.
         # A strategy that goes both ways has a second entry rule for its shorts.
         self.short_tile = RulesTile(
-            "SHORT ENTRY RULES", header=False, condition_label=entry_word
+            "SHORT ENTRY RULES", header=False, condition_label=short_word,
+            palettes=entry_palettes, fields=entry_fields,
         )
         self.rules = RulesSwitcher(
             self.entry_tile, self.exit_tile, self.right_column,
             short_entry=self.short_tile,
         )
+        if pm:
+            self.rules.set_labels(
+                entry="BET UP RULES", entry_both="BET UP RULES",
+                short="BET DOWN RULES", exit="CASH OUT RULES",
+            )
         # Under the rules: what they did over the candles on disk.
         self.report = ReportTile(self.right_column)
         self.right = self.right_column
@@ -282,6 +301,11 @@ class StrategyBuilderWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.strategy_tile.body.addWidget(self.side)
+        if pm:
+            # A Polymarket strategy has a rule for each side: bet UP, bet DOWN.
+            # An empty rule never bets, so there is no side to pick.
+            self.side.setCurrentText("Both")
+            self.side.setVisible(False)
 
         # The strategy tile is only as tall as its title and row; the two
         # below it share whatever is left.
@@ -314,6 +338,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.side.currentTextChanged.connect(self._sync_report)
         self.side.currentTextChanged.connect(self._describe_draft)
         self.side.currentTextChanged.connect(self._refresh_saved)
+        if pm:
+            self._side_changed()      # both rules offered from the start
         self.name_edit.textChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._refresh_saved)
         self.left.chosen.connect(self.load_strategy)
@@ -403,7 +429,7 @@ class StrategyBuilderWindow(QMainWindow):
         """Clear the draft back to nothing."""
         self.name_edit.setText("")
         self.timeframe.setCurrentIndex(0)
-        self.side.setCurrentIndex(0)
+        self.side.setCurrentText(self._default_side)
         self.entry.reset_draft()
         self.exit.reset_draft()
         self.short.reset_draft()
@@ -509,7 +535,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_edit.setText(found.name)
         self.timeframe.setCurrentText(found.timeframe)
         self.side.setCurrentText(
-            {"short": "Short", "both": "Both"}.get(found.side, "Long")
+            "Both" if self.venue == "pm"
+            else {"short": "Short", "both": "Both"}.get(found.side, "Long")
         )
         self.entry.set_text(found.entry)
         self.short.set_text(found.short_entry)

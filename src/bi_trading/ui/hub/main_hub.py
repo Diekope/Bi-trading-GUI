@@ -588,6 +588,13 @@ class MainHubWindow(QMainWindow):
             if strategy:
                 window.load_strategy(strategy)
             return window
+        if key == "backtest" and self._venue == "pm":
+            # Polymarket bets on five-minute markets; it has its own engine.
+            from bi_trading.ui.strat.strat_pm import PolymarketBacktestWindow
+
+            pm_backtest = PolymarketBacktestWindow()
+            pm_backtest.open_builder = lambda: self._open("builder")  # type: ignore[method-assign]
+            return pm_backtest
         if key == "backtest":
             from bi_trading.ui.strat.strat_window import StratWindow
 

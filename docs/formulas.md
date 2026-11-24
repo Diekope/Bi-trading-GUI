@@ -65,5 +65,12 @@ not the last but holds the condition. It does **not** type-check: a number where
 a truth belongs is the author's business, and it evaluates nothing — that is the
 walk's job, later.
 
+**Polymarket rules** (the Builder with the venue switch on Polymarket) also know
+`up_price`, `down_price`, `minute` and `seconds_left`, next to the bar's fields, so one
+rule can mix candle indicators with the share price; an exit rule sees them too, plus
+`price`, `entry`, `pnl`, `tp`, `sl` and `bars` for the open bet. They exist only in
+the Polymarket backtest ([polymarket-backtest.md](polymarket-backtest.md)); the
+Hyperliquid builder and the candle report reject them (`unknown name 'up_price'`).
+
 `formula.py` has no Qt and no candle data, so the same parser can drive the
 walk when the two are joined.

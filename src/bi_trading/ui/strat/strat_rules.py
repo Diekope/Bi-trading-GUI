@@ -641,7 +641,12 @@ class RulesSwitcher(Card):
         self.exit = exit_
         self.short_entry = short_entry
         self.current_side = "entry"
-
+        # What the side buttons say; a Polymarket builder renames them.
+        self.labels = {
+            "entry": "ENTRY RULES", "entry_both": "LONG ENTRY",
+            "short": "SHORT ENTRY", "exit": "EXIT RULES",
+        }
+        self.both = False
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(6)
@@ -711,12 +716,22 @@ class RulesSwitcher(Card):
             return self.short_entry
         return self.entry if self.current_side == "entry" else self.exit
 
+    def set_labels(self, **labels: str) -> None:
+        """Rename the side buttons (`entry`, `entry_both`, `short`, `exit`)."""
+        self.labels.update(labels)
+        self.side_buttons["short"].setText(self.labels["short"])
+        self.side_buttons["exit"].setText(self.labels["exit"])
+        self.set_both(self.both)
+
     def set_both(self, both: bool) -> None:
         """Offer the short entry (and name the first one the long's), or not."""
+        self.both = both
         if self.short_entry is None:
             return
         self.side_buttons["short"].setVisible(both)
-        self.side_buttons["entry"].setText("LONG ENTRY" if both else "ENTRY RULES")
+        self.side_buttons["entry"].setText(
+            self.labels["entry_both"] if both else self.labels["entry"]
+        )
         if not both and self.current_side == "short":
             self.set_side("entry")
 

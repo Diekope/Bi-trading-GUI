@@ -557,6 +557,17 @@ class ReportTile(Card):
             self.watch = ({}, None)
             self._clear(f"{year} · {self.resolution} — no entry rule yet")
             return
+        from bi_trading.engine.formula import POLYMARKET_FIELDS
+        from bi_trading.engine.formula_eval import names_used
+
+        used = set(names_used(self.entry_rule))
+        for other in (self.exit_rule, self.short_rule):
+            if other is not None:
+                used |= set(names_used(other))
+        if used & set(POLYMARKET_FIELDS):
+            self.watch = ({}, None)
+            self._clear("uses Polymarket prices — run it from the Backtest window")
+            return
         self.watch = watch_values(self.entry_rule, bars)
 
         report = backtest(

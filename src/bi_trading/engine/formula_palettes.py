@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from bi_trading.engine.formula import ENTRY_FIELDS, EXIT_FIELDS, FUNCTIONS
+from bi_trading.engine.formula import (
+    ENTRY_FIELDS,
+    EXIT_FIELDS,
+    FUNCTIONS,
+    POLYMARKET_FIELDS,
+)
 
 MIME = "application/x-bi-trading-chip"
 HANDLE = "⠿"
@@ -22,11 +27,15 @@ GROUP_KEYS = {
     "Maths": "maths",
     "Logic": "logic",
     "Trade": "data",
+    # A Polymarket rule keeps the Binance candle and the market's own words apart.
+    "Candle · Binance": "data",
+    "Polymarket market": "polymarket",
+    "Open bet": "data",
 }
 # The maths functions: they live in Maths, so they wear its colour.
 MATHS_FUNCS = frozenset({"abs", "log"})
 # Names that read as "the bar" or "the trade": both are data, coloured alike.
-DATA_NAMES = frozenset(ENTRY_FIELDS) | frozenset(EXIT_FIELDS)
+DATA_NAMES = frozenset(ENTRY_FIELDS) | frozenset(EXIT_FIELDS) | frozenset(POLYMARKET_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -132,10 +141,57 @@ EXIT_PALETTES: tuple = (
 )
 
 
+# The Polymarket venue: the Binance candle's words next to the share price, so
+# one rule can mix both. The model/book words stay out: no history of them.
+_PM_ITEMS: tuple = (
+    Item("up price", ("up_price",), "the Up share's price, 0 to 1"),
+    Item("down price", ("down_price",), "the Down share's price (1 minus up price)"),
+    Item("minute", ("minute",), "minutes into the market, 1 to 4"),
+    Item("seconds left", ("seconds_left",), "seconds until the market settles"),
+)
+_BAR_ITEMS: tuple = (
+    Item("close", ("close",), "the bar's closing price"),
+    Item("open", ("open",)),
+    Item("high", ("high",)),
+    Item("low", ("low",)),
+    Item("volume", ("volume",)),
+)
+
+PM_PALETTES: tuple = (
+    ("Candle · Binance", _BAR_ITEMS),
+    ("Polymarket market", _PM_ITEMS),
+    PALETTES[1],
+    ("Maths", MATHS_ITEMS),
+    ("Logic", LOGIC_ITEMS),
+)
+
+# Cashing out: the open bet (its price is what a sale would fetch now) and the
+# same market words an entry sees.
+PM_EXIT_PALETTES: tuple = (
+    (
+        "Open bet",
+        (
+            Item("price", ("price",), "what a sale of the open bet fetches now"),
+            Item("entry", ("entry",), "the price the bet was bought at"),
+            Item("PNL", ("pnl",), "the bet's profit or loss if sold now, in %"),
+            Item("TP", ("tp",), "the take-profit threshold, in %"),
+            Item("SL", ("sl",), "the stop-loss threshold, in %"),
+            Item("bars", ("bars",), "minutes the bet has been open"),
+        ),
+    ),
+    ("Candle · Binance", _BAR_ITEMS),
+    ("Polymarket market", _PM_ITEMS),
+    ("Maths", MATHS_ITEMS),
+    ("Logic", LOGIC_ITEMS),
+)
+
+
 def group_for_token(token) -> str:
     """Which colour a chip wears: data, indicator, logic or maths."""
     if token in (None, ""):
         return ""
+    if token in POLYMARKET_FIELDS:
+        return "polymarket"
     if token in DATA_NAMES:
         return "data"
     if token in FUNCTIONS:
@@ -157,5 +213,7 @@ __all__ = [
     "MATHS_ITEMS",
     "MIME",
     "PALETTES",
+    "PM_EXIT_PALETTES",
+    "PM_PALETTES",
     "group_for_token",
 ]
