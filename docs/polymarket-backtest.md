@@ -37,6 +37,21 @@ resumable and safe to stop. A market Polymarket does not know is stored as
 `data/polymarket_history.py` is the downloader and the store; the parsing and the
 store are pure and tested against fake endpoints.
 
+## The window
+
+The Backtest view on the Polymarket venue is laid out like the Hyperliquid one:
+
+| Area | What it holds |
+| --- | --- |
+| BACKTEST (top left) | the status line, Run (Space), a progress bar, the figures (PnL, equity, max drawdown, ROI on stake, bets, win rate, cashed out, average buy price, share of bets at a real price), and the picked bet's Up price over its five minutes with the buy and the sale marked |
+| HISTORY | what is on disk for Polymarket and Binance, a span (all history, 90, 30 or 7 days), **Download Polymarket prices** (stop it by pressing it again) |
+| BET VALUE | start capital, stake % of equity, first decision minute, half spread in cents, fee %, TP and SL in % of the share price |
+| STRATEGY | a saved strategy, **Create a strategy** (opens the Builder), and its three rules |
+| RESULTS | Overview: figures, the strategy's equity against always-UP and always-DOWN, drawdown, how bets end, PnL distribution. Bets: the table, newest first; pick a row to see it above |
+
+There is no Save run / Load run, Compare or playback here yet (see TODO.md). Opening the
+window is not a run: nothing is computed until Run.
+
 ## What a run does
 
 For every market whose five minutes of candles are all there, one row per minute:

@@ -48,6 +48,30 @@ log and the run log all exist.
 - [low] **Strategy stats beyond today.** The strategy filter and its figures are for
   today; add a range (week, all) and a per-strategy summary.
 
+## Polymarket backtest
+- [high] **Order-book history.** Depth and spread were never recorded, so the half spread
+  is an assumption and a large stake would move the price. Record the live book (the feed
+  already reads it) while the app runs, and use the measured spread and depth.
+- [med] **Keep recording forward.** Polymarket's public history is about one price a
+  minute and starts 2026-02-12. Store the live ticks of each market as the app runs, for
+  sub-minute prices and for history that outlives what Polymarket serves.
+- [med] **Stale prices.** A decision reads the last sample at or before the minute, up to a
+  minute old; a "cheap" share may have been gone. Compare against the live tape, or fetch
+  trades, and show how old the price was.
+- [med] **Save and load runs, Compare and playback.** The window has none of them; saved
+  runs (`state/runs.py`) are candle runs. A bet-by-bet replay of the price would suit it.
+- [med] **Settlement source.** Polymarket settles on its own reference price; where a market
+  has no stored outcome the run settles from Binance and says "est.". Measure how often the
+  two disagree on the markets that have both.
+- [low] **`model_p` and edge for Polymarket rules.** The ML layer (the `ml` branch) is not
+  merged, so a Polymarket rule cannot read a model's probability or an edge against the price.
+- [low] **More than one bet per market.** One bet at most; allow re-entry after a cash-out.
+- [low] **The builder's report for Polymarket rules.** It says to run the strategy from the
+  Backtest view; a small Polymarket report beside the editor would do.
+- [low] **Download from Settings.** The button lives in the Backtest view; a long download
+  could also report from Settings and resume at launch.
+- [low] **Audit.** `docs/backtest-audit.md` (on `planning`) should move #3 to "partly fixed".
+
 ## Quality
 - [low] **Goldens for the screenshot tests on Linux.** `tests/golden/` was drawn on
   macOS. The comparison is coarse (8px blocks) so another system's fonts should pass,

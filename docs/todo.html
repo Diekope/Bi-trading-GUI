@@ -71,6 +71,21 @@
     </ul>
   </section>
   <section>
+    <h2>Polymarket backtest</h2>
+    <ul>
+    <li data-p="high" data-id="-order-book-history-depth-and-spread-were-ne"><input type="checkbox"><span><b>Order-book history.</b> Depth and spread were never recorded, so the half spread is an assumption and a large stake would move the price. Record the live book (the feed already reads it) while the app runs, and use the measured spread and depth.</span><span class="tag high">High</span></li>
+    <li data-p="med" data-id="-keep-recording-forward-polymarket-s-public-"><input type="checkbox"><span><b>Keep recording forward.</b> Polymarket&#x27;s public history is about one price a minute and starts 2026-02-12. Store the live ticks of each market as the app runs, for sub-minute prices and for history that outlives what Polymarket serves.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-stale-prices-a-decision-reads-the-last-samp"><input type="checkbox"><span><b>Stale prices.</b> A decision reads the last sample at or before the minute, up to a minute old; a &quot;cheap&quot; share may have been gone. Compare against the live tape, or fetch trades, and show how old the price was.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-save-and-load-runs-compare-and-playback-th"><input type="checkbox"><span><b>Save and load runs, Compare and playback.</b> The window has none of them; saved runs (<code>state/runs.py</code>) are candle runs. A bet-by-bet replay of the price would suit it.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-settlement-source-polymarket-settles-on-its"><input type="checkbox"><span><b>Settlement source.</b> Polymarket settles on its own reference price; where a market has no stored outcome the run settles from Binance and says &quot;est.&quot;. Measure how often the two disagree on the markets that have both.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-model-p-and-edge-for-polymarket-rules-the"><input type="checkbox"><span><b><code>model_p</code> and edge for Polymarket rules.</b> The ML layer (the <code>ml</code> branch) is not merged, so a Polymarket rule cannot read a model&#x27;s probability or an edge against the price.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-more-than-one-bet-per-market-one-bet-at-mos"><input type="checkbox"><span><b>More than one bet per market.</b> One bet at most; allow re-entry after a cash-out.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-the-builder-s-report-for-polymarket-rules-i"><input type="checkbox"><span><b>The builder&#x27;s report for Polymarket rules.</b> It says to run the strategy from the Backtest view; a small Polymarket report beside the editor would do.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-download-from-settings-the-button-lives-in-"><input type="checkbox"><span><b>Download from Settings.</b> The button lives in the Backtest view; a long download could also report from Settings and resume at launch.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-audit-docs-backtest-audit-md-on-plannin"><input type="checkbox"><span><b>Audit.</b> <code>docs/backtest-audit.md</code> (on <code>planning</code>) should move #3 to &quot;partly fixed&quot;.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
     <h2>Quality</h2>
     <ul>
     <li data-p="low" data-id="-goldens-for-the-screenshot-tests-on-linux-"><input type="checkbox"><span><b>Goldens for the screenshot tests on Linux.</b> <code>tests/golden/</code> was drawn on macOS. The comparison is coarse (8px blocks) so another system&#x27;s fonts should pass, but CI has never run it: if it fails there, redraw the goldens on that system (<code>UPDATE_GOLDEN=1</code>) and keep both sets.</span><span class="tag low">Low</span></li>
