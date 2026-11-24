@@ -14,7 +14,7 @@ checker (`bi_trading.engine.formula`) is what keeps them honest.
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
 
-    uv run bi-trading-builder
+    the hub's Builder view (`uv run bi-trading`)
 
 It carries the same canvas, cards and gap as the other windows, so it reads as
 another sheet of the same desk rather than a separate application.

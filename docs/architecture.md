@@ -19,7 +19,7 @@ dependency.
 
 ```
 src/bi_trading/
-  __main__.py      entry point for `bi-trading` and `python -m bi_trading`
+  __main__.py      entry point for `bi-trading` and `python -m bi_trading`: runs the hub
   app.py           QApplication bootstrap for the terminal
   logs.py          the silent log: a rotating file, never the console
 

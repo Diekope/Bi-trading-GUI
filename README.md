@@ -10,7 +10,7 @@ market. A strategy builder and a backtest engine live in the same app.
 
 ```sh
 uv sync                  # PySide6, httpx, websockets, numpy, pyarrow
-uv run bi-trading-hub    # the hub: Home, Live, Builder, Backtest, Settings
+uv run bi-trading        # the whole app, the hub: Home, Live, Builder, Backtest, Settings
 ```
 
 The GUI opens with no credentials, network access or wallet keys. Optional
@@ -22,8 +22,7 @@ uv sync --extra native                  # the Rust backtest walk (needs a Rust t
 uv sync --extra venues --extra native   # both; `uv sync` is exact, so name every extra
 ```
 
-Each view can also run on its own: `bi-trading` (terminal), `bi-trading-strat`
-(backtest), `bi-trading-builder` (strategy builder).
+The app launches as a whole; there is one command, `bi-trading` (also `python -m bi_trading`).
 
 ## Orders are dry-run by default
 

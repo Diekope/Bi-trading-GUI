@@ -6,7 +6,7 @@ Building, saving and checking a strategy. Back to the [README](../README.md).
 
 The entry rule the run is pointed at, with a **Create a strategy** button on
 the right. The button is still a placeholder and opens nothing; the builder
-window it will open exists separately (`uv run bi-trading-builder`). Two rules so
+window it will open is the hub's Builder view. Two rules so
 far:
 
 | Rule | What it does |
@@ -19,12 +19,8 @@ Like the span and the parameters, a change here is only remembered until
 
 ## Strategy builder
 
-A window of its own, not opened by the backtest window and connected to
-nothing in it:
-
-```sh
-uv run bi-trading-builder
-```
+The hub's Builder view (`uv run bi-trading`), not opened by the backtest window and connected to
+nothing in it.
 
 Two columns side by side, splitting the width **21 / 79** — a narrow rail on
 the left, everything else on the right — separated by the same 8 px gap and
