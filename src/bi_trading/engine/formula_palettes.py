@@ -186,6 +186,22 @@ PM_EXIT_PALETTES: tuple = (
 )
 
 
+def heading_for(name: str, fields) -> str:
+    """The group a name sits in on a Polymarket rule's variable lists, or ""
+    for any other rule (their lists stay flat). `fields` is the rule's vocabulary."""
+    if "up_price" not in fields:
+        return ""
+    if name in POLYMARKET_FIELDS:
+        return "POLYMARKET MARKET"
+    if name in ("entry", "tp", "sl", "pnl", "bars") or (
+        name == "price" and "entry" in fields
+    ):
+        return "OPEN BET"
+    if name in ENTRY_FIELDS:
+        return "CANDLE · BINANCE"
+    return "INDICATORS"
+
+
 def group_for_token(token) -> str:
     """Which colour a chip wears: data, indicator, logic or maths."""
     if token in (None, ""):
@@ -216,4 +232,5 @@ __all__ = [
     "PM_EXIT_PALETTES",
     "PM_PALETTES",
     "group_for_token",
+    "heading_for",
 ]

@@ -869,19 +869,11 @@ class RulesPage(QWidget):
 
     def _heading_for(self, name: str) -> str:
         """Which group of the rail a name sits in, for a Polymarket rule."""
-        from bi_trading.engine.formula import FIELDS, POLYMARKET_FIELDS
+        from bi_trading.engine.formula_palettes import heading_for
 
         if name in self._defined_names():
             return "YOURS"
-        if name in POLYMARKET_FIELDS:
-            return "POLYMARKET MARKET"
-        if name in ("entry", "tp", "sl", "pnl", "bars") or (
-            name == "price" and "entry" in self.fields
-        ):
-            return "OPEN BET"
-        if name in FIELDS or name == "price":
-            return "CANDLE · BINANCE"
-        return "INDICATORS"
+        return heading_for(name, self.fields)
 
     def _vocabulary(self) -> list[str]:
         names = list(self.choices)

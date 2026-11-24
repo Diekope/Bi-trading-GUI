@@ -306,12 +306,26 @@ class RulesTile(Card):
         vocab_layout = QVBoxLayout(vocab_inner)
         vocab_layout.setContentsMargins(0, 0, 0, 0)
         vocab_layout.setSpacing(0)
+        from bi_trading.engine.formula_palettes import heading_for
+
+        shown = ""
+
+        def heading(text: str) -> None:
+            nonlocal shown
+            if text and text != shown:
+                shown = text
+                caption = QLabel(text, vocab_inner)
+                caption.setObjectName("railNote")
+                vocab_layout.addWidget(caption)
+
         for name in self.fields:
+            heading(heading_for(name, self.fields))
             row = VariableRow(name, "float", vocab_inner)
             row.clicked.connect(self._select_variable)
             self.vocab_rows[name] = row
             vocab_layout.addWidget(row)
         for name in sorted(self.functions):
+            heading(heading_for(f"{name}()", self.fields))
             label = f"{name}()"
             row = VariableRow(label, "function", vocab_inner)
             row.clicked.connect(self._select_variable)

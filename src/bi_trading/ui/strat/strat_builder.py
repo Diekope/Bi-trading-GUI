@@ -219,9 +219,11 @@ class StrategyBuilderWindow(QMainWindow):
         # A Polymarket rule reads the candles and the share price together.
         entry_palettes = PM_PALETTES if pm else None
         entry_fields = PM_ENTRY_FIELDS if pm else ENTRY_FIELDS
+        up_hint = {"placeholder": "minute >= 2 and up_price < 0.4"} if pm else {}
+        down_hint = {"placeholder": "minute >= 2 and up_price > 0.6"} if pm else {}
         self.entry_tile = RulesTile(
             "ENTRY RULES", header=False, condition_label=entry_word,
-            palettes=entry_palettes, fields=entry_fields,
+            palettes=entry_palettes, fields=entry_fields, **up_hint,
         )
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
@@ -230,7 +232,10 @@ class StrategyBuilderWindow(QMainWindow):
             palettes=PM_EXIT_PALETTES if pm else EXIT_PALETTES,
             fields=PM_EXIT_FIELDS if pm else EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
-            placeholder="pnl >= tp or pnl <= 0 - sl",
+            placeholder=(
+                "pnl >= 25 or pnl <= -30 or seconds_left < 30" if pm
+                else "pnl >= tp or pnl <= 0 - sl"
+            ),
             header=False,
             condition_label=exit_word,
         )
@@ -239,7 +244,7 @@ class StrategyBuilderWindow(QMainWindow):
         # A strategy that goes both ways has a second entry rule for its shorts.
         self.short_tile = RulesTile(
             "SHORT ENTRY RULES", header=False, condition_label=short_word,
-            palettes=entry_palettes, fields=entry_fields,
+            palettes=entry_palettes, fields=entry_fields, **down_hint,
         )
         self.rules = RulesSwitcher(
             self.entry_tile, self.exit_tile, self.right_column,
