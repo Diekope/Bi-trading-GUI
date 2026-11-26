@@ -82,7 +82,7 @@ function render() {
   normalize();
   if (!shown(curKey())) { location.hash = "#home"; return; } // a strategy screen while on "general": go home (hashchange re-renders)
   const key = curKey(), v = views[key];
-  hlHandle?.setWatch(state.coin, state.tf);
+  hlHandle?.setWatch(state.venue === "Polymarket" ? "BTC" : state.coin, state.tf); // Polymarket's chart is BTC
   chrome(key);
   const full = key !== lastKey; lastKey = key;
   const main = $("#main");
@@ -109,6 +109,13 @@ function act(a) {
   if (a === "pm-disconnect") { pmHandle.setAddress(""); try { localStorage.removeItem(PM_ADDR_KEY); } catch { /* storage blocked */ } state.form.pmAddr = ""; toast("Polymarket wallet disconnected."); render(); return; }
   if (a === "hl-disconnect") { hlHandle.setAddress(""); try { localStorage.removeItem(ADDR_KEY); } catch { /* storage blocked */ } state.form.hlAddr = ""; toast("Live balance disconnected."); render(); return; }
   if (state.live && !a.startsWith("close-")) { toast("Live trading is not available in this sandbox. Switch to PAPER to place orders.", true); return; }
+  // Paper orders wait out a round trip, then fill against the book as it is then.
+  const delay = Math.max(0, Number(f.paperDelay ?? 400) || 0);
+  if (!state.live && delay > 0 && (a.startsWith("pm-") || a.startsWith("hl-")) && !act.waiting) {
+    toast(`Order sent: fills in ${delay} ms (paper delay, Settings).`);
+    setTimeout(() => { act.waiting = true; try { act(a); } finally { act.waiting = false; } }, delay);
+    return;
+  }
   let r;
   if (a.startsWith("pm-")) r = placePM(feed, a.slice(3), Number(f.pmStake ?? 20));
   else if (a.startsWith("hl-")) r = placeHL(feed, { coin: feed.hl.coin, side: a.slice(3), size: Number(f.hlSize ?? 500), lev: Number(f.hlLev ?? 5), tp: Number(f.hlTp ?? 2) || 0, sl: Number(f.hlSl ?? 1) || 0 });
@@ -150,3 +157,15 @@ setRerender(render);
 installDnD(render);
 setAutoRun(() => engAct("eng-run", render, (msg, err) => { if (err) toast(msg, err); }));
 boot(render);
+// The order book's height: drag the handle under it, double-click to let it fit again.
+document.addEventListener("mousedown", (e) => {
+  const h = e.target.closest?.("[data-split]"); if (!h) return;
+  e.preventDefault();
+  const col = h.parentElement, top = col.getBoundingClientRect().top, max = col.getBoundingClientRect().height - 140;
+  h.classList.add("drag");
+  const rows = (px) => { col.style.gridTemplateRows = `${px}px 6px minmax(0,1fr) auto`; }; // same rows as hlView with a set height
+  const move = (ev) => { state.bookH = Math.round(Math.min(max, Math.max(90, ev.clientY - top))); rows(state.bookH); };
+  const up = () => { h.classList.remove("drag"); removeEventListener("mousemove", move); removeEventListener("mouseup", up); render(); };
+  addEventListener("mousemove", move); addEventListener("mouseup", up);
+});
+document.addEventListener("dblclick", (e) => { if (e.target.closest?.("[data-split]")) { state.bookH = 0; render(); } });

@@ -138,3 +138,13 @@ body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
 .chip.drop-after { box-shadow: 4px 0 0 -1px var(--accent); }
 .dropline.over { border-color: var(--accent); }
 .pickword:hover { text-decoration: underline; }
+
+/* Drag handle between the order book and the positions */
+.splitter { cursor: row-resize; border-radius: 3px; background: transparent; position: relative; }
+.splitter::after { content: ""; position: absolute; left: 45%; right: 45%; top: 2px; height: 2px; border-radius: 2px; background: var(--border); }
+.splitter:hover::after, .splitter.drag::after { background: var(--accent); left: 0; right: 0; }
+.book-row { flex: none; }
+
+/* Modal dialog (dialog.js) */
+.dialog-back { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
+.dialog { width: min(440px, 90vw); gap: 12px; padding: 18px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }

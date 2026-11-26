@@ -77,6 +77,13 @@ class EngineApi(unittest.TestCase):
         self.assertNotIn("End of data", [r["label"] for r in out["reasons"]][:1])
         json.dumps(out)                                             # the page gets JSON
 
+    def test_year_span(self):
+        first, last = engine_api._span({"year": 2021})
+        self.assertEqual(engine_api._iso(first), "2021-01-01 00:00")
+        self.assertEqual(engine_api._iso(last), "2021-12-31 23:59")
+        with self.assertRaises(engine_api.ApiError):
+            engine_api._span({"year": "abc"})
+
     def test_errors(self):
         with self.assertRaises(engine_api.ApiError):
             engine_api.run_hyperliquid({"entry": "", "timeframe": "5m"})

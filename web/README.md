@@ -31,8 +31,11 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
   - **Formula:** one line of blocks per variable and one for the condition. Drag a block from the palette into a line (a function brings its brackets and arguments), drag blocks within or between lines, click one to edit, move or remove it, or click a palette block to add it after the selected one.
   - **Rules:** variables as `name = expression` rows, and conditions as rows all joined by AND or all by OR. A rule that mixes the two, or uses `not` or brackets around a comparison, says so and is edited in Formula or Code.
   - **Code:** the text itself.
-  - The engine checks the rule as you type; a valid edit runs the backtest again, so Results follow the rule. Save writes the strategies file.
-- **Backtest.** History (span, timeframe), Strategy and the value card feed the run; results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
+  - The text under Formula and Rules is a read-out; type the text itself in Code.
+  - The engine checks the rule as you type. **Preview** shows the selected strategy's run, started on its own when you pick a strategy or change a rule (no button).
+  - **Create a strategy** starts a blank one; if the current one has unsaved changes it asks first (Save, Discard changes, Cancel).
+  - **Run backtest** (footer) opens Backtest and runs the strategy there; an unsaved strategy is saved first, under a name you confirm (a default is offered).
+- **Backtest.** History (span, timeframe; on Hyperliquid also a single calendar year), Strategy and the value card feed the run; results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
 - **Not wired yet.** Compare (walk-forward, TP × SL sweep), Save / Load run, ML and Model builder still show demo content.
 - Tests: `node --test test/rule.test.mjs` (the rule model).
 - **Safety.** POSTs from another origin are refused; nothing here places an order.
@@ -49,6 +52,9 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 - `uv run python -m unittest web/test/test_serve.py` tests the relay against local fake upstreams.
 - `node --test test/feeds.test.mjs` checks the parsers, dispatchers, subscriptions and paper fills.
 - **Balances** sit in the top bar of every screen: PAPER (cash plus open positions, marked live, with PnL since start) and LIVE. The live figure is Hyperliquid's perps account value, read from a public wallet address entered in Settings (`clearinghouseState`, no key, saved in the browser). Polymarket's USDC cash is not public, so its card reads the value of the open positions of a public wallet address instead (Data API `/v2/value`, relayed by `serve.py`); the chip then shows that value (in general, the sum of both, with the Portfolio detailing each).
+- **Polymarket Live, right column:** live Hyperliquid BTC candles with the same timeframes as Hyperliquid (1m to 1h), then the model and edge figures; the footer keeps the strategy and the bet buttons only.
+- **Hyperliquid order book:** fills its tile (20 levels a side, the nearest kept when space runs out). Drag the handle under it to set its height; double-click the handle to let it fit again, the positions below grow as they open.
+- **Paper fill delay:** a paper order waits `Paper fill delay` ms (Settings → Trading defaults, 400 by default) and then fills against the book as it is then.
 - **Polymarket chart:** `btcchart.js` animates the BTC line like the Qt `PriceChart` (rolling 15-minute axis, smoothed curve, eased range, pulsing tip, target growing from the window start). The axis is a rolling minute; the animation never restarts at a market rollover (earlier windows keep their dashed target and scroll left); the line is backfilled from 1-minute candles so it spans the whole plot. The screen is patched in place on each live update (`morph` in `app.js`), so hover, focus and scroll survive. Click the UP or DOWN tile to select it: spread, return and per-$100 follow the selected side. Volume and Bollinger toggles are hidden on Polymarket.
 - **PnL %** appears next to every cash PnL: on a position it is the return on margin (perp) or on stake (bet); on the account and the day it is a share of start equity; on a book it is the total over the margin and stakes at risk.
 - LIVE mode is read-only here: no keys, no real orders.

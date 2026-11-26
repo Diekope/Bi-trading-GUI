@@ -6,7 +6,7 @@
     GET  /api/strategies             the saved strategies (shared with the desktop app)
     POST /api/strategies             save one {name, timeframe, entry, exit, short_entry, venue}
     POST /api/parse                  check a rule {text, kind: entry|exit, venue}
-    POST /api/backtest               Hyperliquid-style run over the Binance 1m candles
+    POST /api/backtest               Hyperliquid-style run over the Binance 1m candles ({days} or {year})
     POST /api/backtest/polymarket    the binary run over the past five-minute markets
 
 The candle store is `BI_TRADING_DATA` (or the app's configured folder); `serve.py`
@@ -77,6 +77,11 @@ def _iso(ms: int) -> str:
 
 def _span(body: dict, floor_ms: int = 0) -> tuple[int, int]:
     last = int(time.time() * 1000)
+    if body.get("year") not in (None, ""):
+        year = int(_num(body, "year", 2026, 2009, 2100))
+        first = int(datetime(year, 1, 1, tzinfo=UTC).timestamp() * 1000)
+        end = int(datetime(year + 1, 1, 1, tzinfo=UTC).timestamp() * 1000) - 1
+        return max(first, floor_ms), min(end, last)
     days = _num(body, "days", 90, 0, 20 * 365)
     first = floor_ms if days == 0 else last - int(days * DAY_MS)
     return max(first, floor_ms), last
@@ -206,7 +211,7 @@ def run_hyperliquid(body: dict) -> dict:
     n = len(c["timestamp"])
     if n < 2:
         raise ApiError(f"no candles on disk for that span (looked in {candles.candles_dir()})")
-    if n > 400_000:
+    if n > 1_200_000:
         raise ApiError(f"{n:,} bars is too many for one web run: shorten the span or pick a longer timeframe")
     bars = [
         {"timestamp": int(c["timestamp"][i]), "open": float(c["open"][i]), "high": float(c["high"][i]),
