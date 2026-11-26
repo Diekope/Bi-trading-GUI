@@ -472,6 +472,9 @@ def test_the_model_builder_opens_under_ml_and_comes_back_with_the_saved_model(
 
 
 def test_run_full_backtest_opens_the_backtest_on_the_strategy(app, monkeypatch, tmp_path, market) -> None:
+    from bi_trading.state import venue as venue_state
+
+    monkeypatch.setattr(venue_state, "current", lambda: venue_state.HL)
     window = hub(app, monkeypatch, tmp_path)
     try:
         window._open("ml")
@@ -548,5 +551,28 @@ def test_the_builder_says_how_far_ahead_the_model_looks(app, no_candles) -> None
         assert "can use it" in widget.horizon_note.text()
         widget.timeframe.setCurrentText("15m")
         assert "75 min ahead" in widget.horizon_note.text() and "backtests only" in widget.horizon_note.text()
+    finally:
+        widget.close()
+
+
+def test_the_holdout_is_locked_until_saved_and_scores_only_once(app, market) -> None:
+    import time
+
+    widget = view(app)
+    try:
+        train_it(app, widget)
+        assert "locked" in widget.holdout_value.text()
+        assert widget.trials_value.text() == "1"
+        assert not widget.holdout_button.isEnabled()       # it is scored by name: save first
+        widget.save()
+        assert widget.holdout_button.isEnabled()
+        widget._score_holdout()
+        end = time.time() + 30
+        while widget._hold_worker is not None and time.time() < end:
+            pump(app)
+            time.sleep(0.01)
+        pump(app)
+        assert "scored once" in widget.holdout_value.text()
+        assert not widget.holdout_button.isEnabled()       # not offered a second time
     finally:
         widget.close()

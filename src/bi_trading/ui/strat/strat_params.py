@@ -96,7 +96,12 @@ class ParamsTile(Card):
         super().__init__(parent)
         defaults = Settings.load().backtest
 
-        title = QLabel("BACKTEST VALUE")
+        from bi_trading.state import venue as venue_state
+
+        # A Polymarket run bets; a Hyperliquid run holds a position.
+        title = QLabel(
+            "BET VALUE" if venue_state.current() == venue_state.PM else "BACKTEST VALUE"
+        )
         title.setObjectName("tileTitle")
         # The venue's costs are a preset for two of the fields below, so the
         # pick sits beside the title instead of taking a grid row of its own.
@@ -133,6 +138,10 @@ class ParamsTile(Card):
         # Not a field on the tile: the share of a bar's traded value one fill may
         # take comes from Settings (`backtest.participation`), 0 = off.
         self._participation = float(getattr(defaults, "participation", 0.0))
+        # Likewise the fill model: `backtest.entry` (open of the next bar, or the
+        # close of the signal bar) and `backtest.limit_through`, in percent.
+        self._entry = str(getattr(defaults, "entry", "close"))
+        self._through = float(getattr(defaults, "limit_through", 0.0))
         self.warmup_field = self._field(defaults.warmup, 0.0, 1_000_000.0)
         self.warmup_field.setToolTip(
             "Bars of history before a signal counts, so indicators have settled; "
@@ -248,6 +257,8 @@ class ParamsTile(Card):
             "hold": _number(self.hold_field.text()),
             "warmup": _number(self.warmup_field.text()),
             "participation": self._participation,
+            "entry": self._entry,
+            "limit_through": self._through,
             "dynamic_tp": self.dynamic_tp.isChecked(),
             "dyn_tp_reverse": _number(self.reverse_field.text()),
             "venue": self.venue.currentText(),

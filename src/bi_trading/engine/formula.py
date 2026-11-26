@@ -39,6 +39,9 @@ __all__ = [
     "FUNCTION_NOTES",
     "HINT",
     "NO_HISTORY",
+    "PM_ENTRY_FIELDS",
+    "PM_EXIT_FIELDS",
+    "POLYMARKET_FIELDS",
     "Assignment",
     "Binary",
     "Call",
@@ -70,8 +73,20 @@ NO_HISTORY = ("model_p", "spread", "liquidity", "days_left")
 # the market price a Polymarket-style rule names.
 ENTRY_FIELDS = FIELDS + NO_HISTORY + ("price",)
 
+# The Polymarket venue's words, next to the Binance bar's own: a rule on a
+# five-minute market may mix candle indicators with the share price. The price
+# is the Up share's (a Down share is 1 - up_price); `minute` is how far into the
+# window the decision is (1 to 4) and `seconds_left` what remains of it.
+POLYMARKET_FIELDS = ("up_price", "down_price", "seconds_left", "minute")
+PM_ENTRY_FIELDS = FIELDS + ("price",) + POLYMARKET_FIELDS
+PM_EXIT_FIELDS = EXIT_FIELDS + FIELDS + POLYMARKET_FIELDS
+
 # A line about each word, shown when it is selected in the code tab.
 FIELD_NOTES: dict[str, str] = {
+    "up_price": "the price of an Up share, 0 to 1 (the market's chance of Up)",
+    "down_price": "the price of a Down share, 0 to 1 (1 minus up_price)",
+    "seconds_left": "seconds until the five-minute market settles",
+    "minute": "minutes into the market when the rule is checked, 1 to 4",
     "open": "the bar's opening price",
     "high": "the bar's highest price",
     "low": "the bar's lowest price",

@@ -615,7 +615,8 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
     defaults = Settings.load().backtest
     tile = window.params
 
-    assert tile.findChild(QLabel, "tileTitle").text() == "BACKTEST VALUE"
+    # A Polymarket run bets, a Hyperliquid one holds a position.
+    assert tile.findChild(QLabel, "tileTitle").text() == "BET VALUE"
     assert tile.params() == {
         "initial_capital": defaults.initial_capital,
         "sizing": defaults.sizing,
@@ -626,6 +627,8 @@ def test_the_parameters_start_from_the_settings_file(app: QApplication, window) 
         "hold": defaults.hold,
         "warmup": defaults.warmup,
         "participation": defaults.participation,
+        "entry": defaults.entry,
+        "limit_through": defaults.limit_through,
         "slippage": defaults.slippage,
         "fee": defaults.fee,
         "dynamic_tp": defaults.dynamic_tp,
@@ -1206,8 +1209,12 @@ def test_the_create_button_opens_the_builder(app: QApplication, window, monkeypa
 def test_the_hub_sends_create_to_its_own_builder_view(app: QApplication, monkeypatch, tmp_path) -> None:
     from bi_trading.ui.hub.main_hub import MainHubWindow
 
+    from bi_trading.state import venue as venue_state
+
     monkeypatch.setenv("BI_TRADING_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(venue_state, "current", lambda: venue_state.HL)
     hub = MainHubWindow(autostart=False)
+    hub._venue = venue_state.HL
     hub._open("backtest")
     app.processEvents()
     assert hub._key == "backtest"

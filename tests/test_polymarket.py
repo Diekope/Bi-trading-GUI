@@ -1547,3 +1547,64 @@ def test_the_market_socket_does_not_negotiate_compression(monkeypatch) -> None:
     with pytest.raises(OSError):      # the connect fails first: no feed (or its loop) is needed
         asyncio.run(polymarket_feed.PolymarketFeed._session(object(), ["t1"], 9e12))
     assert seen["compression"] is None and seen["max_queue"] == 256
+
+
+# -- the chart across a new market -------------------------------------------
+
+
+def _roll_ready(window: MainWindow):
+    """A panel with a first window, its target and a minute of line."""
+    panel = window.polymarket
+    first = market_from_gamma()
+    panel.set_market(first)
+    now = int(time.time() * 1000)
+    panel.set_window_prices(
+        100_000.0, [PricePoint(now - 60_000 + i * 5_000, 100_000.0 + i) for i in range(12)]
+    )
+    return panel, first
+
+
+def test_a_new_market_does_not_draw_the_old_target_on_the_new_window(window: MainWindow) -> None:
+    panel, first = _roll_ready(window)
+    chart = panel.price_chart
+    assert chart.target == pytest.approx(100_000.0)
+
+    panel.set_market(market_from_gamma(slug="btc-updown-5m-1793734500"))
+    assert chart.target is None                     # until the new window's own arrives
+    # The once-a-second samples must not feed the old target back in.
+    panel._last_sample = 0
+    panel.set_btc(100_050.0)
+    assert chart.target is None
+    # The old window's line stays where it was.
+    assert [round(t) for _, _, t in chart._past] == [100_000]
+
+    panel.set_window_prices(100_250.0, [])
+    assert chart.target == pytest.approx(100_250.0)
+
+
+def test_a_new_target_fades_in_and_a_known_one_is_whole(window: MainWindow) -> None:
+    panel, _ = _roll_ready(window)
+    chart = panel.price_chart
+    panel.set_market(market_from_gamma(slug="btc-updown-5m-1793734500"))
+    panel.set_window_prices(100_250.0, [])
+    assert chart._fade() < 0.2                      # just arrived
+    chart._shown_at -= 10.0
+    assert chart._fade() == 1.0
+
+
+def test_the_chart_paints_before_during_and_after_a_roll(window: MainWindow, tmp_path) -> None:
+    panel, _ = _roll_ready(window)
+    chart = panel.price_chart
+    chart.resize(520, 170)
+    stages = []
+    stages.append(("before", chart.grab()))
+    panel.set_market(market_from_gamma(slug="btc-updown-5m-1793734500"))
+    stages.append(("rolled, no target yet", chart.grab()))
+    panel.set_window_prices(100_025.0, [])
+    stages.append(("target fading in", chart.grab()))
+    chart._shown_at -= 10.0
+    stages.append(("target whole", chart.grab()))
+    for name, image in stages:
+        assert not image.isNull(), name
+    for index, (_, image) in enumerate(stages):
+        image.save(str(tmp_path / f"roll-{index}.png"))

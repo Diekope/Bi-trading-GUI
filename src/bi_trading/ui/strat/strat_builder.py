@@ -14,7 +14,7 @@ checker (`bi_trading.engine.formula`) is what keeps them honest.
 Standalone on purpose: nothing in the backtest window opens it, and nothing in
 it is wired to the run, the parameters or the candle data.
 
-    uv run bi-trading-builder
+    the hub's Builder view (`uv run bi-trading`)
 
 It carries the same canvas, cards and gap as the other windows, so it reads as
 another sheet of the same desk rather than a separate application.
@@ -43,10 +43,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from bi_trading.engine.formula import EXIT_FIELDS, EXIT_FUNCTIONS
-from bi_trading.ui.strat.formula_builder import EXIT_PALETTES
+from bi_trading.engine.formula import (
+    ENTRY_FIELDS,
+    EXIT_FIELDS,
+    EXIT_FUNCTIONS,
+    PM_ENTRY_FIELDS,
+    PM_EXIT_FIELDS,
+)
+from bi_trading.ui.strat.formula_builder import EXIT_PALETTES, PM_EXIT_PALETTES, PM_PALETTES
 from bi_trading.logs import install_qt_handler, setup
 from bi_trading.ui.panels import Card
+from bi_trading.ui.venue_icons import venue_mark
 from bi_trading.state import strategies
 from bi_trading.state.strategies import SavedStrategy
 from bi_trading.ui.strat.strat_report import ReportTile
@@ -199,26 +206,57 @@ class StrategyBuilderWindow(QMainWindow):
         self.right_column.setChildrenCollapsible(False)
         self.right_column.setHandleWidth(CARD_GAP)
 
-        self.entry_tile = RulesTile("ENTRY RULES", header=False)
+        # The wording follows the venue: a Polymarket strategy bets and cashes out,
+        # a Hyperliquid one buys and sells.
+        from bi_trading.state import venue as venue_state
+
+        self.venue = venue_state.current()
+        entry_word, exit_word = (
+            ("BET UP WHEN", "CASH OUT WHEN") if self.venue == venue_state.PM
+            else ("BUY WHEN", "SELL WHEN")
+        )
+        short_word = "BET DOWN WHEN" if self.venue == venue_state.PM else entry_word
+        pm = self.venue == venue_state.PM
+        self._default_side = "Both" if pm else "Long"
+        # A Polymarket rule reads the candles and the share price together.
+        entry_palettes = PM_PALETTES if pm else None
+        entry_fields = PM_ENTRY_FIELDS if pm else ENTRY_FIELDS
+        up_hint = "minute >= 2 and up_price < 0.4" if pm else "mid = sma(close, 20)\nclose < mid"
+        down_hint = "minute >= 2 and up_price > 0.6" if pm else "mid = sma(close, 20)\nclose < mid"
+        self.entry_tile = RulesTile(
+            "ENTRY RULES", header=False, condition_label=entry_word,
+            palettes=entry_palettes, fields=entry_fields, placeholder=up_hint,
+        )
         # The exit tile is the same widget, but it reads the trade, not the
         # bar: TP, SL, PNL, price — and no indicators.
         self.exit_tile = RulesTile(
             "EXIT RULES",
-            palettes=EXIT_PALETTES,
-            fields=EXIT_FIELDS,
+            palettes=PM_EXIT_PALETTES if pm else EXIT_PALETTES,
+            fields=PM_EXIT_FIELDS if pm else EXIT_FIELDS,
             functions=EXIT_FUNCTIONS,
-            placeholder="pnl >= tp or pnl <= 0 - sl",
+            placeholder=(
+                "pnl >= 25 or pnl <= -30 or seconds_left < 30" if pm
+                else "pnl >= tp or pnl <= 0 - sl"
+            ),
             header=False,
-            condition_label="EXIT WHEN",
+            condition_label=exit_word,
         )
         # The two rules are one tile now: their titles switch between them,
         # and the Rules / Formula / Code pills belong to the side on top.
         # A strategy that goes both ways has a second entry rule for its shorts.
-        self.short_tile = RulesTile("SHORT ENTRY RULES", header=False)
+        self.short_tile = RulesTile(
+            "SHORT ENTRY RULES", header=False, condition_label=short_word,
+            palettes=entry_palettes, fields=entry_fields, placeholder=down_hint,
+        )
         self.rules = RulesSwitcher(
             self.entry_tile, self.exit_tile, self.right_column,
             short_entry=self.short_tile,
         )
+        if pm:
+            self.rules.set_labels(
+                entry="BET UP RULES", entry_both="BET UP RULES",
+                short="BET DOWN RULES", exit="CASH OUT RULES",
+            )
         # Under the rules: what they did over the candles on disk.
         self.report = ReportTile(self.right_column)
         self.right = self.right_column
@@ -256,12 +294,25 @@ class StrategyBuilderWindow(QMainWindow):
         row.addWidget(self.name_edit, 1)
         row.addWidget(self.timeframe)
         self.strategy_tile.body.addLayout(row)
+        # Which venue this strategy is for, as the design marks it.
+        venue_tag = venue_mark("pm" if self.venue == venue_state.PM else "hl", 18)
+        venue_tag.setObjectName("venueLogo")
+        venue_row = QHBoxLayout()
+        venue_row.setContentsMargins(0, 0, 0, 0)
+        venue_row.addWidget(venue_tag)
+        venue_row.addStretch(1)
+        self.strategy_tile.body.addLayout(venue_row)
 
         # The side gets its own row: the rail is too narrow for three fields.
         self.side.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.strategy_tile.body.addWidget(self.side)
+        if pm:
+            # A Polymarket strategy has a rule for each side: bet UP, bet DOWN.
+            # An empty rule never bets, so there is no side to pick.
+            self.side.setCurrentText("Both")
+            self.side.setVisible(False)
 
         # The strategy tile is only as tall as its title and row; the two
         # below it share whatever is left.
@@ -294,6 +345,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.side.currentTextChanged.connect(self._sync_report)
         self.side.currentTextChanged.connect(self._describe_draft)
         self.side.currentTextChanged.connect(self._refresh_saved)
+        if pm:
+            self._side_changed()      # both rules offered from the start
         self.name_edit.textChanged.connect(self._describe_draft)
         self.name_edit.textChanged.connect(self._refresh_saved)
         self.left.chosen.connect(self.load_strategy)
@@ -383,7 +436,7 @@ class StrategyBuilderWindow(QMainWindow):
         """Clear the draft back to nothing."""
         self.name_edit.setText("")
         self.timeframe.setCurrentIndex(0)
-        self.side.setCurrentIndex(0)
+        self.side.setCurrentText(self._default_side)
         self.entry.reset_draft()
         self.exit.reset_draft()
         self.short.reset_draft()
@@ -502,7 +555,8 @@ class StrategyBuilderWindow(QMainWindow):
         self.name_edit.setText(found.name)
         self.timeframe.setCurrentText(found.timeframe)
         self.side.setCurrentText(
-            {"short": "Short", "both": "Both"}.get(found.side, "Long")
+            "Both" if self.venue == "pm"
+            else {"short": "Short", "both": "Both"}.get(found.side, "Long")
         )
         self.entry.set_text(found.entry)
         self.short.set_text(found.short_entry)

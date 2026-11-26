@@ -31,7 +31,8 @@ def config(kind: str = "gbm", **kwargs) -> TrainConfig:
         timeframe="1m",
         max_samples=20_000,
         # wide exits and no costs: the trades then just follow the direction called
-        **{"tp": 100.0, "sl": 100.0, "hold": 1, "fee": 0.0, "slippage": 0.0, **kwargs},
+        **{"tp": 100.0, "sl": 100.0, "hold": 1, "fee": 0.0, "slippage": 0.0,
+           "holdout": 0.0, **kwargs},
     )
 
 
@@ -309,3 +310,26 @@ def test_a_trade_still_open_when_the_data_ends_is_marked_not_counted() -> None:
     assert stats.signals == 0 and stats.hit_rate is None
     # in at 100, marked at 100.5, and the entry fee is paid: +0.5% - 0.1%
     assert stats.strategy_return == pytest.approx(0.4)
+
+
+def test_an_entry_at_the_next_open_and_a_gapped_stop_in_the_screen() -> None:
+    # Signal on bar 0; bar 1 opens at 101 (the fill) and its low breaks the 1% stop.
+    stats = trade(
+        [0.7, 0.5, 0.5], [100, 101, 101], [100, 101, 101], [100, 90, 101],
+        open=np.array([100, 101, 101.0]), entry_open=True, tp=5.0,
+    )
+    assert stats.signals == 1 and stats.hit_rate == 0.0
+    # A stop at 99.99 and an open of 95: the fill is the open.
+    gapped = trade(
+        [0.7, 0.5, 0.5], [100, 95, 95], [100, 96, 96], [100, 94, 94],
+        open=np.array([100, 95, 95.0]), tp=5.0,
+    )
+    assert gapped.strategy_return == pytest.approx(-5.0)
+
+
+def test_a_limit_target_must_be_traded_through_in_the_screen() -> None:
+    touched = trade(
+        [0.7, 0.5, 0.5], [100, 100, 100], [100, 102, 100], [100, 100, 100],
+        through=0.1, hold=1,
+    )
+    assert touched.hit_rate == 0.0     # touched 102, not through it: the hold ends it

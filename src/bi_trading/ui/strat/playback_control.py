@@ -154,7 +154,18 @@ def on_walk_ready(self: PlaybackTile, token: int, session, target: int, result) 
     self._landed()
 
 
+def poll_band(self: PlaybackTile) -> None:
+    """Show the random runs' figure once the background walk has finished."""
+    session = self.session
+    if session is not None and session.band_state == "running":
+        return
+    self._band_poll.stop()
+    self._refresh_metrics()
+
+
 def landed(self: PlaybackTile) -> None:
+    if self.session is not None and self.session.band_state == "running":
+        self._band_poll.start()
     self._elapsed = 0
     self.player.set_offset(0.0)
     self.player.reset_range()

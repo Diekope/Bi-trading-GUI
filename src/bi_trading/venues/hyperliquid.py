@@ -189,6 +189,14 @@ class HyperliquidVenue:
         if self._exchange is None:
             raise VenueError("submit requires private_key and account_address")
         try:
+            if order.leverage and not order.reduce_only:
+                # Isolated, so the margin is exactly size / leverage as shown.
+                await asyncio.to_thread(
+                    self._exchange.update_leverage,
+                    order.leverage,
+                    order.instrument.symbol,
+                    False,
+                )
             result = await asyncio.to_thread(
                 self._exchange.order,
                 order.instrument.symbol,

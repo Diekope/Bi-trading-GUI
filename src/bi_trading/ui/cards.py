@@ -33,6 +33,7 @@ from bi_trading.data.market_data import (
     search_markets,
 )
 from bi_trading.ui.trade_form import TradeForm
+from bi_trading.ui.theme_colors import ACCENT, UP
 from bi_trading.ui.panels import Card
 
 from bi_trading.ui.candle_chart import (  # noqa: F401
@@ -69,7 +70,8 @@ class Timeframes(QWidget):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
+        layout.addStretch(1)   # the pills sit at the right of their row
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
@@ -84,7 +86,6 @@ class Timeframes(QWidget):
             self.group.addButton(button, index)
             self._buttons[index] = interval
             layout.addWidget(button)
-        layout.addStretch(1)
 
         self.group.idClicked.connect(self._on_clicked)
 
@@ -256,7 +257,7 @@ class MarketCard(Card):
         self.name = ClickableLabel(coin or "—")
         self.name.setToolTip("Change market")
         name_font = self.name.font()
-        name_font.setPointSize(12)
+        name_font.setPointSize(16)
         name_font.setWeight(QFont.Weight.DemiBold)
         self.name.setFont(name_font)
 
@@ -269,8 +270,13 @@ class MarketCard(Card):
         )
         self.badge.setVisible(False)
 
+        # Whether prices are arriving: the web design's "● live" beside the name.
+        self.status = QLabel("○ connecting")
+        self.status.setObjectName("cardStatus")
+        self.status.setProperty("live", "false")
+
         self.price = QLabel("—")
-        self.price.setFont(mono_font(13, bold=True))
+        self.price.setFont(mono_font(20, bold=True))
         self.price.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -293,6 +299,7 @@ class MarketCard(Card):
 
         header.addWidget(self.name)
         header.addWidget(self.badge)
+        header.addWidget(self.status)
         header.addStretch(1)
 
         # Overlays, in the card as the mock draws them.
@@ -308,10 +315,6 @@ class MarketCard(Card):
         self.bollinger_toggle.setChecked(False)
         self.bollinger_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.bollinger_toggle.toggled.connect(self._apply_overlays)
-        header.addWidget(self.volume_toggle)
-        header.addWidget(self.bollinger_toggle)
-        header.addSpacing(2)
-
         header.addWidget(self.price)
         header.addWidget(self.add_button)
         header.addWidget(self.close_button)
@@ -331,9 +334,26 @@ class MarketCard(Card):
         self.chart.history_requested.connect(self._on_history_requested)
         self.chart.interval_selected.connect(self.set_interval)
 
+        # The second row: the chart's overlays on the left, the timeframe pills
+        # on the right.
+        options = QHBoxLayout()
+        options.setContentsMargins(0, 0, 0, 0)
+        options.setSpacing(12)
+        # The design's coin pill, selected; BTC is the only market here.
+        self.coin_pill = QPushButton(coin or "BTC")
+        self.coin_pill.setObjectName("tfButton")
+        self.coin_pill.setCheckable(True)
+        self.coin_pill.setChecked(True)
+        self.coin_pill.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        options.addWidget(self.coin_pill)
+        options.addWidget(self.volume_toggle)
+        options.addWidget(self.bollinger_toggle)
+        options.addStretch(1)
+        options.addWidget(self.timeframes)
+
         self.body.addLayout(header)
         self.body.addWidget(self.search)
-        self.body.addWidget(self.timeframes)
+        self.body.addLayout(options)
         self.body.addWidget(self.chart, 1)
 
         # The trade form under the chart, as the mock draws it.
@@ -379,19 +399,30 @@ class MarketCard(Card):
             self.coin = market.coin
             self._sz_decimals = market.sz_decimals
         self._has_mids = False
+        self._set_live(False)
         self.name.setText(market.coin if market else "—")
         self.badge.setVisible(bool(market and market.is_hip3))
         self.chart.set_precision(self._sz_decimals)
         self.search.setVisible(market is None)
         self.timeframes.setVisible(market is not None)
         self.trade_form.setVisible(market is not None)
+        self.trade_form.show_bar(market is not None)
         if market is None:
             self.chart.set_series(())
             self.set_placeholder("search a market above")
             self.price.setText("—")
             self.trade_form.set_price(None)
 
+    def _set_live(self, live: bool) -> None:
+        """The status beside the name: prices arriving, or not yet."""
+        self.status.setText("● live" if live else "○ connecting")
+        # Inline: the hub's own sheet would otherwise win over the card's.
+        self.status.setStyleSheet(
+            f"color: {UP if live else ACCENT}; font-size: 11px; background: transparent;"
+        )
+
     def apply_mid(self, price: float) -> None:
+        self._set_live(True)
         self._has_mids = True
         self.price.setText(format_price(price, self._sz_decimals))
         self.trade_form.set_price(price)

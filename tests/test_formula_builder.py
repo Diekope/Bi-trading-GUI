@@ -839,7 +839,7 @@ def test_the_formula_title_sits_at_the_top_of_its_card(
     assert titles[0].geometry().top() < 20
 
 
-def test_the_lines_do_not_scroll_inside_the_formula_card(
+def test_the_lines_scroll_in_their_own_box_inside_the_formula_card(
     app: QApplication, builder: FormulaBuilder
 ) -> None:
     builder.resize(560, 360)
@@ -850,11 +850,12 @@ def test_the_lines_do_not_scroll_inside_the_formula_card(
     for _ in range(5):
         app.processEvents()
 
-    # Every line is on the card itself, with no scrollbox of its own: the
-    # page around the builder is what moves if they do not fit.
+    # Every line sits in a scroll box of its own, so a long rule moves the lines
+    # and nothing else; the page around the builder does not scroll.
     assert len(builder.strips) == 5
     assert builder.strip_area.objectName() == "stripArea"
-    assert builder.findChild(QScrollArea, "stripScroll") is None
+    scroll = builder.findChild(QScrollArea, "stripScroll")
+    assert scroll is not None and scroll.widget() is builder.strip_area
     assert builder.strip_inner.isAncestorOf(builder.strips[-1])
     assert all(strip.isVisible() for strip in builder.strips)
 

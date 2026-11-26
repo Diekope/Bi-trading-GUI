@@ -771,6 +771,13 @@ def test_a_chunked_walk_equals_the_whole_one(
 
     years = [2019, 2020, 2021]
     _wander(years)
+    # A streamed span cannot know how often the strategy signals, so its coin-flip
+    # baseline uses the fixed rate; give the whole walk that rate to compare like
+    # with like (the matched rate is tested on its own, in test_baseline).
+    monkeypatch.setattr(
+        playback_session, "matched_chance",
+        lambda longs, shorts: (playback_session.FALLBACK_CHANCE, 1.0),
+    )
     whole = sp.build_session(years, _PARAMS, rule, resolution)
     assert whole.span is not None and not whole._chunk_ready()
     whole.seek(whole.total)

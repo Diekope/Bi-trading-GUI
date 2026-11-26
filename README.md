@@ -2,7 +2,8 @@
 
 Dark trading terminal and backtester. Hyperliquid candles are live on the
 right; the left column tracks the current Polymarket five-minute BTC up/down
-market. A strategy builder and a backtest engine live in the same app.
+market. A strategy builder and a backtest engine live in the same app, and the
+Polymarket side backtests bets on the real past five-minute markets.
 
 ![The terminal: the Polymarket BTC up/down column on the left, live Hyperliquid candles on the right](docs/images/terminal.png)
 
@@ -10,7 +11,7 @@ market. A strategy builder and a backtest engine live in the same app.
 
 ```sh
 uv sync                  # PySide6, httpx, websockets, numpy, pyarrow
-uv run bi-trading-hub    # the hub: Home, Live, Builder, Backtest, Settings
+uv run bi-trading        # the whole app, the hub: Home, Live, Builder, Backtest, Settings
 ```
 
 The GUI opens with no credentials, network access or wallet keys. Optional
@@ -23,8 +24,7 @@ uv sync --extra ml                      # scikit-learn + torch, to train models 
 uv sync --extra venues --extra native --extra ml   # all; `uv sync` is exact, so name every extra
 ```
 
-The hub's views are Home, Live, Builder, Backtest, ML, Logs and Settings. Each view can also run on its own: `bi-trading` (terminal), `bi-trading-strat`
-(backtest), `bi-trading-builder` (strategy builder).
+The app launches as a whole with one command, `bi-trading` (also `python -m bi_trading`). Its views are Home, Live, Builder, Backtest, ML, Logs and Settings.
 
 ## Orders are dry-run by default
 
@@ -39,11 +39,12 @@ Details: [docs/configuration.md](docs/configuration.md).
 | Area | What it is | Details |
 | --- | --- | --- |
 | Terminal | Live candle cards, overlays, search over 377 markets, the Polymarket 5m column | [docs/terminal.md](docs/terminal.md) |
-| Strategy builder | Drag-and-drop formula builder, rules, code view, saved strategies | [docs/strategy-builder.md](docs/strategy-builder.md) |
+| Strategy builder | Drag-and-drop formula builder, rules, code view, saved strategies; on Polymarket three rules (bet UP, bet DOWN, cash out) | [docs/strategy-builder.md](docs/strategy-builder.md) |
 | Formulas | The entry/exit formula language and its evaluator | [docs/formulas.md](docs/formulas.md) |
-| Backtest | Candle store and download, run controls, results, playback; a trade is never held through a data gap, coarse bars sit on the clock, and the results say how far to trust them (t-stat, yearly Sharpe, costs at 2x, by year) | [docs/backtest.md](docs/backtest.md) |
+| Backtest | Candle store and download, run controls, results, playback; a trade is never held through a data gap, coarse bars sit on the clock, entries fill at the next open and gapped stops at the open, the random baseline is 100 runs through the same walk, and the results say how far to trust them (t-stat, yearly Sharpe, costs at 2x, by year, venue check) | [docs/backtest.md](docs/backtest.md) |
 | Backtest audit | What still keeps the backtest from being viable, by importance, with what is fixed | [docs/backtest-audit.md](docs/backtest-audit.md), [html](docs/backtest-audit.html) |
-| ML strategies | Train a model (boosting, forest, MLP or your own network), trade its P(up) as `model_p` | [docs/ml.md](docs/ml.md) |
+| ML strategies | Train a model (boosting, forest, MLP or your own network), trade its P(up) as `model_p`; a locked final hold-out scored once, with the models tried counted | [docs/ml.md](docs/ml.md) |
+| Polymarket backtest | The Backtest view on the Polymarket venue: bet UP or DOWN on past five-minute markets with real downloaded prices (a simulated fair price where none exists), cash out early or settle; rules mix Binance candles with `up_price`, `down_price`, `minute`, `seconds_left` | [docs/polymarket-backtest.md](docs/polymarket-backtest.md) |
 | Logs | The trading record: orders, fills, signals, warnings, with the why | [docs/logs.md](docs/logs.md) |
 | Configuration | Settings, trading safety, saved state, logging | [docs/configuration.md](docs/configuration.md) |
 | Architecture | Why Python, source layout, data sources | [docs/architecture.md](docs/architecture.md) |

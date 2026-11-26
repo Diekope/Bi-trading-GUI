@@ -219,6 +219,108 @@ class StrategyRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
+class VenueSwitch(QFrame):
+    """One choice in the rail's venue switch: the venue's logo, and under it that
+    venue's round trip, all inside the one box that lights when it is chosen."""
+
+    clicked = Signal()
+
+    def __init__(
+        self, venue: str, caption: str, mark: QPixmap | None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("venueSwitch")
+        self.setProperty("venue", venue)
+        self.setProperty("active", "false")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(2)
+        # The same box for every choice, its contents centred, so the three sit
+        # at even steps down the rail.
+        self.logo = QLabel()
+        self.logo.setObjectName("venueLogo")
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if mark is not None:
+            self.logo.setPixmap(mark)
+        else:
+            self.logo.setText(caption)
+            self.logo.setObjectName("venueCaption")
+        self.delay: QLabel | None = None
+        column.addStretch(1)
+        column.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        if mark is not None:
+            self.delay = QLabel("—")
+            self.delay.setObjectName("railMs")
+            self.delay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            column.addWidget(self.delay, 0, Qt.AlignmentFlag.AlignHCenter)
+        column.addStretch(1)
+        self.setFixedSize(40, 48)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
+class StrategyTile(QFrame):
+    """A saved strategy as a tile: name, what it runs on, and its result.
+
+    The selected tile is outlined in amber. Click to open it in the builder.
+    """
+
+    clicked = Signal(str)
+
+    def __init__(
+        self, name: str, meta: str, badge: str, tone: str, selected: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.name = name
+        self.setObjectName("stile")
+        self.setProperty("selected", "true" if selected else "false")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("open this strategy in the builder")
+        column = QVBoxLayout(self)
+        column.setContentsMargins(12, 10, 12, 10)
+        column.setSpacing(3)
+        title = _label(name, "stileName")
+        title.setWordWrap(True)
+        column.addWidget(title)
+        column.addWidget(_label(meta, "stileMeta"))
+        if badge:
+            pnl = _label(badge, "stratPnl", rich=True)
+            pnl.setStyleSheet(f"color: {tone}; background: transparent;")
+            column.addWidget(pnl)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.name)
+        super().mouseReleaseEvent(event)
+
+
+class NewTile(QFrame):
+    """The dashed "new" tile that ends a list of tiles."""
+
+    clicked = Signal()
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("stileNew")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(56)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 10, 12, 10)
+        row.addStretch(1)
+        row.addWidget(_label(text, "stileNewText"))
+        row.addStretch(1)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 def _pnl_badge(
     entry: str, exit_: str, timeframe: str, side: str = "long",
     short_entry: str = "", model: str = "",
@@ -260,7 +362,10 @@ __all__ = [
     "ICONS",
     "EquityCurve",
     "ProgressBar",
+    "NewTile",
     "StrategyRow",
+    "StrategyTile",
+    "VenueSwitch",
     "_accent",
     "_button",
     "_dot",

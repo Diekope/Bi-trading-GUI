@@ -359,3 +359,26 @@ def test_the_terminal_bets_only_on_the_call_made_as_the_window_opened(ml_window,
     assert ml_window._autobet.open == []
     assert "no call for this window yet" in ml_window.strategy_bar.status.text()
     del dataclasses
+
+
+def test_a_manual_bets_fill_is_tracked_and_its_window_books_the_pnl(ml_window) -> None:
+    market = ml_window.polymarket.market
+    token = market.outcomes[0].token_id
+    ml_window._manual_orders[token] = (market.slug, "up", market.end_ms)
+
+    ml_window._on_filled("polymarket", token, "buy", 20.0, 10.0)      # the venue's fill
+    (bet,) = ml_window._autobet.open
+    assert (bet.origin, bet.side, bet.stake, bet.filled) == ("manual", "up", 10.0, True)
+    assert ml_window._autobet.last_window == ""         # auto-bets keep their window
+
+    ml_window._on_filled("polymarket", token, "sell", 10.0, 7.0)      # half sold early
+    assert any(e.pnl == 2.0 and "Sold early" in e.message for e in ml_window.log.events())
+
+    # A fill nobody asked for (no order of ours behind it) is not made into a bet.
+    ml_window._on_filled("polymarket", "unknown-token", "buy", 5.0, 2.0)
+    assert [b.token for b in ml_window._autobet.open] == [token]
+
+    ml_window._official[market.slug] = "up"
+    ml_window._resolve_bets("a-later-window")
+    assert ml_window._autobet.open == []
+    assert any(e.pnl == 5.0 and e.origin == "manual" for e in ml_window.log.events())

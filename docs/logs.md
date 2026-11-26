@@ -106,3 +106,10 @@ true. The rules are in `src/bi_trading/state/autobet.py`:
   finished window closed, and logs `RESOLVED … settled by Polymarket` once it says. Only
   if that has not come 10 minutes after the window ended does the bet fall back to the
   BTC estimate, marked `≈ … · estimated`. Paper bets are still settled from BTC.
+- A bet you place **by hand** (the Up and Down buttons) is closed the same way. It is
+  kept when its order **fills**, at the venue's own stake and price (a failed order makes
+  nothing, and partial fills add up), logged as `manual`, and settled by its window with
+  Polymarket's own result. It does not use up the window for auto-bets. If you **sell**
+  shares before the window ends, the profit on those shares (what came in, less what
+  they cost) is logged at once as `Sold early`, and only the shares left settle at the
+  window's end. Not modelled: Polymarket's own fees, if any apply to a market.

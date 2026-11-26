@@ -99,8 +99,7 @@ dropped.
 two columns and the backtest window's two splits are saved (as ratios, so a
 different window size keeps the same split) a moment after you stop dragging, under
 `layout` in the settings file. The hub window's size is saved on quit, as before,
-and the standalone windows (`bi-trading`, `bi-trading-strat`, `bi-trading-builder`)
-keep theirs too. The terminal reopens on the timeframe it was left on, and the Logs
+and the standalone windows keep theirs too. The terminal reopens on the timeframe it was left on, and the Logs
 table keeps the widths its columns were dragged to. A damaged `layout` entry is ignored
 and the default layout is used. The builder's three columns are locked, so there is
 nothing of theirs to keep.

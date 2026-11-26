@@ -105,6 +105,9 @@ class OrderRequest:
     # Take what the book offers right now (fill-and-kill) instead of resting.
     # For a sell, `size` is the shares to sell and `price` the lowest it takes.
     market: bool = False
+    # Perps: the leverage to set on the venue before an opening order, so the
+    # margin the exchange takes matches the one the form showed. None leaves it.
+    leverage: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

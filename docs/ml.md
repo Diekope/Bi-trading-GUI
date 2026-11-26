@@ -65,6 +65,16 @@ stop; the target fills at its price; every other exit slips), one trade at a tim
 and hold. *Signals* is the number of trades and *Hit rate* the share that ended in profit after
 costs, so the screen and a backtest of the saved strategy tell the same story.
 
+**The hold-out.** The last 15% of the labelled bars (`holdout` in the training config) are
+set aside before anything else: no fit, auto-tune, threshold or model choice reads them, and
+the test curve above stops where they begin. *Score hold-out (once)* (after saving) trades
+them with the model's own thresholds, costs and fills and keeps the answer in the model's file;
+asking again returns that answer and never recomputes it. *Models tried* counts every training
+on this data (the same resolution and hold-out), and the hold-out's p-value (a coin-flip test
+on the hit rate) is shown both raw and multiplied by that count. The test part is still
+re-traded as thresholds move, so after a few changes read it as a development figure and the
+hold-out as the verdict. Models saved before this have no hold-out: retrain them.
+
 Read those figures for what they are. On real BTC candles an honest model usually sits at 51 to
 54% accuracy, and after costs a strategy that trades every call loses money. The screen is
 built to show that, not to hide it.

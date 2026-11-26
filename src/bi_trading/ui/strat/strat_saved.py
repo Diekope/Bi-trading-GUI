@@ -104,6 +104,8 @@ class StrategyRow(QFrame):
 
         self.label = QLabel(name, self)
         self.label.setObjectName("strategyRowName")
+        self.label.setWordWrap(True)
+        self.label.setMinimumWidth(0)
         row.addWidget(self.label, 1)
 
         self.badge = QLabel(badge, self)
@@ -152,6 +154,10 @@ class StrategyListTile(Card):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        # The tiles take the list's width; a long name wraps and never scrolls it.
+        scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         inner = QWidget()

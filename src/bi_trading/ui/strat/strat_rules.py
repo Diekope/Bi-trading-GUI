@@ -205,6 +205,7 @@ class RulesTile(Card):
         scroll = QScrollArea(page)
         scroll.setObjectName("pageScroll")
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
@@ -222,7 +223,9 @@ class RulesTile(Card):
             functions=self.functions, condition_label=self.condition_label,
         )
         self.formula.changed.connect(self._formula_changed)
-        return self._scroll_page(self.formula)
+        # No scroll around the whole builder: its panels scroll their own lists.
+        layout.addWidget(self.formula, 1)
+        return page
 
     def _code_page(self) -> QWidget:
         """The code on the left, its vocabulary and its values on the right."""
@@ -303,12 +306,26 @@ class RulesTile(Card):
         vocab_layout = QVBoxLayout(vocab_inner)
         vocab_layout.setContentsMargins(0, 0, 0, 0)
         vocab_layout.setSpacing(0)
+        from bi_trading.engine.formula_palettes import heading_for
+
+        shown = ""
+
+        def heading(text: str) -> None:
+            nonlocal shown
+            if text and text != shown:
+                shown = text
+                caption = QLabel(text, vocab_inner)
+                caption.setObjectName("railNote")
+                vocab_layout.addWidget(caption)
+
         for name in self.fields:
+            heading(heading_for(name, self.fields))
             row = VariableRow(name, "float", vocab_inner)
             row.clicked.connect(self._select_variable)
             self.vocab_rows[name] = row
             vocab_layout.addWidget(row)
         for name in sorted(self.functions):
+            heading(heading_for(f"{name}()", self.fields))
             label = f"{name}()"
             row = VariableRow(label, "function", vocab_inner)
             row.clicked.connect(self._select_variable)
@@ -355,6 +372,7 @@ class RulesTile(Card):
         scroll = QScrollArea(card)
         scroll.setObjectName("listScroll")
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         if not bar:
             scroll.setVerticalScrollBarPolicy(
@@ -637,7 +655,12 @@ class RulesSwitcher(Card):
         self.exit = exit_
         self.short_entry = short_entry
         self.current_side = "entry"
-
+        # What the side buttons say; a Polymarket builder renames them.
+        self.labels = {
+            "entry": "ENTRY RULES", "entry_both": "LONG ENTRY",
+            "short": "SHORT ENTRY", "exit": "EXIT RULES",
+        }
+        self.both = False
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(6)
@@ -707,12 +730,22 @@ class RulesSwitcher(Card):
             return self.short_entry
         return self.entry if self.current_side == "entry" else self.exit
 
+    def set_labels(self, **labels: str) -> None:
+        """Rename the side buttons (`entry`, `entry_both`, `short`, `exit`)."""
+        self.labels.update(labels)
+        self.side_buttons["short"].setText(self.labels["short"])
+        self.side_buttons["exit"].setText(self.labels["exit"])
+        self.set_both(self.both)
+
     def set_both(self, both: bool) -> None:
         """Offer the short entry (and name the first one the long's), or not."""
+        self.both = both
         if self.short_entry is None:
             return
         self.side_buttons["short"].setVisible(both)
-        self.side_buttons["entry"].setText("LONG ENTRY" if both else "ENTRY RULES")
+        self.side_buttons["entry"].setText(
+            self.labels["entry_both"] if both else self.labels["entry"]
+        )
         if not both and self.current_side == "short":
             self.set_side("entry")
 

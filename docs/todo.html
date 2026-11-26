@@ -45,6 +45,21 @@
     <button data-f="open" aria-pressed="false">Open only</button>
   </div>
   <section>
+    <h2>Design</h2>
+    <ul>
+    <li data-p="med" data-id="-merge-dev-and-ml-the-design-and-the-ven"><input type="checkbox"><span><b>Merge <code>dev</code> and <code>ml</code>.</b> The design and the venue switch are on <code>dev</code>; the ML screens, the backtest fixes and the manual-bet settlement are on <code>ml</code>. Merge them, then restyle the ML screens and the Model builder from the screenshots (<code>web/docs/screens/15</code>, <code>16</code> and <code>20</code> on <code>planning</code>).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-portfolio-screen-and-the-paper-chip-the-des"><input type="checkbox"><span><b>Portfolio screen and the PAPER chip.</b> The design has a Portfolio screen (the live and paper books, day PnL with a percent) and a PAPER equity chip in the top bar. There is no paper account here, only one paper position.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-polymarket-backtest-the-design-s-bet-value"><input type="checkbox"><span><b>Polymarket backtest.</b> The design&#x27;s &quot;Bet value&quot; card (max entry price, min edge, fee on wins, slippage in cents, exit mode, daily loss limit, max bets per day) and its Brier and resolved win and loss figures need a binary-payoff simulator, which needs historical Polymarket prices. Only the card&#x27;s title follows the venue today.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-per-venue-variables-in-the-builder-polymark"><input type="checkbox"><span><b>Per-venue variables in the Builder.</b> Polymarket should offer price, model_p, edge, spread, liquidity, days_left, btc and target; Hyperliquid open, high, low, close, volume, funding, oi and model_p. It is one mixed list now; only the wording follows the venue.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-model-and-edge-on-the-polymarket-live-screen-"><input type="checkbox"><span><b>Model and edge on the Polymarket Live screen.</b> Model P(up) and Edge show a dash until there is a model on this branch.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-hyperliquid-screen-details-the-design-has-c"><input type="checkbox"><span><b>Hyperliquid screen details.</b> The design has coin pills (HYPE, ETH, SOL) and TP % and SL % fields; the terminal is BTC only and an order has no take profit or stop yet.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-backtest-column-without-scrolling-the-right"><input type="checkbox"><span><b>Backtest column without scrolling.</b> The right column (History, values, Strategy, Save and Load run) still scrolls as one block; fit it, or let only its lists scroll.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-paper-live-switch-it-shows-whether-real-o"><input type="checkbox"><span><b>PAPER / LIVE switch.</b> It shows whether real orders are armed but cannot change it: arming stays in Settings. Decide whether a switch in the top bar is safe.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-strategy-tiles-with-a-result-home-s-tiles-s"><input type="checkbox"><span><b>Strategy tiles with a result.</b> Home&#x27;s tiles show a return only when there is candle history on disk to score the rule with.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-number-fields-the-design-right-aligns-numbe"><input type="checkbox"><span><b>Number fields.</b> The design right-aligns numbers in Settings; they are left-aligned.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
     <h2>Logs</h2>
     <ul>
     <li data-p="low" data-id="-polymarket-holdings-from-the-venue-sell-wor"><input type="checkbox"><span><b>Polymarket holdings from the venue.</b> Sell works on the shares this session bought (counted from the fills); read the wallet&#x27;s positions so a restart, or a bet placed elsewhere, can be sold from here too.</span><span class="tag low">Low</span></li>
@@ -53,6 +68,34 @@
     <li data-p="low" data-id="-hyperliquid-fills-its-orders-log-as-accept"><input type="checkbox"><span><b>Hyperliquid fills.</b> Its orders log as <code>ACCEPTED</code>, never <code>FILLED</code>, because the answer carries no match. Read the fills (or user events) to log them.</span><span class="tag low">Low</span></li>
     <li data-p="low" data-id="-archive-during-a-session-older-rows-move-to"><input type="checkbox"><span><b>Archive during a session.</b> Older rows move to Parquet only at launch, so a very long session keeps appending to one JSON file until the next start.</span><span class="tag low">Low</span></li>
     <li data-p="low" data-id="-strategy-stats-beyond-today-the-strategy-fi"><input type="checkbox"><span><b>Strategy stats beyond today.</b> The strategy filter and its figures are for today; add a range (week, all) and a per-strategy summary.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Polymarket backtest</h2>
+    <ul>
+    <li data-p="high" data-id="-order-book-history-depth-and-spread-were-ne"><input type="checkbox"><span><b>Order-book history.</b> Depth and spread were never recorded, so the half spread is an assumption and a large stake would move the price. Record the live book (the feed already reads it) while the app runs, and use the measured spread and depth.</span><span class="tag high">High</span></li>
+    <li data-p="med" data-id="-keep-recording-forward-polymarket-s-public-"><input type="checkbox"><span><b>Keep recording forward.</b> Polymarket&#x27;s public history is about one price a minute and starts 2026-02-12. Store the live ticks of each market as the app runs, for sub-minute prices and for history that outlives what Polymarket serves.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-stale-prices-a-decision-reads-the-last-samp"><input type="checkbox"><span><b>Stale prices.</b> A decision reads the last sample at or before the minute, up to a minute old; a &quot;cheap&quot; share may have been gone. Compare against the live tape, or fetch trades, and show how old the price was.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-save-and-load-runs-compare-and-playback-th"><input type="checkbox"><span><b>Save and load runs, Compare and playback.</b> The window has none of them; saved runs (<code>state/runs.py</code>) are candle runs. A bet-by-bet replay of the price would suit it.</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-settlement-source-polymarket-settles-on-its"><input type="checkbox"><span><b>Settlement source.</b> Polymarket settles on its own reference price; where a market has no stored outcome the run settles from Binance and says &quot;est.&quot;. Measure how often the two disagree on the markets that have both.</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-model-p-and-edge-for-polymarket-rules-the"><input type="checkbox"><span><b><code>model_p</code> and edge for Polymarket rules.</b> The ML layer is merged, but the binary engine does not feed it, so a Polymarket rule cannot read a model&#x27;s probability or an edge against the price.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-more-than-one-bet-per-market-one-bet-at-mos"><input type="checkbox"><span><b>More than one bet per market.</b> One bet at most; allow re-entry after a cash-out.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-the-builder-s-report-for-polymarket-rules-i"><input type="checkbox"><span><b>The builder&#x27;s report for Polymarket rules.</b> It says to run the strategy from the Backtest view; a small Polymarket report beside the editor would do.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-download-from-settings-the-button-lives-in-"><input type="checkbox"><span><b>Download from Settings.</b> The button lives in the Backtest view; a long download could also report from Settings and resume at launch.</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-audit-docs-backtest-audit-md-on-plannin"><input type="checkbox"><span><b>Audit.</b> <code>docs/backtest-audit.md</code> (on <code>planning</code>) should move #3 to &quot;partly fixed&quot;.</span><span class="tag low">Low</span></li>
+    </ul>
+  </section>
+  <section>
+    <h2>Backtest</h2>
+    <ul>
+    <li data-p="med" data-id="-venue-candles-over-time-hyperliquid-serves-"><input type="checkbox"><span><b>Venue candles over time.</b> Hyperliquid serves only its latest ~5,000 candles. Store its own as they arrive so a backtest can run on them; <code>python -m bi_trading.data.basis</code> reports the gap to the Binance history meanwhile (audit item 7).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-significance-tests-a-bootstrap-or-permutati"><input type="checkbox"><span><b>Significance tests.</b> A bootstrap or permutation test, and a take profit x stop loss sweep over the whole span instead of the last 2,000 bars (audit item 8).</span><span class="tag med">Medium</span></li>
+    <li data-p="med" data-id="-execution-realism-minimum-lot-tick-roundin"><input type="checkbox"><span><b>Execution realism.</b> Minimum lot, tick rounding and market impact. Give the ML builder&#x27;s own simulator the data-gap rule, the volume cap and the trailing stop too (audit item 12).</span><span class="tag med">Medium</span></li>
+    <li data-p="low" data-id="-count-threshold-moves-the-ml-test-part-is-r"><input type="checkbox"><span><b>Count threshold moves.</b> The ML test part is re-traded as thresholds move, and those moves are not counted against the hold-out&#x27;s p-value (audit item 5).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-maker-fee-and-queue-a-take-profit-pays-the-"><input type="checkbox"><span><b>Maker fee and queue.</b> A take profit pays the one flat fee and fills with no queue position (audit item 4).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-baseline-on-streamed-spans-a-span-read-a-ye"><input type="checkbox"><span><b>Baseline on streamed spans.</b> A span read a year at a time has no signal rate to copy and no random band (audit item 6).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-remove-the-old-random-entry-code-random-en"><input type="checkbox"><span><b>Remove the old random-entry code.</b> <code>random_entries*</code> in Rust and Python is unused; remove it when the shared native module can be rebuilt without breaking another branch (audit item 13).</span><span class="tag low">Low</span></li>
+    <li data-p="low" data-id="-polymarket-fees-on-settled-bets-a-settled-b"><input type="checkbox"><span><b>Polymarket fees on settled bets.</b> A settled bet pays $1 a share or loses its stake; any fee the market charges is not taken off, for manual and automatic bets alike.</span><span class="tag low">Low</span></li>
     </ul>
   </section>
   <section>

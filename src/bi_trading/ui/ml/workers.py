@@ -16,7 +16,7 @@ from bi_trading.ml.train import MLError, Stopped, TrainConfig, train
 
 log = logging.getLogger(__name__)
 
-__all__ = ["ScoreWorker", "TrainWorker", "available_years", "load_columns"]
+__all__ = ["HoldoutWorker", "ScoreWorker", "TrainWorker", "available_years", "load_columns"]
 
 
 def available_years() -> list[int]:
@@ -93,6 +93,35 @@ class TrainWorker(QThread):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
             return
         self.trained.emit(result)
+
+
+class HoldoutWorker(QThread):
+    """Score a saved model on its locked hold-out, off the GUI thread. Once."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, model: str, years: list[int], timeframe: str, parent=None) -> None:
+        super().__init__(parent)
+        self.model = model
+        self.years = list(years)
+        self.timeframe = timeframe
+
+    def run(self) -> None:
+        try:
+            from bi_trading.ml.holdout import score_holdout
+
+            loaded = load_columns(self.years, self.timeframe)
+            if loaded is None:
+                self.failed.emit("no candles on disk")
+                return
+            columns, stamps = loaded
+            self.done.emit(score_holdout(self.model, columns, stamps))
+        except MLError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # reaches the screen, not the thread's end
+            log.warning("hold-out scoring failed", exc_info=True)
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
 class ScoreWorker(QThread):

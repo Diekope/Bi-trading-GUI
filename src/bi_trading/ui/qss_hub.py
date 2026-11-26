@@ -53,12 +53,12 @@ QPushButton#closeTile:hover {{
 }}
 
 QPushButton#tfButton {{
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 3px;
-    color: #6f6f76;
-    font-size: 9px;
-    padding: 1px 5px;
+    background: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    padding: 3px 9px;
 }}
 QPushButton#tfButton:hover {{
     color: {TEXT};
@@ -76,8 +76,8 @@ QPushButton#resButton {{
     border: 1px solid {BORDER};
     border-radius: 4px;
     color: {TEXT_MUTED};
-    font-size: 9px;
-    padding: 3px 5px;
+    font-size: 11px;
+    padding: 6px 8px;
 }}
 QPushButton#resButton:hover {{
     color: {TEXT};
@@ -95,8 +95,8 @@ QPushButton#modeButton {{
     border: 1px solid {BORDER};
     border-radius: 4px;
     color: {TEXT_MUTED};
-    font-size: 9px;
-    padding: 2px 8px;
+    font-size: 11px;
+    padding: 4px 11px;
 }}
 QPushButton#modeButton:hover {{
     color: {TEXT};
@@ -110,14 +110,14 @@ QPushButton#modeButton:checked {{
 
 /* The rule titles double as the switch: one lit, the other quiet. */
 QPushButton#sideButton {{
-    background-color: transparent;
-    border: none;
-    border-radius: 4px;
+    background-color: {PANEL_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
     color: {TEXT_MUTED};
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.4px;
-    padding: 3px 8px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    padding: 7px 14px;
 }}
 QPushButton#sideButton:hover {{
     color: {TEXT};
@@ -125,6 +125,7 @@ QPushButton#sideButton:hover {{
 QPushButton#sideButton:checked {{
     color: {ACCENT};
     background-color: {ACCENT_BG};
+    border-color: {ACCENT_DIM};
 }}
 
 #latencyLabel {{
@@ -283,3 +284,57 @@ QCheckBox#overlayToggle::indicator:checked {{
     border-color: {ACCENT};
 }}
 """
+
+# The bars under each venue's card. Kept apart so the hub, whose own sheet would
+# otherwise win over the application's for plain labels, can carry them too.
+BAR_PART = f"""
+/* -- the bars under each venue's card (the bet bar and the order bar) ---------- */
+QFrame#betBar, QFrame#orderBar {{
+    background-color: {PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {CARD_RADIUS}px;
+}}
+QFrame#betBar QLabel, QFrame#orderBar QLabel {{ background: transparent; }}
+QLabel#barCoin {{ font-weight: 600; font-size: 13px; color: {TEXT}; }}
+QLabel#venueTagPm, QLabel#venueTagHl {{
+    font-family: monospace; font-size: 10px; font-weight: 700;
+    border-radius: 4px; padding: 1px 6px;
+}}
+QLabel#venueTagPm {{ color: #5b82ff; background: #101830; border: 1px solid #243a7a; }}
+QLabel#venueTagHl {{ color: #97fce4; background: #0f2024; border: 1px solid #1f5a4c; }}
+QLabel#modeBadge {{
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #ffa94d;
+    background: #2a1d0c; border: 1px solid #5a3d17; border-radius: 4px; padding: 2px 8px;
+}}
+QLabel#modeBadge[live="true"] {{
+    color: {DOWN}; background: {DOWN_BG}; border-color: {DOWN_DIM};
+}}
+QFrame#betBar[inline="true"] {{ background: transparent; border: none; }}
+QFrame#figureTile {{
+    background-color: #141519; border: 1px solid {BORDER}; border-radius: 8px;
+}}
+QLabel#figureValue {{ background: transparent; color: {TEXT}; }}
+QLabel#sectionTitle {{
+    font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #c9cad0;
+}}
+QTableWidget#betsTable {{
+    background: transparent; border: none; gridline-color: transparent;
+}}
+QTableWidget#betsTable QHeaderView::section {{
+    background: transparent; color: {TEXT_MUTED}; border: none; padding: 4px 6px;
+    text-align: left;
+}}
+QSpinBox#leverageSpin {{
+    background-color: #141519; border: 1px solid {BORDER}; border-radius: 6px;
+    padding: 5px 8px; color: {TEXT};
+}}
+QSpinBox#leverageSpin:focus {{ border-color: {ACCENT}; }}
+QSpinBox#leverageSpin::up-button, QSpinBox#leverageSpin::down-button {{
+    width: 0px; border: none;
+}}
+
+QFrame#betBar QPushButton, QFrame#orderBar QPushButton {{
+    padding: 6px 12px; min-height: 0; font-size: 12px;
+}}
+"""
+PART = PART + BAR_PART

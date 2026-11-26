@@ -47,9 +47,6 @@ explicit = true
 
 [project.scripts]
 bi-trading = "bi_trading.__main__:main"
-bi-trading-hub = "bi_trading.ui.hub.main_hub:run"
-bi-trading-strat = "bi_trading.ui.strat.strat:run"
-bi-trading-builder = "bi_trading.ui.strat.strat_builder:run"
 
 [build-system]
 requires = ["hatchling"]

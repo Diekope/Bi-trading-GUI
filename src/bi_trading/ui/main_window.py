@@ -100,8 +100,12 @@ class MainWindow(QMainWindow):
         feed: MarketFeed | None = None,
         polymarket_feed: PolymarketFeed | None = None,
         show_top_bar: bool = True,
+        venue: str = "both",
     ) -> None:
         super().__init__()
+        # `pm` and `hl` show one venue as a screen of its own; `both` the two
+        # side by side, as the terminal always was.
+        self.venue = venue if venue in ("pm", "hl", "both") else "both"
         # A shell (the hub) can hand us feeds it already runs, so both read the
         # same sockets; then we do not start or stop them ourselves.
         self._owns_feed = feed is None
@@ -172,8 +176,19 @@ class MainWindow(QMainWindow):
         self.stack.setChildrenCollapsible(False)
         self.stack.setHandleWidth(CARD_GAP)
 
-        self.splitter.addWidget(self.polymarket)
-        self.splitter.addWidget(self.stack)
+        # Each venue is a column: its card, and the bar that trades it under it.
+        self._pm_column = QWidget(self.splitter)
+        pm_layout = self._pm_layout = QVBoxLayout(self._pm_column)
+        pm_layout.setContentsMargins(0, 0, 0, 0)
+        pm_layout.setSpacing(CARD_GAP)
+        pm_layout.addWidget(self.polymarket, 1)
+        self._hl_column = QWidget(self.splitter)
+        hl_layout = self._hl_layout = QVBoxLayout(self._hl_column)
+        hl_layout.setContentsMargins(0, 0, 0, 0)
+        hl_layout.setSpacing(CARD_GAP)
+        hl_layout.addWidget(self.stack, 1)
+        self.splitter.addWidget(self._pm_column)
+        self.splitter.addWidget(self._hl_column)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([560, 560])
@@ -200,6 +215,9 @@ class MainWindow(QMainWindow):
         self._autobet = AutoBet(event_log())
         self._official: dict[str, str] = {}     # window -> the side Polymarket settled on
         self._asked: set[str] = set()           # windows being asked about right now
+        # A manual bet's token -> (window, side, window end), noted when it is
+        # sent so its fill can be tracked to the window's resolution.
+        self._manual_orders: dict[str, tuple[str, str, int]] = {}
         self._settler: AsyncRunner | None = None
         self._settle_timer = QTimer(self)
         self._settle_timer.setInterval(SETTLE_EVERY_MS)
@@ -214,6 +232,8 @@ class MainWindow(QMainWindow):
         self._refresh_ml_choices()
         self.strategy_bar.auto.setChecked(_read_auto_bet())
         self.strategy_bar.auto.toggled.connect(self._on_auto_toggled)
+        # The bets go under the Polymarket card; the strategy keeps its own row.
+        pm_layout.addWidget(self.strategy_bar.bet_bar)
         layout.addWidget(self.strategy_bar)
         self.setCentralWidget(canvas)
         self.installEventFilter(self)
@@ -223,6 +243,8 @@ class MainWindow(QMainWindow):
         self.main_card = self._new_card("BTC", closable=False)
         self.stack.addWidget(self.main_card)
         self.cards.append(self.main_card)
+        # ...and the order bar under the Hyperliquid card.
+        hl_layout.addWidget(self.main_card.trade_form.bar)
         # The timeframe it was left on, and kept from now on.
         self.main_card.restore_interval(load_choice("terminal.timeframe"))
 
@@ -270,6 +292,86 @@ class MainWindow(QMainWindow):
                 self._on_polymarket_market(shared)
                 # The feed's own "live" status was emitted before we listened.
                 self.polymarket.set_status("live")
+        self._arrange()
+
+    # -- one venue at a time -------------------------------------------------
+
+    def _arrange(self) -> None:
+        """Lay the screen out for its venue. Both venues' widgets always exist (the
+        feeds and the strategy read them); a single-venue screen just shows the
+        ones it needs."""
+        if self.venue == "pm":
+            self._arrange_pm()
+        elif self.venue == "hl":
+            self._arrange_hl()
+        self.strategy_bar.set_venue(self.venue)
+
+    def _arrange_pm(self) -> None:
+        from bi_trading.ui.pm_detail import PmDetail
+
+        self._pm_layout.removeWidget(self.strategy_bar.bet_bar)
+        self._hl_column.hide()    # alive, and still feeds the strategy's reading
+        market = lambda: self.polymarket.market  # noqa: E731
+        self.pm_detail = PmDetail(
+            self.polymarket,
+            ask=lambda: (
+                self._bet_price(market().outcomes[0])
+                if market() is not None and len(market().outcomes) == 2 else None
+            ),
+            bets=self._paper_rows,
+        )
+        self.splitter.addWidget(self.pm_detail)
+        self.splitter.setSizes([560, 0, 600])   # the hidden column keeps its slot
+
+    def _arrange_hl(self) -> None:
+        from bi_trading.ui.hl_panels import OrderBookCard, PositionsCard, TradeCard
+
+        form = self.main_card.trade_form
+        self._hl_layout.removeWidget(form.bar)
+        self._pm_column.hide()
+        self.book_card = OrderBookCard()
+        right = QWidget(self.splitter)
+        column = QVBoxLayout(right)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(CARD_GAP)
+        column.addWidget(self.book_card, 1)
+        column.addWidget(PositionsCard(form))
+        column.addWidget(TradeCard(form, "BTC"))
+        self.splitter.addWidget(right)
+        self.splitter.setSizes([0, 800, 380])   # the hidden column keeps its slot
+        self.feed.track("BTC")
+        self.feed.book_updated.connect(self._on_book)
+        self.feed.latency.connect(self.book_card.set_latency)
+
+    def _on_book(self, book) -> None:
+        if book.coin == "BTC" and hasattr(self, "book_card"):
+            self.book_card.set_book(book, 1)
+
+    def _paper_rows(self) -> list[tuple[str, str, str, str, str]]:
+        """The open bets as (side, stake, entry, now / result, tone) table rows."""
+        rows = []
+        market = self.polymarket.market
+        for bet in self._autobet.open:
+            now = None
+            if market is not None and len(market.outcomes) == 2:
+                outcome = market.outcomes[0 if bet.side == "up" else 1]
+                book = self.polymarket.books.get(outcome.token_id)
+                bid = (
+                    book.best_bid if book is not None and book.best_bid is not None
+                    else outcome.best_bid
+                )
+                now = float(bid) if bid is not None else (
+                    float(outcome.mid) if outcome.mid is not None else None
+                )
+            text, tone = "—", ""
+            if now is not None and bet.price > 0:
+                pnl = bet.shares * now - bet.stake
+                text = f"{now * 100:.1f}¢ {'+' if pnl >= 0 else '−'}${abs(pnl):,.2f}"
+                tone = "up" if pnl >= 0 else "down"
+            rows.append(
+                (bet.side.upper(), f"${bet.stake:,.0f}", f"{bet.price * 100:.1f}¢", text, tone)
+            )
+        return rows
 
     # -- cards -------------------------------------------------------------
 
@@ -632,6 +734,9 @@ class MainWindow(QMainWindow):
         bar.set_status("sending…")
         svc = service()
         self._hook_service(svc)
+        self._manual_orders[outcome.token_id] = (market.slug, side, market.end_ms)
+        while len(self._manual_orders) > 20:
+            self._manual_orders.pop(next(iter(self._manual_orders)))
         svc.submit("polymarket", order, config_for("polymarket") or {})  # a manual bet
 
     def _hook_service(self, svc) -> None:
@@ -645,8 +750,23 @@ class MainWindow(QMainWindow):
         self._bet_wired = True
 
     def _on_filled(self, venue: str, token: str, side: str, shares: float, dollars: float) -> None:
-        if venue == "polymarket" and side == "buy":
-            self._autobet.fill(token, shares, dollars)
+        if venue != "polymarket":
+            return
+        if side == "sell":
+            self._autobet.sold(token, shares, dollars)
+        elif not self._autobet.fill(token, shares, dollars):
+            # Not an auto-bet's fill: a bet the user placed. Keep it, at the
+            # venue's own stake and price, so its window closes it with the pnl.
+            from bi_trading.state.autobet import Bet
+
+            meta = self._manual_orders.get(token)
+            if meta is not None and shares > 0 and dollars > 0:
+                slug, bet_side, end_ms = meta
+                self._autobet.track_manual(Bet(
+                    slug, bet_side, dollars / shares, dollars, "manual",
+                    paper=False, end_ms=end_ms, token=token, filled=True,
+                    origin="manual",
+                ))
 
     def _show_held(self) -> None:
         from bi_trading.state.orders import service

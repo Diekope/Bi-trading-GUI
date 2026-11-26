@@ -183,7 +183,7 @@ class LiveCurve(QWidget):
         painter.drawText(
             QRectF(left, bottom + 1, 200, 13),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            f"{session.index:,} / {session.total:,} bars",
+            f"{session.index:,} / {session.total:,} {getattr(session, 'unit', 'bars')}",
         )
         if hold and hold[-1] > high:
             painter.setPen(QColor(TEXT_MUTED))
@@ -598,6 +598,22 @@ class ResultsTile(Card):
             )
         now, stressed = cost_stress(play.trades_log, play.slippage)
         parts.append(f"PnL ${now:,.0f} at these costs, ${stressed:,.0f} at 2x")
+        if session.band_state == "running":
+            parts.append("random runs: working…")
+        elif session.band:
+            returns = session.band["returns"]
+            mine = pnl * 100.0
+            beaten = sum(1 for value in returns if value < mine) / len(returns)
+            low, mid, high = (
+                returns[int(len(returns) * q)] for q in (0.05, 0.5, 0.95)
+            )
+            parts.append(
+                f"beats {beaten * 100:.0f}% of {len(returns)} random runs "
+                f"(random {low:+.1f}% / {mid:+.1f}% / {high:+.1f}% at 5th / median / 95th)"
+            )
+        from bi_trading.data.basis import latest_basis, summary
+
+        parts.append(summary(latest_basis()))
         self.evidence.setText("  |  ".join(parts))
         self.evidence.setToolTip(
             "Yearly figures assume BTC trades every minute of the year. The t, p and "

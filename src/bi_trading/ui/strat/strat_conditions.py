@@ -772,6 +772,7 @@ class RulesPage(QWidget):
         scroll = QScrollArea(card)
         scroll.setObjectName("pageScroll")
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         inner.setObjectName("conditionsInner")
@@ -835,6 +836,7 @@ class RulesPage(QWidget):
         picker_scroll = QScrollArea(rail)
         picker_scroll.setObjectName("pageScroll")
         picker_scroll.setWidgetResizable(True)
+        picker_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         picker_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.picker_inner = QWidget()
         self.picker_inner.setObjectName("conditionsInner")
@@ -865,6 +867,14 @@ class RulesPage(QWidget):
                 names.append(name)
         return names
 
+    def _heading_for(self, name: str) -> str:
+        """Which group of the rail a name sits in, for a Polymarket rule."""
+        from bi_trading.engine.formula_palettes import heading_for
+
+        if name in self._defined_names():
+            return "YOURS"
+        return heading_for(name, self.fields)
+
     def _vocabulary(self) -> list[str]:
         names = list(self.choices)
         names += [name for name in self._defined_names() if name not in names]
@@ -877,8 +887,22 @@ class RulesPage(QWidget):
             button.setParent(None)
             button.deleteLater()
         self.variable_buttons = {}
+        for header in getattr(self, "picker_headers", []):
+            self.picker_layout.removeWidget(header)
+            header.setParent(None)
+            header.deleteLater()
+        self.picker_headers: list[QLabel] = []
         self._picker_names = self._defined_names()
+        grouped = "up_price" in self.fields      # a Polymarket rule: name the groups
+        shown = ""
         for name in self._vocabulary():
+            heading = self._heading_for(name) if grouped else ""
+            if heading and heading != shown:
+                shown = heading
+                label = QLabel(heading, self.picker_inner)
+                label.setObjectName("railNote")
+                self.picker_headers.append(label)
+                self.picker_layout.insertWidget(self.picker_layout.count() - 1, label)
             button = QPushButton(name, self.picker_inner)
             button.setObjectName("variablePick")
             button.setCursor(Qt.CursorShape.PointingHandCursor)

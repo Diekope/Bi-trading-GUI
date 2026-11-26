@@ -219,8 +219,8 @@ def formula_card(self: FormulaBuilder) -> QWidget:
     self.condition_heading = QLabel(self.condition_label, box)
     self.condition_heading.setObjectName("formulaCondition")
 
-    # The lines sit directly on the card: no scrollbox of their own. The
-    # page around the builder scrolls if a long rule needs more room.
+    # The lines scroll in a box of their own, between the title and the number
+    # row, which stay put: only the elements scroll, never the whole panel.
     self.strip_area = QWidget(box)
     self.strip_area.setObjectName("stripArea")
     self.strip_inner = self.strip_area
@@ -228,7 +228,14 @@ def formula_card(self: FormulaBuilder) -> QWidget:
     self.strip_layout.setContentsMargins(0, 0, 0, 0)
     self.strip_layout.setSpacing(4)
     self.strip_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    layout.addWidget(self.strip_area)
+    strip_scroll = QScrollArea(box)
+    strip_scroll.setObjectName("stripScroll")
+    strip_scroll.setWidgetResizable(True)
+    strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
+    strip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    strip_scroll.setMinimumHeight(60)
+    strip_scroll.setWidget(self.strip_area)
+    layout.addWidget(strip_scroll, 1)
 
     self.add_variable_button = QPushButton("+  Add variable", box)
     self.add_variable_button.setObjectName("addVariable")
@@ -276,9 +283,6 @@ def formula_card(self: FormulaBuilder) -> QWidget:
     self.warning_label.setObjectName("formulaWarning")
     self.warning_label.setWordWrap(True)
     layout.addWidget(self.warning_label)
-    # The card does not stretch its title: the spare height goes to the
-    # blank under the warnings, so FORMULA sits at the top like BLOCKS.
-    layout.addStretch(1)
     return box
 
 
@@ -301,6 +305,7 @@ def selected_card(self: FormulaBuilder) -> QWidget:
     scroll = QScrollArea(box)
     scroll.setObjectName("selectedScroll")
     scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
     body = QWidget()
     body.setObjectName("selectedBody")

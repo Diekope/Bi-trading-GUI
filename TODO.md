@@ -6,6 +6,33 @@ Done work is not listed: the Rust walk core, long-span `ColumnSpan` support,
 the Parquet candle store, the fee as a run input, the equity curve, the trade
 log and the run log all exist.
 
+## Design
+- [med] **Merge `dev` and `ml`.** The design and the venue switch are on `dev`; the ML screens,
+  the backtest fixes and the manual-bet settlement are on `ml`. Merge them, then restyle the ML
+  screens and the Model builder from the screenshots (`web/docs/screens/15`, `16` and `20` on
+  `planning`).
+- [med] **Portfolio screen and the PAPER chip.** The design has a Portfolio screen (the live and
+  paper books, day PnL with a percent) and a PAPER equity chip in the top bar. There is no paper
+  account here, only one paper position.
+- [med] **Polymarket backtest.** The design's "Bet value" card (max entry price, min edge, fee on
+  wins, slippage in cents, exit mode, daily loss limit, max bets per day) and its Brier and
+  resolved win and loss figures need a binary-payoff simulator, which needs historical
+  Polymarket prices. Only the card's title follows the venue today.
+- [low] **Per-venue variables in the Builder.** Polymarket should offer price, model_p, edge,
+  spread, liquidity, days_left, btc and target; Hyperliquid open, high, low, close, volume,
+  funding, oi and model_p. It is one mixed list now; only the wording follows the venue.
+- [low] **Model and edge on the Polymarket Live screen.** Model P(up) and Edge show a dash
+  until there is a model on this branch.
+- [low] **Hyperliquid screen details.** The design has coin pills (HYPE, ETH, SOL) and TP % and
+  SL % fields; the terminal is BTC only and an order has no take profit or stop yet.
+- [low] **Backtest column without scrolling.** The right column (History, values, Strategy,
+  Save and Load run) still scrolls as one block; fit it, or let only its lists scroll.
+- [low] **PAPER / LIVE switch.** It shows whether real orders are armed but cannot change it:
+  arming stays in Settings. Decide whether a switch in the top bar is safe.
+- [low] **Strategy tiles with a result.** Home's tiles show a return only when there is candle
+  history on disk to score the rule with.
+- [low] **Number fields.** The design right-aligns numbers in Settings; they are left-aligned.
+
 ## Logs
 - [low] **Polymarket holdings from the venue.** Sell works on the shares this session
   bought (counted from the fills); read the wallet's positions so a restart, or a bet
@@ -20,6 +47,51 @@ log and the run log all exist.
   a very long session keeps appending to one JSON file until the next start.
 - [low] **Strategy stats beyond today.** The strategy filter and its figures are for
   today; add a range (week, all) and a per-strategy summary.
+
+## Polymarket backtest
+- [high] **Order-book history.** Depth and spread were never recorded, so the half spread
+  is an assumption and a large stake would move the price. Record the live book (the feed
+  already reads it) while the app runs, and use the measured spread and depth.
+- [med] **Keep recording forward.** Polymarket's public history is about one price a
+  minute and starts 2026-02-12. Store the live ticks of each market as the app runs, for
+  sub-minute prices and for history that outlives what Polymarket serves.
+- [med] **Stale prices.** A decision reads the last sample at or before the minute, up to a
+  minute old; a "cheap" share may have been gone. Compare against the live tape, or fetch
+  trades, and show how old the price was.
+- [med] **Save and load runs, Compare and playback.** The window has none of them; saved
+  runs (`state/runs.py`) are candle runs. A bet-by-bet replay of the price would suit it.
+- [med] **Settlement source.** Polymarket settles on its own reference price; where a market
+  has no stored outcome the run settles from Binance and says "est.". Measure how often the
+  two disagree on the markets that have both.
+- [low] **`model_p` and edge for Polymarket rules.** The ML layer is merged, but the
+  binary engine does not feed it, so a Polymarket rule cannot read a model's probability or an edge against the price.
+- [low] **More than one bet per market.** One bet at most; allow re-entry after a cash-out.
+- [low] **The builder's report for Polymarket rules.** It says to run the strategy from the
+  Backtest view; a small Polymarket report beside the editor would do.
+- [low] **Download from Settings.** The button lives in the Backtest view; a long download
+  could also report from Settings and resume at launch.
+- [low] **Audit.** `docs/backtest-audit.md` (on `planning`) should move #3 to "partly fixed".
+
+## Backtest
+- [med] **Venue candles over time.** Hyperliquid serves only its latest ~5,000 candles. Store
+  its own as they arrive so a backtest can run on them; `python -m bi_trading.data.basis`
+  reports the gap to the Binance history meanwhile (audit item 7).
+- [med] **Significance tests.** A bootstrap or permutation test, and a take profit x stop loss
+  sweep over the whole span instead of the last 2,000 bars (audit item 8).
+- [med] **Execution realism.** Minimum lot, tick rounding and market impact. Give the ML
+  builder's own simulator the data-gap rule, the volume cap and the trailing stop too (audit
+  item 12).
+- [low] **Count threshold moves.** The ML test part is re-traded as thresholds move, and those
+  moves are not counted against the hold-out's p-value (audit item 5).
+- [low] **Maker fee and queue.** A take profit pays the one flat fee and fills with no queue
+  position (audit item 4).
+- [low] **Baseline on streamed spans.** A span read a year at a time has no signal rate to
+  copy and no random band (audit item 6).
+- [low] **Remove the old random-entry code.** `random_entries*` in Rust and Python is unused;
+  remove it when the shared native module can be rebuilt without breaking another branch
+  (audit item 13).
+- [low] **Polymarket fees on settled bets.** A settled bet pays $1 a share or loses its stake;
+  any fee the market charges is not taken off, for manual and automatic bets alike.
 
 ## ML
 - [med] **Auto-sell for ML bets.** A model bet holds to settlement; let a model flip, or a call

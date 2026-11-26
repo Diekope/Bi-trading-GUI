@@ -42,7 +42,7 @@ ol li{margin:3px 0}
 <body>
 <main>
 <h1>Backtest audit</h1>
-<p class="sub">2026-11-19, updated after the critical and medium fixes. Findings from reading the code. Fixed: gap handling, time-aligned bars (<code>tests/test_gaps.py</code>), risk metrics, benchmark, warm-up (<code>tests/test_evidence.py</code>). Partly fixed: significance tooling, volume cap. Scoped only: venue modelling. Markdown version: <code>backtest-audit.md</code>.</p>
+<p class="sub">2026-11-20, updated after the critical, medium and high fixes. Findings from reading the code. Fixed: gap handling, time-aligned bars (<code>tests/test_gaps.py</code>), fills (<code>tests/test_fills.py</code>), the locked ML hold-out (<code>tests/test_holdout.py</code>), the random baseline (<code>tests/test_baseline.py</code>), risk metrics, benchmark, warm-up (<code>tests/test_evidence.py</code>). Partly fixed: the venue data check (<code>tests/test_basis.py</code>), significance tooling, volume cap. Scoped only: venue modelling. Markdown version: <code>backtest-audit.md</code>.</p>
 
 <div class="stats" id="stats"></div>
 <div class="filters" id="filters"></div>
@@ -79,18 +79,18 @@ const F=[
 {l:"crit",st:"Scoped in the docs, not built",t:"The traded venue is not modelled",
  b:["Polymarket 5m markets pay 1 on a win and 0 on a loss; the edge is <code>P - ask</code>. The backtest has no market price, so <code>min edge</code> is not applied there. A Polymarket strategy cannot be validated by this engine.","Hyperliquid perps have funding, leverage, margin and liquidation; none exist here. The engine simulates a spot-style position with TP, SL and a hold limit."],
  f:"A binary-payoff simulator (needs historical Polymarket prices or a stated fixed-price assumption) and a funding / liquidation model. Until then, label the backtest spot-style only."},
-{l:"high",t:"Optimistic fills",
+{l:"high",st:"Fixed 2026-11-20",t:"Optimistic fills",
  b:["<b>Entry</b>: fills at the close of the signal bar; no next-bar-open option.","<b>Take profit</b>: fills at its exact price on any wick touch, no trade-through or queue.","<b>Stop and trail</b>: fill at the stop price even if the bar gapped past it; the trail is booked as <code>tp</code> with no slippage.","<b>Fees</b>: one flat fee on every fill, no maker / taker split."],
- f:"Next-bar-open entry mode; stops fill at <code>min(open, stop)</code>; trade-through for limits; trail as a market exit."},
-{l:"high",t:"ML results are selection-biased",
+ f:"Next-bar-open entry mode; stops fill at <code>min(open, stop)</code>; trade-through for limits; trail as a market exit. Done (entry at the next open by default, gapped stops at the open, <code>limit_through</code> 0.01%, trail slips). Not modelled: a maker fee and queue position."},
+{l:"high",st:"Fixed 2026-11-20",t:"ML results are selection-biased",
  b:["A model only has calls on its test part, and the ML builder re-trades those bars while thresholds move. Auto-tune, model choice and thresholds all use the same data, so the test set stops being out-of-sample.","No second hold-out, no correction for the number of variants tried. <code>docs/ml.md</code> already says honest models sit near 51 to 54% accuracy and lose money after costs."],
- f:"A locked final hold-out scored once, and a counter of variants tried."},
-{l:"high",t:"The random benchmark is one draw and does not match the walk",
+ f:"A locked final hold-out scored once, and a counter of variants tried. Done: the last 15% is never read until scored once, models tried are counted, and the p-value is shown corrected. Test-part threshold moves are still not counted."},
+{l:"high",st:"Fixed 2026-11-20",t:"The random benchmark is one draw and does not match the walk",
  b:["Fixed seed 1234 and fixed 3% entry chance: one sample, not a distribution.","It simulates its own occupancy from unslipped entry prices, with no exit rule and no trailing TP, so its trade count and timing differ from what the walk does with its entries.","A long-and-short strategy is compared with a long-only baseline."],
- f:"Many seeds through the real walk, shown as a percentile band; match trade count and side mix."},
-{l:"high",t:"Data source differs from the venue",
+ f:"Many seeds through the real walk, shown as a percentile band; match trade count and side mix. Done: random signals through the same walk at the strategy's rate and side mix, plus 100 seeded runs (<i>beats X% of random</i>). Streamed spans keep 3% long only and no band."},
+{l:"high",st:"Partly fixed 2026-11-20",t:"Data source differs from the venue",
  b:["History is Binance spot BTCUSDT; orders go to Hyperliquid perps and Polymarket. Prices, spreads and wicks differ, most on 1m bars, so a fill that worked on the data can be impossible on the venue."],
- f:"Store the venue's own candles, or at least report the basis between the two."},
+ f:"Store the venue's own candles, or at least report the basis between the two. Partly done: <code>python -m bi_trading.data.basis</code> reports the basis over the venue's latest ~5,000 candles. Still open: a backtest on the venue's own history."},
 {l:"med",st:"Partly fixed 2026-11-19",t:"No significance or robustness tooling",
  b:["No confidence interval, t-stat on expectancy, minimum trade count, bootstrap or permutation test.","The TP x SL sweep and walk-forward cover only the last 2,000 bars. No per-year or per-regime breakdown."],
  f:"Done: t-stat, p-value and 95% interval of the average trade, per-trade Sharpe, a warning under 30 trades, a by-year table. Open: bootstrap or permutation test, a sweep over the full span."},
@@ -108,7 +108,7 @@ const F=[
  f:"Done: an entry is capped at a share of the bar's traded value (<code>backtest.participation</code>, 1% by default). Open: minimum lot, tick rounding, market impact, and the ML builder's own simulator (<code>rule_stats</code>)."},
 {l:"low",t:"Two walks to keep in sync by hand",
  b:["<code>_python_walk</code> and <code>run_walk</code> are held equal by tests. Fixes for gaps and fills must be made twice, plus in both random-entry functions."]},
-{l:"low",t:"Docs contradict each other",
+{l:"low",st:"Fixed 2026-11-20",t:"Docs contradict each other",
  b:["The playback section of <code>docs/backtest.md</code> says a candle touching both TP and SL pays the target. The code, and the run-controls section, book the stop."]},
 {l:"low",t:"Compare page and walk-forward limits",
  b:["From <code>TODO.md</code>: Compare runs on preview candles where <code>model_p</code> is unknown; walk-forward covers built-in models only, not custom torch networks."]}
