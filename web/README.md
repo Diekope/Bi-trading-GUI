@@ -27,9 +27,14 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 | `POST /api/backtest/polymarket` | the binary run (`engine.binary.run_binary`) over the past five-minute markets, with the always-UP and always-DOWN baselines |
 
 - **Data.** The candle store is `BI_TRADING_DATA`, else this checkout's `data/candles`, else the main checkout's (`../bi-trading/data/candles`). Downloading stays in the desktop app (its downloaders run on Qt).
-- **Builder.** The text of each rule (bet UP, bet DOWN, cash out; or entry, exit) belongs to the selected strategy. Edit it in Code or Formula; Save writes it to the shared strategies file, Run backtest runs it. The tiles in Formula and Rules are still illustrative.
+- **Builder.** The text of each rule (bet UP, bet DOWN, cash out; or entry, exit) belongs to the selected strategy, and the three modes are views of that text (`rule.js`, `builder.js`): an edit in one shows in the others.
+  - **Formula:** one line of blocks per variable and one for the condition. Drag a block from the palette into a line (a function brings its brackets and arguments), drag blocks within or between lines, click one to edit, move or remove it, or click a palette block to add it after the selected one.
+  - **Rules:** variables as `name = expression` rows, and conditions as rows all joined by AND or all by OR. A rule that mixes the two, or uses `not` or brackets around a comparison, says so and is edited in Formula or Code.
+  - **Code:** the text itself.
+  - The engine checks the rule as you type; a valid edit runs the backtest again, so Results follow the rule. Save writes the strategies file.
 - **Backtest.** History (span, timeframe), Strategy and the value card feed the run; results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
 - **Not wired yet.** Compare (walk-forward, TP × SL sweep), Save / Load run, ML and Model builder still show demo content.
+- Tests: `node --test test/rule.test.mjs` (the rule model).
 - **Safety.** POSTs from another origin are refused; nothing here places an order.
 - Tests: `uv run python -m unittest web/test/test_engine_api.py` (a throwaway candle store and strategies file).
 

@@ -3,6 +3,7 @@ import { drawCandles, drawLines, drawArea } from "./chart.js";
 import { feed, events, health } from "./feeds.js";
 import { paintBtc } from "./btcchart.js";
 import { E, api, ruleKey, checkRule, checking } from "./engine.js";
+import { formulaView, rulesView } from "./builder.js";
 import { P, equity, startEquity, dayPnl, markOf, pnlOf, FEE } from "./paper.js";
 
 export const state = { tf: "1m", btTf: "1m", vol: true, bb: false, strat: 3, ruleSide: "entry", mode: "Formula", res: "Overview", btTab: "Overview", logSel: -1, logSrc: "All", model: "Gradient boosting", autobet: false, mlSel: 0, view: "Visual", sec: "x", venue: "Both", focus: "Hyperliquid", live: 0, side: "Long", pfTab: "All", coin: "HYPE", form: {}, pmSel: "UP", btcSpan: "1m" };
@@ -42,8 +43,9 @@ const F0 = () => (isPM()
 const ruleText = () => { const v = strat()?.[ruleKey(state.ruleSide)]; return typeof v === "string" ? v : null; };
 const F = () => { const f = F0(), t = ruleText(); return t == null ? f : { ...f, text: t, tok: isPM() ? pmTok(t) : null }; };
 const esc = (t) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-let rerender = () => {};
+let rerender = () => {}, autoRun = () => {}, autoTimer = 0;
 export const setRerender = (f) => { rerender = f; };
+export const setAutoRun = (f) => { autoRun = f; };
 // The check badge: asks the engine once per text, then shows its verdict.
 const validBadge = (field = ruleKey(state.ruleSide)) => {
   const s = strat(), key = `${s.name}|${field}`, c = E.check[key];
@@ -53,7 +55,15 @@ const validBadge = (field = ruleKey(state.ruleSide)) => {
 };
 export function setSField(field, value) {
   const s = strat(); s[field] = value; s.dirty = true;
-  if (["entry", "exit", "short_entry"].includes(field)) { const key = `${s.name}|${field}`; checkRule(s, field, V(), () => { if (E.check[key]) E.check[key].text = value; rerender(); }); }
+  if (["entry", "exit", "short_entry"].includes(field)) {
+    const key = `${s.name}|${field}`;
+    checkRule(s, field, V(), () => {
+      if (E.check[key]) E.check[key].text = value;
+      rerender();
+      // The Builder's results follow the rule: a valid edit runs the backtest again, quietly.
+      if (E.check[key]?.ok && location.hash === "#builder" && !E.offline) { clearTimeout(autoTimer); autoTimer = setTimeout(() => autoRun(), 500); }
+    });
+  }
 }
 // Variables, grouped: a Polymarket rule keeps the Binance candle and the market apart; a cash-out rule also sees the open bet.
 const varGroups = () => (isPM() && state.ruleSide === "exit"
@@ -347,16 +357,11 @@ export const views = {
   },
 };
 
-function formulaMode() {
-  return `<div class="grid grow" style="grid-template-columns:200px 1fr 200px;min-height:0;gap:8px">
-    <div class="well scroll" style="background:var(--inner)"><b class="sec" style="font-size:10px">Blocks</b><input type="text" placeholder="search a block..." style="margin:8px 0;font-family:var(--ui);font-size:11px;padding:6px 8px">${Object.entries({ ...(F().v ? { Variables: [F().v] } : {}), ...varGroups(), ...Object.fromEntries(Object.entries(palette).filter(([k]) => k !== "Data" && k !== "Variables" && !(k === "Indicators" && noIndicators()))) }).map(([g, a]) => `<div class="cap" style="margin:10px 0 4px;font-size:10px;letter-spacing:.1em">${g.toUpperCase()}</div><div class="chips">${a.map((x) => chip(x, g === "Variables" ? "var" : g.startsWith("Polymarket") ? "pmv" : g === "Data" || g.startsWith("Candle") || g === "Open bet" ? "data" : g === "Indicators" ? "ind" : "math")).join("")}</div>`).join("")}</div>
-    <div class="well scroll" style="display:grid;gap:8px;align-content:start"><b class="sec" style="font-size:10px">Formula</b><b class="accent" style="font-size:10px">Variables</b>${F().v ? `<div class="well row" style="background:var(--well)">${chip(F().v, "var")} = ${F().rhs.map(([t, k]) => chip(t, k)).join("")}${isPM() ? "" : '<span class="chip">20</span><span class="chip">2</span>'}</div>` : `<div class="well cap" style="background:var(--well)">none: the open bet's words (pnl, price, entry, tp, sl, bars) and the market words are used directly</div>`}<span class="cap">+ Add variable</span><b class="accent" style="font-size:10px">${whenLabel()}</b><div class="well chips" style="background:var(--well)">${F().cond.map(([t, k]) => chip(t.replace("<", "&lt;").replace(">", "&gt;"), k)).join("")}</div><div class="well cap" style="text-align:center;border-style:dashed">+ add a line</div><div class="row"><input type="text" placeholder="a number, e.g. 20 or 0.05"><button class="btn sm">+ Add</button><button class="btn sm">⟲ Reset</button></div><div class="row"><textarea data-sfield="${ruleKey(state.ruleSide)}" rows="2" style="font-size:11px;flex:1;font-family:var(--mono);background:var(--canvas);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px">${esc(F().text)}</textarea>${validBadge()}</div></div>
-    <div class="well"><b class="sec" style="font-size:10px">Selected block</b><div class="cap" style="margin:6px 0 12px">pick a block in a line to see it here</div><b class="sec" style="font-size:10px">Live values</b><div class="kv mono" style="margin-top:6px;font-size:11px">${F().live.map(([k, v]) => `<span>${k}</span><b class="${k === "result" ? "down" : ""}" style="text-align:right">${v}</b>`).join("")}</div></div></div>`;
-}
-function rulesMode() {
-  return `<div class="grid grow" style="grid-template-columns:1fr 250px;gap:8px;min-height:0"><div class="well scroll" style="display:flex;flex-direction:column;gap:8px"><b class="sec" style="font-size:10px">Let</b>${F().v ? `<div class="row"><input type="text" value="${F().v}" style="width:90px;color:#e87aa6"><span class="muted">=</span><input type="text" value="${F().expr}"><span class="btn sm">×</span></div>` : ""}<span class="cap">+ Add variable</span><b class="sec" style="font-size:10px">Conditions</b><div class="well" style="background:var(--well);border-style:dashed;display:grid;gap:8px"><div class="row"><b class="accent" style="font-size:11px;letter-spacing:.1em">GROUP 1</b><select style="width:90px;font-family:var(--ui)"><option>All (AND)</option></select></div>${F().conds.map(([a, o, b]) => `<div class="row"><input type="text" value="${a}" style="font-family:var(--ui)"><input type="text" value="${o}" style="width:60px"><input type="text" value="${b}" style="font-family:var(--ui)"><span class="btn sm">×</span></div>`).join("")}<span class="btn sm accent" style="width:26px">+</span></div><span class="grow"></span><span class="cap">+ Add group</span><div class="well" style="background:var(--well)"><pre class="code">${F().text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>${validBadge()}</div></div>
-  <div class="well scroll"><b class="sec" style="font-size:10px">Variables</b><div class="cap" style="font-size:10px;margin:4px 0 8px">click one to drop it into the focused box</div><div style="display:grid;gap:7px;font-size:11px;padding-left:6px">${Object.entries(varGroups()).map(([g, a]) => `<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">${g.toUpperCase()}</span>${a.map((v) => `<span style="${g.startsWith("Polymarket") ? "color:#7f9bff" : ""}">${v}</span>`).join("")}`).join("")}${noIndicators() ? "" : `<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">INDICATORS</span>`}${noIndicators() ? [] : ["sma(close, 20)", "ema(close, 30)", "rsi(close, 14)", "bollinger_lower(close, 20, 2)", "bollinger_middle(close, 20, 2)", "bollinger_upper(close, 20, 2)", "highest(high, 20)", "lowest(low, 20)"].map((v) => `<span>${v}</span>`).join("")}${F().v ? `<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">YOURS</span><span class="accent">${F().v}</span>` : ""}</div></div></div>`;
-}
+// Formula and Rules edit the same text as Code (see builder.js and rule.js).
+const bctx = () => { const field = ruleKey(state.ruleSide), sn = strat();
+  return { key: `${sn.name}|${field}`, field, text: sn[field] ?? "", setText: (t) => setSField(field, t), groups: varGroups(), exit: state.ruleSide === "exit", when: whenLabel(), badge: validBadge(field) }; };
+function formulaMode() { return formulaView(bctx()); }
+function rulesMode() { return rulesView(bctx()); }
 function codeMode() {
   const tok = F().tok || `<span style="color:#e87aa6">band</span> = <span style="color:var(--up)">bollinger_lower</span>(<span style="color:#8ab4ff">close</span>, <span style="color:#5fd6d0">20</span>, <span style="color:#5fd6d0">2</span>)\n<span style="color:#8ab4ff">close</span> &lt; <span style="color:#e87aa6">band</span> <span style="color:var(--accent)">and</span> <span style="color:#8ab4ff">volume</span> &gt; <span style="color:#5fd6d0">0</span>`;
   return `<div class="grid grow" style="grid-template-columns:1fr 250px;gap:8px;min-height:0"><div class="well" style="display:flex;flex-direction:column;gap:6px"><div class="row between"><b class="mono" style="font-size:11px">formula.txt</b><span class="cap" style="font-size:10px">the code the tiles stand for — editable</span></div><textarea class="code grow" data-sfield="${ruleKey(state.ruleSide)}" spellcheck="false" style="background:var(--well);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px;font:12px/1.6 var(--mono);resize:none;min-height:120px">${esc(F().text)}</textarea><div class="row between"><span class="cap" style="font-size:10px">checked by the engine as you type</span>${validBadge()}</div></div>
@@ -390,7 +395,7 @@ export async function engAct(a, render, toast) {
   const s = strat(), venue = V(), pm = isPM(), f = state.form, n = (k, d) => (f[k] === undefined || f[k] === "" ? d : Number(f[k]));
   const rules = { entry: s.entry ?? "", short_entry: s.short_entry ?? "", exit: s.exit ?? "" };
   if (a === "eng-run") {
-    if (E.busy) return;
+    if (E.busy) { E.again = true; return; }   // a run is going: run once more after it, on the newest rule
     const days = SPANS[f.btSpan ?? (pm ? "All history" : "Last 90 days")] ?? 30;
     const body = pm
       ? { ...rules, days, capital: n("pmCap", 1000), stake_pct: n("pmStake", 5), first_minute: n("pmMin", 1), half_spread_cents: n("pmSpread", 1), fee_pct: n("pmFee", 0), tp: n("pmTp", 0), sl: n("pmSl", 0), side: f.pmSide === "Bet DOWN" ? "down" : "up" }
@@ -403,7 +408,9 @@ export async function engAct(a, render, toast) {
       E.res[venue] = r; s.pnl = +lastPct(venue).toFixed(2);
       toast(`${s.name}: ${pctS(lastPct(venue))} over ${pm ? n0(r.bets) + " bets" : n0(r.trades) + " trades"}.`);
     } catch (e) { E.err = e.message; toast(e.message, true); }
-    E.busy = ""; render(); return;
+    E.busy = ""; render();
+    if (E.again) { E.again = false; engAct(a, render, toast); }
+    return;
   }
   if (a === "eng-save") {
     try { await api("/api/strategies", { name: s.name, timeframe: s.tf, venue, ...rules }); s.saved = true; s.dirty = false; toast(`Saved "${s.name}". The desktop app sees it too.`); }

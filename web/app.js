@@ -1,5 +1,6 @@
-import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender } from "./views.js";
+import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender, setAutoRun } from "./views.js";
 import { boot } from "./engine.js";
+import { formulaClick, formulaInput, rulesClick, rulesInput, installDnD } from "./builder.js";
 import { feed, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -117,6 +118,7 @@ function act(a) {
   render();
 }
 document.addEventListener("click", (e) => {
+  if (location.hash === "#builder" && (state.mode === "Formula" ? formulaClick(e.target) : state.mode === "Rules" ? rulesClick(e.target) : false)) { render(); return; }
   const x = e.target.closest("[data-act]"); if (x) { act(x.dataset.act); return; }
   const s = e.target.closest("[data-set]"); if (!s) return;
   const [k, ...v] = s.dataset.set.split("="), val = v.join("="); state[k] = val !== "" && !isNaN(val) ? Number(val) : val; render();
@@ -126,6 +128,7 @@ document.addEventListener("input", (e) => {
   lastInput = Date.now(); const d = e.target.dataset || {};
   if (d.bind) state.form[d.bind] = e.target.value;
   if (d.sfield) setSField(d.sfield, e.target.value); // the builder edits the selected strategy; checks re-render when they land
+  if (location.hash === "#builder" && (formulaInput(e.target) || rulesInput(e.target))) render();
 });
 addEventListener("hashchange", render); addEventListener("resize", draw);
 addEventListener("keydown", (e) => {
@@ -144,4 +147,6 @@ onChange(schedule);
 setInterval(() => { paperTick(feed); schedule(); }, 1000);
 render();
 setRerender(render);
+installDnD(render);
+setAutoRun(() => engAct("eng-run", render, (msg, err) => { if (err) toast(msg, err); }));
 boot(render);

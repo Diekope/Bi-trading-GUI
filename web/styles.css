@@ -131,3 +131,10 @@ body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
 /* Tiles on a later line take the whole width: the "new" tile, a lone last tile, and the full-width row tiles. */
 .g2 > .stile.new, .g2 > .stile:nth-last-child(2):nth-child(odd) { grid-column: 1 / -1; }
 .stile.wide { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; }
+
+/* Builder blocks: the picked one, where a drop lands, the line under the pointer */
+.chip.picked { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip.drop-before { box-shadow: -4px 0 0 -1px var(--accent); }
+.chip.drop-after { box-shadow: 4px 0 0 -1px var(--accent); }
+.dropline.over { border-color: var(--accent); }
+.pickword:hover { text-decoration: underline; }
