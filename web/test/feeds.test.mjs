@@ -132,7 +132,7 @@ test("paper: PM bet fills through the book and settles", async () => {
 });
 
 test("read-only HL account", async () => {
-  assert.deepEqual(F.parseHLAccount({ marginSummary: { accountValue: "13109.48", totalMarginUsed: "100", totalNtlPos: "500" } }), { value: 13109.48, marginUsed: 100, notional: 500 });
+  assert.deepEqual(F.parseHLAccount({ marginSummary: { accountValue: "13109.48", totalMarginUsed: "100", totalNtlPos: "500" } }), { value: 13109.48, marginUsed: 100, notional: 500, positions: [] });
   assert.equal(F.parseHLAccount({}), null); assert.ok(F.validAddress("0x" + "a".repeat(40))); assert.ok(!F.validAddress("0x123"));
   const posts = []; const h = F.startHL(env(async (u, o) => { const b = JSON.parse(o.body); posts.push(b); return b.type === "clearinghouseState" ? json({ marginSummary: { accountValue: "42.5", totalMarginUsed: "1", totalNtlPos: "2" } }) : json([]); }));
   const bad = await h.setAddress("nope"); assert.ok(!bad.ok);
@@ -188,6 +188,14 @@ test("binance: book ticker sets the BTC mid and tick, klines build candles", () 
   assert.deepEqual(S.series["BTC|1m"].map((c) => c.c), [1.7, 1.9]);
   assert.equal(F.parseBinanceKlines([[60000, "1", "2", "0.5", "1.5", "3", 119999]])[0].c, 1.5);
   assert.equal(F.dispatchBinance(S, "not json"), false);
+});
+
+test("hyperliquid account: open positions are read from the public state", () => {
+  const a = F.parseHLAccount({ marginSummary: { accountValue: "1000", totalMarginUsed: "50", totalNtlPos: "500" }, assetPositions: [
+    { position: { coin: "BTC", szi: "-0.01", entryPx: "60000", positionValue: "600", unrealizedPnl: "-3.5", leverage: { value: 10 }, liquidationPx: "65000", marginUsed: "60" } },
+    { position: { coin: "ETH", szi: "0", entryPx: "1", positionValue: "0", unrealizedPnl: "0" } }] });
+  assert.equal(a.value, 1000); assert.equal(a.positions.length, 1);
+  assert.deepEqual([a.positions[0].coin, a.positions[0].size, a.positions[0].lev, a.positions[0].liq], ["BTC", -0.01, 10, 65000]);
 });
 
 test.after(() => { pmHandle?.stop(); setTimeout(() => process.exit(0), 50); });

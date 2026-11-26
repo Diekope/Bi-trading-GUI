@@ -21,20 +21,20 @@ export function paintBtc(cv, { points, target, startMs, endMs, key, mode = "1m",
   const W = r.width, H = r.height, L = 56, B = 18, pw = W - L - 8, ph = H - B, { t0, span } = axisFor(mode, wall, startMs, endMs);
   const raw = points.filter((p) => p.t >= t0 - 90e3 && p.t <= wall + 1000);
   if (raw.length < 2) return;
-  // Calm the line: average samples into 500 ms buckets so tick noise does not jitter the curve.
-  const buckets = new Map(); for (const p of raw) { const k = Math.floor(p.t / 500), b = buckets.get(k) || { t: 0, p: 0, n: 0 }; b.t += p.t; b.p += p.p; b.n++; buckets.set(k, b); }
+  // Calm the line: average samples into 1 s buckets so tick noise (Binance pushes every change) does not jitter the curve.
+  const buckets = new Map(); for (const p of raw) { const k = Math.floor(p.t / 1000), b = buckets.get(k) || { t: 0, p: 0, n: 0 }; b.t += p.t; b.p += p.p; b.n++; buckets.set(k, b); }
   const vis = [...buckets.values()].map((b) => ({ t: b.t / b.n, p: b.p / b.n }));
   const last = raw.at(-1).p, dt = Math.min(0.1, Math.max(0, (nowPerf - (anim.prev ?? nowPerf)) / 1000)); anim.prev = nowPerf;
   const ease = (tau) => 1 - Math.exp(-dt / tau); // time-based, so the speed does not depend on the frame rate
-  anim.tip = anim.tip == null ? last : anim.tip + (last - anim.tip) * ease(0.45);
+  anim.tip = anim.tip == null ? last : anim.tip + (last - anim.tip) * ease(1.1);
   const shown = windows.filter((w) => w.target && w.end > t0 && w.start < wall), cur = shown.find((w) => w.start <= wall && wall < w.end);
   if (cur) target = cur.target;
   const inView = vis.filter((p) => p.t >= t0), vals = [...inView.map((p) => p.p), anim.tip, ...shown.map((w) => w.target), ...(!shown.length && target ? [target] : [])];
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  const minSpan = Math.max(last * 0.0006, 1); if (hi - lo < minSpan) { const m = (hi + lo) / 2; lo = m - minSpan / 2; hi = m + minSpan / 2; }
+  const minSpan = Math.max(last * 0.0015, 1); // at least ~0.15 % tall, so a few dollars do not fill the plot if (hi - lo < minSpan) { const m = (hi + lo) / 2; lo = m - minSpan / 2; hi = m + minSpan / 2; }
   const pad = (hi - lo) * 0.18; lo -= pad; hi += pad;
   // The vertical range glides slowly: it follows the price instead of chasing every tick.
-  anim.lo = anim.lo == null ? lo : anim.lo + (lo - anim.lo) * ease(1.6); anim.hi = anim.hi == null ? hi : anim.hi + (hi - anim.hi) * ease(1.6);
+  anim.lo = anim.lo == null ? lo : anim.lo + (lo - anim.lo) * ease(4); anim.hi = anim.hi == null ? hi : anim.hi + (hi - anim.hi) * ease(4);
   const X = (t) => L + ((t - t0) / span) * pw, Y = (v) => ph - ((v - anim.lo) / (anim.hi - anim.lo)) * (ph - 8) - 4;
   g.font = `10px ${css("--mono")}`;
   // grid and time ticks (every 5 min, UTC)

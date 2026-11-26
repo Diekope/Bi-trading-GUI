@@ -221,7 +221,11 @@ export function dispatchPM(S, raw) {
 // Read-only account summary from a public address (no key): POST info {type:"clearinghouseState", user}.
 export function parseHLAccount(j) {
   const m = j?.marginSummary, v = num(m?.accountValue);
-  return v === null ? null : { value: v, marginUsed: num(m.totalMarginUsed) ?? 0, notional: num(m.totalNtlPos) ?? 0 };
+  const positions = (j?.assetPositions || []).map((a) => a?.position).filter(Boolean).map((p) => ({
+    coin: p.coin, size: num(p.szi) ?? 0, entry: num(p.entryPx), value: num(p.positionValue) ?? 0, pnl: num(p.unrealizedPnl) ?? 0,
+    lev: num(p.leverage?.value) ?? null, liq: num(p.liquidationPx), margin: num(p.marginUsed) ?? 0,
+  })).filter((p) => p.size !== 0);
+  return v === null ? null : { value: v, marginUsed: num(m.totalMarginUsed) ?? 0, notional: num(m.totalNtlPos) ?? 0, positions };
 }
 // Polymarket: only the value of a public address's positions is readable without credentials (USDC cash needs auth).
 // v2 answers {data:{proxy_wallet, value}}; v1 answered [{user, value}]. Accept either.

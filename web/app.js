@@ -4,17 +4,18 @@ import { formulaClick, formulaInput, rulesClick, rulesInput, installDnD } from "
 import { feed, events, onChange, startHL, startPM, startBinance, logEvent, restoreLog, clearLog, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
+// Rail icons (drawn for this app, 24 px stroke) with a short label under each.
 const rail = [
-  ["home", "Home", I('<path d="M3 11l9-8 9 8M5 10v10h14V10"/>')],
-  ["portfolio", "Portfolio", I('<path d="M3 7h18v13H3zM3 7l3-4h12l3 4M16 13h2"/>')],
-  ["live", "Live", I('<path d="M3 12h4l3-8 4 16 3-8h4"/>')],
-  ["builder", "Strategy builder", I('<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>')],
-  ["backtest", "Backtest", I('<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/>')],
-  ["ml", "ML", I('<circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="12" r="2"/><path d="M7 12h3M14 12l3-6M14 12l3 6"/>')],
+  ["home", "Home", I('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/>')],
+  ["portfolio", "Portfolio", I('<path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 3.4A9 9 0 0 1 20.6 9H15z"/>')],
+  ["live", "Live", I('<path d="M5 4v16M12 3v18M19 6v12"/><rect x="3.5" y="8" width="3" height="6" rx=".6"/><rect x="10.5" y="6" width="3" height="9" rx=".6"/><rect x="17.5" y="9" width="3" height="5" rx=".6"/>')],
+  ["builder", "Builder", I('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/>')],
+  ["backtest", "Backtest", I('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M8 15.5l3-3 2 2 3.5-4"/>')],
+  ["ml", "ML", I('<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/>')],
 ];
 const tail = [
-  ["logs", "Logs", I('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>')],
-  ["settings", "Settings", I('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>')],
+  ["logs", "Logs", I('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7M9 8h2"/>')],
+  ["settings", "Settings", I('<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/><circle cx="12" cy="12" r="6.5"/>')],
 ];
 const venueOnly = new Set(["builder", "backtest", "ml", "model"]); // strategy work exists per venue, not in "general"
 const shown = (k) => state.venue !== "Both" || !venueOnly.has(k);
@@ -23,7 +24,7 @@ const titles = { home: "Home", portfolio: "Portfolio", live: "Live", builder: "S
 const ADDR_KEY = "bi-trading-sandbox-hl-address", PM_ADDR_KEY = "bi-trading-sandbox-pm-address";
 const liveViews = new Set(["home", "portfolio", "live", "logs"]);
 const $ = (s) => document.querySelector(s);
-const link = ([k, t, i], key) => `<a href="#${k}" title="${t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}</a>`;
+const link = ([k, t, i], key) => `<a href="#${k}" title="${titles[k] || t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}<span class="rl">${t}</span></a>`;
 const vs = [["Polymarket", "pm", "pm"], ["Hyperliquid", "hl", "hl"], ["Both", "", "⇄"]];
 const curKey = () => { const k = location.hash.slice(1) || "home"; return views[k] ? k : "home"; };
 
@@ -180,19 +181,6 @@ setRerender(render);
 installDnD(render);
 setAutoRun(() => engAct("eng-run", render, (msg, err) => { if (err) toast(msg, err); }));
 boot(render);
-// The order book's height: drag the handle under it, double-click to let it fit again.
-document.addEventListener("mousedown", (e) => {
-  const h = e.target.closest?.("[data-split]"); if (!h) return;
-  e.preventDefault();
-  // The book keeps at least 160 px, the positions at least 100 px plus the trade form under them.
-  const col = h.parentElement, top = col.getBoundingClientRect().top, form = col.lastElementChild.getBoundingClientRect().height, max = col.getBoundingClientRect().height - form - 100 - 14;
-  h.classList.add("drag");
-  const rows = (px) => { col.style.gridTemplateRows = `${px}px 6px minmax(0,1fr) auto`; }; // same rows as hlView with a set height
-  const move = (ev) => { state.bookH = Math.round(Math.max(160, Math.min(max, ev.clientY - top))); rows(state.bookH); };
-  const up = () => { h.classList.remove("drag"); removeEventListener("mousemove", move); removeEventListener("mouseup", up); render(); };
-  addEventListener("mousemove", move); addEventListener("mouseup", up);
-});
-document.addEventListener("dblclick", (e) => { if (e.target.closest?.("[data-split]")) { state.bookH = 0; render(); } });
 // Live candles: drag to move through time, scroll to zoom (around the pointer), double-click for the latest.
 const plotW = (cv) => cv.getBoundingClientRect().width - 64; // the price axis takes 64 px on the right
 document.addEventListener("mousedown", (e) => {
