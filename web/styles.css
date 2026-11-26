@@ -73,6 +73,7 @@ td { padding: 7px 8px; border-top: 1px solid var(--border); font-family: var(--m
 .tile .px { float: right; font-size: 24px; font-weight: 700; }
 .seg { display: flex; border-radius: 4px; overflow: hidden; gap: 4px; font: 700 10px var(--ui); color: #111; } .seg span { padding: 3px 0; text-align: center; border-radius: 4px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 5px; font: 600 11px var(--mono); border: 1px solid var(--border); background: var(--panel-alt); cursor: grab; }
+.chip.pmv { color: #7f9bff; background: #141a33; border-color: #2c3b78; }
 .chip.var { color: #e87aa6; background: #2a1420; border-color: #5a2a40; } .chip.data { color: #8ab4ff; background: #141b2e; border-color: #2a3a66; }
 .chip.ind { color: var(--accent); background: var(--accent-bg); border-color: var(--accent-dim); } .chip.math { color: #5fd6d0; background: #0f2224; border-color: #1f4a4c; } .chip.kw { color: var(--up); background: #0f2418; border-color: #1e5c3a; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }

@@ -86,6 +86,28 @@ export function logRows(n = 30, seed = 5) {
 
 // Venue-specific data.
 export const dataFor = (v) => (v === "Polymarket"
-  ? ["price", "model_p", "edge", "spread", "liquidity", "days_left", "btc", "target"]
+  ? ["open", "high", "low", "close", "volume", "up_price", "down_price", "minute", "seconds_left"]
   : ["open", "high", "low", "close", "volume", "funding", "oi", "model_p"]);
+// The variables, grouped: a Polymarket rule reads the Binance candle and the share price, kept apart.
+export const dataGroups = (v) => (v === "Polymarket"
+  ? { "Candle · Binance": ["open", "high", "low", "close", "volume"], "Polymarket market": ["up_price", "down_price", "minute", "seconds_left"] }
+  : { Data: ["open", "high", "low", "close", "volume", "funding", "oi", "model_p"] });
 export const pmStats = { PnL: "-1.84%", Equity: "$981", Sharpe: "-0.21", Drawdown: "-6.10%", "Max DD": "-7.40%", "Max gain": "+4.20%", Streak: "W2", "Best W": "7", "Worst L": "9", Bets: "3,114", "Win rate": "54%", "Avg entry": "61¢" };
+
+// The Polymarket backtest: demo bets shaped like the real window's table (seeded). Numbers are not a result.
+export function pmBets(n = 40, seed = 31) {
+  const r = rng(seed), out = []; let t = Date.UTC(2026, 10, 4, 10, 30);
+  for (let i = 0; i < n; i++) {
+    t += (1 + Math.floor(r() * 5)) * 300000;
+    const inM = 1 + Math.floor(r() * 3), buy = +(0.12 + r() * 0.6).toFixed(2), stake = +(40 + r() * 20).toFixed(2), k = r();
+    let sold, ended, outM;
+    if (k < 0.26) { sold = 1; ended = "Settled"; outM = "settle"; }
+    else if (k < 0.52) { sold = +Math.min(0.97, buy * (1.25 + r() * 0.6)).toFixed(2); ended = "Take profit"; outM = "m" + Math.min(4, inM + 1 + Math.floor(r() * 2)); }
+    else if (k < 0.8) { sold = +(buy * (0.55 + r() * 0.25)).toFixed(2); ended = "Stop loss"; outM = "m" + Math.min(4, inM + 1 + Math.floor(r() * 2)); }
+    else { sold = 0; ended = r() < 0.15 ? "Settled (est.)" : "Settled"; outM = "settle"; }
+    const d = new Date(t), two = (x) => String(x).padStart(2, "0");
+    out.push({ at: `${two(d.getUTCMonth() + 1)}-${two(d.getUTCDate())} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`, side: r() < 0.8 ? "UP" : "DOWN", inM: "m" + inM, buy, outM, sold, stake, pnl: +(stake * (sold / buy - 1)).toFixed(2), ended, prices: r() < 0.92 ? "real" : "sim" });
+  }
+  return out;
+}
+export const pmRun = { bets: "711", markets: "2,928", win: "25.7%", roi: "-26.87%", pnl: "$-999.06", final: "$0.94", dd: "99.9%", early: 379, settled: 332, real: "0 of 711", est: 7 };
