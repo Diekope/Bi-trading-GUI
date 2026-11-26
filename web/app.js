@@ -1,4 +1,5 @@
-import { views, state, draw, normalize, latency, balances, paintAll } from "./views.js";
+import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender } from "./views.js";
+import { boot } from "./engine.js";
 import { feed, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -53,7 +54,10 @@ function patch(o, n) {
   if (o.tagName === "CANVAS") return;
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(o.tagName)) {
     if (o === document.activeElement) return;
-    if (o.type === "checkbox" || o.type === "radio") o.checked = n.checked; else if (o.tagName !== "SELECT") o.value = n.getAttribute("value") ?? ""; else o.selectedIndex = n.selectedIndex;
+    if (o.type === "checkbox" || o.type === "radio") o.checked = n.checked;
+    else if (o.tagName === "TEXTAREA") { if (o.value !== n.value) o.value = n.value; }
+    else if (o.tagName === "SELECT") { o.innerHTML = n.innerHTML; o.selectedIndex = n.selectedIndex; } // the options change with the venue
+    else o.value = n.getAttribute("value") ?? "";
     return;
   }
   const oc = [...o.childNodes], nc = [...n.childNodes], same = (x, y) => x.nodeType === y.nodeType && (x.nodeType === 3 || x.tagName === y.tagName);
@@ -97,6 +101,7 @@ function schedule() {
 function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t.className = err ? "err show" : "show"; clearTimeout(toast.h); toast.h = setTimeout(() => (t.className = ""), 3500); }
 function act(a) {
   const f = state.form;
+  if (a.startsWith("eng-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
   if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
   if (a === "pm-connect") { const addr = (f.pmAddr ?? feed.pm.account?.address ?? "").trim(); pmHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(PM_ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Polymarket positions value connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
@@ -116,8 +121,12 @@ document.addEventListener("click", (e) => {
   const s = e.target.closest("[data-set]"); if (!s) return;
   const [k, ...v] = s.dataset.set.split("="), val = v.join("="); state[k] = val !== "" && !isNaN(val) ? Number(val) : val; render();
 });
-document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } });
-document.addEventListener("input", (e) => { lastInput = Date.now(); const b = e.target.dataset?.bind; if (b) state.form[b] = e.target.value; });
+document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } const k = e.target.dataset.pick; if (k) { state[k] = Number(e.target.value); render(); } });
+document.addEventListener("input", (e) => {
+  lastInput = Date.now(); const d = e.target.dataset || {};
+  if (d.bind) state.form[d.bind] = e.target.value;
+  if (d.sfield) setSField(d.sfield, e.target.value); // the builder edits the selected strategy; checks re-render when they land
+});
 addEventListener("hashchange", render); addEventListener("resize", draw);
 addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); const k = keys()[e.key - 1]; if (k) location.hash = k; }
@@ -134,3 +143,5 @@ onChange(schedule);
 })();
 setInterval(() => { paperTick(feed); schedule(); }, 1000);
 render();
+setRerender(render);
+boot(render);

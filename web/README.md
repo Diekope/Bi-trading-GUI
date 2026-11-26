@@ -1,6 +1,6 @@
 # Web design sandbox
 
-Static HTML/CSS/JS replica of every screen, fed by seeded synthetic data (`synth.js`). No build step, no network, no Python.
+HTML/CSS/JS replica of every screen. The live screens read the venues' public feeds; Builder and Backtest run the real engine (`src/bi_trading/engine`) through `serve.py`. Screens with nothing live behind them still use seeded synthetic data (`synth.js`). No build step.
 
     uv run python web/serve.py      # then open http://localhost:8000
 
@@ -13,6 +13,25 @@ Screens (hash routes, rail icons, `Ctrl/Cmd+1..8`): `#home`, `#portfolio`, `#liv
 - Controls with `data-set="key=value"` or `data-flip="key"` change shared state and re-render.
 
 Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `web/assets/`.
+
+## The engine
+
+`serve.py` answers `/api/...` with `engine_api.py`, which calls the same Qt-free code as the desktop app. Run it with `uv run` so `bi_trading` and numpy are importable.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/status` | candles and Polymarket prices on disk, and the data folder |
+| `GET /api/strategies`, `POST /api/strategies` | the saved strategies, the same file as the desktop app (`~/.config/bi-trading/strategies.json`, or `BI_TRADING_STRATEGIES`) |
+| `POST /api/parse` | checks a rule; the Builder shows the verdict as you type |
+| `POST /api/backtest` | the Hyperliquid-style run (`formula_eval.backtest`) over Binance 1m candles, resampled to 1m to 4h |
+| `POST /api/backtest/polymarket` | the binary run (`engine.binary.run_binary`) over the past five-minute markets, with the always-UP and always-DOWN baselines |
+
+- **Data.** The candle store is `BI_TRADING_DATA`, else this checkout's `data/candles`, else the main checkout's (`../bi-trading/data/candles`). Downloading stays in the desktop app (its downloaders run on Qt).
+- **Builder.** The text of each rule (bet UP, bet DOWN, cash out; or entry, exit) belongs to the selected strategy. Edit it in Code or Formula; Save writes it to the shared strategies file, Run backtest runs it. The tiles in Formula and Rules are still illustrative.
+- **Backtest.** History (span, timeframe), Strategy and the value card feed the run; results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
+- **Not wired yet.** Compare (walk-forward, TP × SL sweep), Save / Load run, ML and Model builder still show demo content.
+- **Safety.** POSTs from another origin are refused; nothing here places an order.
+- Tests: `uv run python -m unittest web/test/test_engine_api.py` (a throwaway candle store and strategies file).
 
 ## Live feeds and paper trading
 

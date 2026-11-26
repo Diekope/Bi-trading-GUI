@@ -34,10 +34,10 @@ export const market = { title: "Bitcoin Up or Down - November 8, 4:00PM-4:05PM E
 export const stats = { PnL: "-0.42%", Equity: "$9,958", Sharpe: "-0.00", Drawdown: "-2.65%", "Max DD": "-2.72%", "Max gain": "+2.29%", Streak: "L4", "Best W": "10", "Worst L": "19", Trades: "2,383", "Win rate": "44%", Fees: "$572" };
 
 export const strategies = [
-  { venue: "Hyperliquid", name: "Volume spike", tf: "1m", pnl: null, draft: true, note: "Buys when the close falls below the lower band on volume." },
-  { venue: "Polymarket", name: "Edge vs model", tf: "5m", pnl: 3.01, note: "model_p above 0.60 against the market price." },
-  { venue: "Polymarket", name: "Late favorite", tf: "5m", pnl: 3.35, note: "Backs the favorite in the last minute." },
-  { venue: "Hyperliquid", name: "Bollinger reversion", tf: "1m", pnl: 0.57, note: "Buys when the close falls below the lower band (20 bars, 2σ)." },
+  { venue: "Hyperliquid", name: "Volume spike", tf: "1m", pnl: null, draft: true, note: "Buys on a volume spike with a green bar.", entry: "volume > 3 * sma(volume, 20) and close > open", exit: "", short_entry: "" },
+  { venue: "Polymarket", name: "Cheap side", tf: "5m", pnl: null, note: "Bets UP on a cheap UP share after a green minute.", entry: "body = close - open\nminute >= 2 and up_price < 0.4 and body > 0", short_entry: "body = close - open\nminute >= 2 and up_price > 0.6 and body < 0", exit: "pnl >= 25 or pnl <= -30 or seconds_left < 30" },
+  { venue: "Polymarket", name: "Late favorite", tf: "5m", pnl: null, note: "Backs the favorite in the last minute.", entry: "minute >= 4 and up_price > 0.7", short_entry: "minute >= 4 and down_price > 0.7", exit: "" },
+  { venue: "Hyperliquid", name: "Bollinger reversion", tf: "1m", pnl: null, note: "Buys when the close falls below the lower band (20 bars, 2σ).", entry: "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0", exit: "", short_entry: "" },
 ];
 
 export const palette = {

@@ -14,6 +14,7 @@ What it relays (an allowlist, read-only market data, bound to 127.0.0.1):
     POST /__proxy/hl/info                 -> Hyperliquid       /info
     GET  /__proxy/data/value | /v2/value  -> Polymarket Data API  (positions value of a public address)
     ws://localhost:<port+1>/pm            -> the Polymarket market WebSocket (the browser would send an Origin)
+    /api/...                              -> the backtest engine itself (see engine_api.py), local only
 Nothing from the browser (cookies, headers) is forwarded, and nothing is logged beyond the request line.
 """
 
@@ -45,6 +46,12 @@ ALLOWED = {
     ("data", "GET"): ("/value", "/v2/value"),
 }
 MAX_BODY = 64 * 1024
+# The engine reads the candle store; this worktree may have none, so fall back to the main checkout's.
+if not os.environ.get("BI_TRADING_DATA"):
+    for _candidate in (ROOT.parent / "data" / "candles", ROOT.parent.parent / "bi-trading" / "data" / "candles"):
+        if any(_candidate.glob("*.parquet")):
+            os.environ["BI_TRADING_DATA"] = str(_candidate)
+            break
 state = {"ws_port": 0, "relay": False}
 
 
@@ -94,14 +101,58 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # network down, DNS, timeout
             self._send(502, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode())
 
+    def _api(self, method: str) -> None:
+        """Run one engine call; a bad request is a 400 with the reason, a crash a 500."""
+        try:
+            import engine_api
+        except Exception as e:  # the engine is not importable (run with `uv run`)
+            self._send(503, json.dumps({"error": f"engine unavailable: {type(e).__name__}: {e}"}).encode())
+            return
+        handler = engine_api.ROUTES.get((method, self.path.partition("?")[0]))
+        if handler is None:
+            self._send(404, b'{"error":"no such api route"}')
+            return
+        body: dict = {}
+        if method == "POST":
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_BODY:
+                self._send(413, b'{"error":"body too large"}')
+                return
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                self._send(400, b'{"error":"body is not JSON"}')
+                return
+            if not isinstance(body, dict):
+                self._send(400, b'{"error":"body must be a JSON object"}')
+                return
+        try:
+            out = handler(body)
+        except engine_api.ApiError as e:
+            self._send(400, json.dumps({"error": str(e)}).encode())
+            return
+        except Exception as e:
+            self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode())
+            return
+        self._send(200, json.dumps(out).encode())
+
     def do_GET(self):  # noqa: N802
-        if self.path.startswith("/__proxy/"):
+        if self.path.startswith("/api/"):
+            self._api("GET")
+        elif self.path.startswith("/__proxy/"):
             self._proxy("GET")
         else:
             super().do_GET()
 
     def do_POST(self):  # noqa: N802
-        if self.path.startswith("/__proxy/"):
+        if self.path.startswith("/api/"):
+            # Same-origin only: a page on another site must not drive the engine or write strategies.
+            origin = self.headers.get("Origin")
+            if origin and origin not in (f"http://localhost:{self.server.server_port}", f"http://127.0.0.1:{self.server.server_port}"):
+                self._send(403, b'{"error":"cross-origin request refused"}')
+                return
+            self._api("POST")
+        elif self.path.startswith("/__proxy/"):
             self._proxy("POST")
         else:
             self._send(405, b'{"error":"method not allowed"}')
