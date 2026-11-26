@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import numpy as np
@@ -77,10 +78,15 @@ def _iso(ms: int) -> str:
 
 def _span(body: dict, floor_ms: int = 0) -> tuple[int, int]:
     last = int(time.time() * 1000)
-    if body.get("year") not in (None, ""):
-        year = int(_num(body, "year", 2026, 2009, 2100))
-        first = int(datetime(year, 1, 1, tzinfo=UTC).timestamp() * 1000)
-        end = int(datetime(year + 1, 1, 1, tzinfo=UTC).timestamp() * 1000) - 1
+    if body.get("year") not in (None, ""):          # one calendar year
+        body = {**body, "year_from": body["year"], "year_to": body["year"]}
+    if body.get("year_from") not in (None, "") or body.get("year_to") not in (None, ""):
+        y0 = int(_num(body, "year_from", 2017, 2009, 2100))
+        y1 = int(_num(body, "year_to", y0, 2009, 2100))
+        if y1 < y0:
+            raise ApiError(f"the end year ({y1}) is before the start year ({y0})")
+        first = int(datetime(y0, 1, 1, tzinfo=UTC).timestamp() * 1000)
+        end = int(datetime(y1 + 1, 1, 1, tzinfo=UTC).timestamp() * 1000) - 1
         return max(first, floor_ms), min(end, last)
     days = _num(body, "days", 90, 0, 20 * 365)
     first = floor_ms if days == 0 else last - int(days * DAY_MS)
@@ -190,7 +196,8 @@ def check_rule(body: dict) -> dict:
     return {"ok": True, "fields": list(fields)}
 
 
-def run_hyperliquid(body: dict) -> dict:
+def _hl_setup(body: dict):
+    """Rules, money and bars of a Hyperliquid-style run, as both the run and the sweep need them."""
     tf = str(body.get("timeframe") or "1m")
     if tf not in TF_MINUTES:
         raise ApiError(f"timeframe: one of {', '.join(TF_MINUTES)}")
@@ -218,6 +225,11 @@ def run_hyperliquid(body: dict) -> dict:
          "low": float(c["low"][i]), "close": float(c["close"][i]), "volume": float(c["volume"][i])}
         for i in range(n)
     ]
+    return tf, entry, exit_text, exit_, short_entry, short, tp, sl, capital, fee, c, n, bars
+
+
+def run_hyperliquid(body: dict) -> dict:
+    tf, entry, exit_text, exit_, short_entry, short, tp, sl, capital, fee, c, n, bars = _hl_setup(body)
     report = backtest(bars, entry, exit_, tp=tp, sl=sl, capital=capital, fee=fee,
                       short=short, short_entry=short_entry)
 
@@ -257,7 +269,8 @@ def run_hyperliquid(body: dict) -> dict:
     }
 
 
-def run_polymarket(body: dict) -> dict:
+def run_polymarket_inputs(body: dict):
+    """Candles, Polymarket history, rules and bet values of a Polymarket run."""
     from bi_trading.data import polymarket_history
 
     entry = _rule(body.get("entry"), PM_ENTRY_FIELDS, what="bet UP rule")
@@ -279,6 +292,12 @@ def run_polymarket(body: dict) -> dict:
     if not len(bars["timestamp"]):
         raise ApiError(f"no Binance candles on disk for that span (looked in {candles.candles_dir()})")
     history = polymarket_history.load_rows(first, last)
+    return bars, history, entry, exit_, params, down
+
+
+def run_polymarket(body: dict) -> dict:
+    bars, history, entry, exit_, params, down = run_polymarket_inputs(body)
+    first, last = int(bars["timestamp"][0]), int(bars["timestamp"][-1])
     result = binary.run_binary(bars, history, entry, exit_, params, down)
     base = {s: binary.always_side(bars, history, s, params) for s in ("up", "down")}
     cap = params.capital
@@ -317,6 +336,64 @@ def run_polymarket(body: dict) -> dict:
     }
 
 
+def _values(body: dict, key: str, default: list[float], hi: float) -> list[float]:
+    raw = body.get(key, default)
+    if isinstance(raw, str):
+        raw = [x for x in raw.replace(";", ",").split(",") if x.strip()]
+    try:
+        vals = sorted({round(float(x), 6) for x in raw})
+    except (TypeError, ValueError):
+        raise ApiError(f"{key}: numbers separated by commas") from None
+    if not vals or len(vals) > 8 or any(v < 0 or v > hi for v in vals):
+        raise ApiError(f"{key}: 1 to 8 values between 0 and {hi:g}")
+    return vals
+
+
+def sweep(body: dict) -> dict:
+    """The strategy under every take profit x stop loss pair: one cell per pair.
+
+    TP and SL act through the exit rule (`pnl >= tp`, `pnl <= -sl`); a rule that never
+    reads them gives the same result in every cell, which the answer says.
+    """
+    tps = _values(body, "tps", [1, 2, 3, 4, 5], 1000)
+    sls = _values(body, "sls", [0.5, 1, 1.5, 2, 3], 100)
+    pm = body.get("venue") == "Polymarket"
+    cells = []
+    if pm:
+        exit_text = str(body.get("exit") or "")
+        bars, history, entry, exit_, params, down = run_polymarket_inputs(body)
+        for sl_v in sls:
+            for tp_v in tps:
+                r = binary.run_binary(bars, history, entry, exit_, replace(params, tp=tp_v, sl=sl_v), down)
+                cells.append({"tp": tp_v, "sl": sl_v, "pnlPct": (r.final_equity / params.capital - 1) * 100,
+                              "trades": len(r.trades), "winRate": r.win_rate, "maxDD": -r.max_drawdown * 100})
+    else:
+        tf, entry, exit_text, exit_, short_entry, short, _tp, _sl, capital, fee, c, n, bars = _hl_setup(body)
+        closes = c["close"].tolist()
+        signals = set(entry_signals(entry, bars, ENTRY_FIELDS))
+        shorting = set(entry_signals(short_entry, bars, ENTRY_FIELDS)) if short_entry is not None and not short else None
+        for sl_v in sls:
+            for tp_v in tps:
+                eq, results, _, _ = _walk(closes, signals, exit_, tp_v, sl_v, capital, fee, short, shorting, SLIPPAGE)
+                peak, dd = capital, 0.0
+                for v in eq:
+                    peak = max(peak, v)
+                    dd = min(dd, (v / peak - 1) * 100 if peak else 0)
+                cells.append({"tp": tp_v, "sl": sl_v, "pnlPct": ((eq[-1] if eq else capital) / capital - 1) * 100,
+                              "trades": len(results), "winRate": sum(r > 0 for r in results) / len(results) if results else 0.0,
+                              "maxDD": dd})
+    uses = any(w in exit_text for w in ("tp", "sl"))
+    return {"tps": tps, "sls": sls, "cells": cells, "exit": exit_text, "usesTpSl": uses}
+
+
+def delete_strategy(body: dict) -> dict:
+    name = str(body.get("name") or "").strip()
+    if not name:
+        raise ApiError("name: which strategy?")
+    kept = strategies.remove(name)
+    return {"deleted": name, "count": len(kept)}
+
+
 ROUTES = {
     ("GET", "/api/status"): status,
     ("GET", "/api/strategies"): list_strategies,
@@ -324,4 +401,6 @@ ROUTES = {
     ("POST", "/api/parse"): check_rule,
     ("POST", "/api/backtest"): run_hyperliquid,
     ("POST", "/api/backtest/polymarket"): run_polymarket,
+    ("POST", "/api/sweep"): sweep,
+    ("POST", "/api/strategies/delete"): delete_strategy,
 }

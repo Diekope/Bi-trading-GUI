@@ -87,9 +87,41 @@ const resultsCard = (grid = "") => { const R = E.res[V()], pm = isPM();
   <div class="row grow" style="align-items:stretch;gap:20px;min-height:0">
     <div style="flex:1;display:flex;flex-direction:column;min-width:0"><canvas id="eq"></canvas>
       <div class="row" style="gap:16px;font-weight:600;font-size:12px">${pm ? `<span class="accent">strategy</span><span style="color:var(--indigo)">always UP ${pctS(R.baselines.up.roi * 100)}</span><span class="muted">always DOWN ${pctS(R.baselines.down.roi * 100)}</span>` : `<span class="accent">strategy ${pctS(R.pnlPct)}</span><span style="color:var(--indigo)">random buy ${pctS(R.randomPct)}</span><span class="muted">buy &amp; hold ${pctS(R.holdPct)}</span>`}</div></div>
-    <div style="width:250px;display:grid;gap:10px;align-content:start">${state.res === "Overview" ? `<b style="font-size:11px">How ${pm ? "bets" : "trades"} end</b>${reasonBars(R.reasons)}`
-      : `<span class="cap">Compare (walk-forward, TP × SL sweep) is not wired to the engine yet: demo grid</span><b style="font-size:11px">TP × SL sweep</b><div class="heat">${hm.flat().map((v) => `<i style="background:${sc(v)}"></i>`).join("")}</div>`}</div>
+    <div style="width:250px;display:grid;gap:10px;align-content:start"><b style="font-size:11px">How ${pm ? "bets" : "trades"} end</b>${reasonBars(R.reasons)}</div>
   </div>`}</section>`; };
+
+// -- Compare: the strategy under every take profit x stop loss pair --------------------------
+const sweepKeys = () => (isPM() ? ["sweepTpPM", "sweepSlPM", "10, 25, 50, 100", "10, 25, 50"] : ["sweepTpHL", "sweepSlHL", "1, 2, 3, 4, 5", "0.5, 1, 1.5, 2, 3"]);
+const sweepBody = () => { const [kt, ks, dt, ds] = sweepKeys(), s = strat(); return { venue: V(), entry: s.entry ?? "", short_entry: s.short_entry ?? "", exit: s.exit ?? "", timeframe: state.btTf, days: 90, tps: state.form[kt] ?? dt, sls: state.form[ks] ?? ds }; };
+const sweepSig = () => JSON.stringify(sweepBody());
+let sweepTimer = 0;
+function sweepLater() {
+  const s = strat(), sig = sweepSig(), W = E.sweep;
+  if (state.res !== "Compare" || location.hash !== "#builder" || E.offline || !hasRule(s) || badRule(s) || W?.sig === sig || W?.busy === sig) return;
+  clearTimeout(sweepTimer);
+  sweepTimer = setTimeout(async () => {
+    E.sweep = { ...(E.sweep || {}), busy: sig, err: "" }; rerender();
+    try { const d = await api("/api/sweep", JSON.parse(sig)); if (E.sweep.busy === sig) E.sweep = { sig, data: d }; }
+    catch (e) { if (E.sweep.busy === sig) E.sweep = { sig, err: e.message }; }
+    rerender();
+  }, 600);
+}
+const heatCol = (v, m) => { const a = Math.min(1, Math.abs(v) / (m || 1)) * 0.6 + 0.08; return v >= 0 ? `rgba(61,220,132,${a.toFixed(2)})` : `rgba(255,92,92,${a.toFixed(2)})`; };
+const compareCard = () => { const [kt, ks, dt, ds] = sweepKeys(), W = E.sweep, s = strat(), fresh = W?.sig === sweepSig(), D = fresh ? W.data : null;
+  sweepLater();
+  const status = E.offline ? "engine offline" : !hasRule(s) ? "Write a rule to compare its exits." : badRule(s) ? "Fix the rule to compare its exits." : W?.busy ? "computing every pair in the engine…" : W?.err && fresh ? `<span class="down">${esc(W.err)}</span>` : D ? `last 90 days${isPM() ? "" : " · " + state.btTf} · ${D.cells.length} runs` : "computing…";
+  let grid = "";
+  if (D) {
+    const m = Math.max(...D.cells.map((c) => Math.abs(c.pnlPct))), best = D.cells.reduce((a, c) => (c.pnlPct > a.pnlPct ? c : a), D.cells[0]);
+    const cell = (tp, sl) => { const c = D.cells.find((x) => x.tp === tp && x.sl === sl);
+      return `<td class="sw-cell ${c === best ? "best" : ""}" style="background:${heatCol(c.pnlPct, m)}"><b>${pctS(c.pnlPct, 1)}</b><span class="tip">TP ${tp}% · SL ${sl}%<br>return ${pctS(c.pnlPct)}<br>${n0(c.trades)} ${isPM() ? "bets" : "trades"} · win ${(c.winRate * 100).toFixed(0)}%<br>max drawdown ${pctS(c.maxDD, 1)}</span></td>`; };
+    E.sweepNote = `Best: <b class="up">TP ${best.tp}% · SL ${best.sl}%</b> → ${pctS(best.pnlPct)} over ${n0(best.trades)} ${isPM() ? "bets" : "trades"}. Hover a cell for its details.${D.usesTpSl ? "" : ` <span class="accent">The exit rule does not read tp or sl, so every cell is the same: use them in the ${isPM() ? "cash-out" : "exit"} rule (e.g. pnl &gt;= tp or pnl &lt;= -sl)${isPM() ? "" : ", or leave it empty"}.</span>`}`;
+    grid = `<table class="sweep"><tr><th class="corner">SL ↓ · TP →</th>${D.tps.map((t) => `<th>${t}%</th>`).join("")}</tr>${D.sls.map((sl) => `<tr><th>${sl}%</th>${D.tps.map((tp) => cell(tp, sl)).join("")}</tr>`).join("")}</table>`;
+  }
+  return `<section class="card"><div class="row between"><h2 class="sec">Preview</h2><span class="row">${pills("res", ["Overview", "Compare"])}</span></div>
+    <span class="cap">Take profit × stop loss: the same strategy with each pair · ${status}</span>${D ? `<span class="cap">${E.sweepNote}</span>` : ""}
+    <div class="row grow" style="align-items:stretch;gap:20px;min-height:0"><div class="grow scroll" style="flex:1;min-width:0">${grid || empty(W?.busy ? "computing…" : "")}</div>
+    <div style="width:230px;display:grid;gap:10px;align-content:start"><b style="font-size:11px">Values to try</b><label class="f">Take profit % (columns)<input type="text" ${bind(kt, dt)}></label><label class="f">Stop loss % (rows)<input type="text" ${bind(ks, ds)}></label><span class="cap">Up to 8 values each, separated by commas. The grid updates on its own.</span></div></div></section>`; };
 
 const stratList = () => `<section class="card" style="gap:10px;padding:12px"><div class="grow scroll" style="display:grid;gap:8px;align-content:start">${strategies.map((s, i) => s.venue !== V() ? "" : `<div class="list-item ${i === state.strat ? "on" : ""}" data-set="strat=${i}"><span>${s.name}</span><span class="${s.pnl == null ? "muted" : s.pnl >= 0 ? "up" : "down"}">${s.pnl == null ? (s.saved ? "saved" : "draft") : (s.pnl >= 0 ? "+" : "") + s.pnl + "%"}</span></div>`).join("")}</div><button class="btn accent" style="width:100%" data-act="eng-new">Create a strategy</button></section>`;
 
@@ -142,9 +174,18 @@ const pmCard = () => { const d = pmData(), pl = feed.pm.latency, sel = state.pmS
       <b class="sec" style="color:var(--muted)">Tape</b><div class="mono" style="font-size:11px;color:var(--muted);display:grid;gap:1px">${d.tape.map((t) => `<div style="display:grid;grid-template-columns:80px 70px 1fr auto"><span>${t.time}</span><span class="${t.side === "UP" ? "up" : "down"}">${t.side}</span><span style="text-align:right;padding-right:30px">${cents(t.px)}</span><span>× ${(+t.size).toFixed(2)}</span></div>`).join("") || `<div>waiting for trades…</div>`}</div>${posStrip("Polymarket")}</section>`; };
 
 const COINS = ["HYPE", "BTC", "ETH", "SOL"];
+const chartOpts = () => `<span class="chart-opts">${ck("Volume", state.vol, "vol")}${ck("Bollinger", state.bb, "bb")}${pan.off ? `<button class="btn sm" data-act="pan-latest" title="back to the latest candle">⇥ latest</button>` : ""}</span>`;
+// The visible window of a live candle chart: how many candles, and how far back from the newest.
+export const pan = { n: 120, off: 0 };
+export function panWindow(all) {
+  const n = Math.max(15, Math.min(all.length, Math.round(pan.n))), off = Math.max(0, Math.min(all.length - n, pan.off));
+  pan.n = n; pan.off = off;
+  const end = all.length - Math.round(off);
+  return all.slice(Math.max(0, end - n), end);
+}
 const hlCard = () => { const h = hlData(), S = feed.hl;
   return `<section class="card" style="padding:14px 16px"><div class="row between"><div class="row"><b style="font-size:17px;color:var(--muted)">${state.coin}</b>${statusChip(S)}</div><div class="row"><b style="font-size:19px;color:var(--muted)">${pxFmt(h.price)}</b></div></div>
-      <div class="row between"><div class="row">${pills("coin", COINS)}</div>${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div><canvas id="hl"></canvas>${posStrip("Hyperliquid")}</section>`; };
+      <div class="row between"><div class="row">${pills("coin", COINS)}</div><div class="row">${chartOpts()}${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div></div><canvas id="hl" class="pannable" title="drag to move, scroll to zoom, double-click for the latest"></canvas>${posStrip("Hyperliquid")}</section>`; };
 
 const bookRows = (side, n) => {
   const S = feed.hl, b = S.status === "live" && S.book?.coin === S.coin ? S.book : null;
@@ -174,15 +215,15 @@ const baseOf = (p) => (p.kind === "bet" ? p.stake : p.margin);
 
 const bothBars = () => { const d = pmData(), cp = "padding:5px 8px;width:58px;text-align:right";
   const pm = `<div class="bar-foot row" style="flex:1"><span class="vtag pm">PM</span><b class="${state.pmSel === "UP" ? "up" : "down"}">${state.pmSel}</b><span style="flex:1"></span><label class="cap">Stake <input type="text" ${bind("pmStake", 20)} style="${cp}"></label>${modeBadge()}<button class="btn up ${state.pmSel === "UP" ? "sel" : ""}" data-act="pm-UP">Bet UP ${cents(d.up.ask)}</button><button class="btn down ${state.pmSel === "DOWN" ? "sel" : ""}" data-act="pm-DOWN">Bet DOWN ${cents(d.down.ask)}</button></div>`;
-  const hl = `<div class="bar-foot row" style="flex:1"><span class="vtag hl">HL</span><b>${state.coin}</b><span style="flex:1"></span><label class="cap">Size $ <input type="text" ${bind("hlSize", 500)} style="${cp}"></label><label class="cap">x <input type="text" ${bind("hlLev", 5)} style="${cp};width:42px"></label><label class="cap">TP% <input type="text" ${bind("hlTp", 2)} style="${cp};width:42px"></label><label class="cap">SL% <input type="text" ${bind("hlSl", 1)} style="${cp};width:42px"></label>${modeBadge()}<button class="btn up" data-act="hl-Long">Buy / Long</button><button class="btn down" data-act="hl-Short">Sell / Short</button></div>`;
+  const hl = `<div class="bar-foot row" style="flex:1"><span class="vtag hl">HL</span><b>${state.coin}</b><span style="flex:1"></span><label class="cap">Margin $ <input type="text" ${bind("hlSize", 100)} style="${cp}"></label><label class="cap">x <input type="text" ${bind("hlLev", 5)} style="${cp};width:42px"></label><label class="cap">TP% <input type="text" ${bind("hlTp", 2)} style="${cp};width:42px"></label><label class="cap">SL% <input type="text" ${bind("hlSl", 1)} style="${cp};width:42px"></label>${modeBadge()}<button class="btn up" data-act="hl-Long">Buy / Long</button><button class="btn down" data-act="hl-Short">Sell / Short</button></div>`;
   return pm + hl; };
 const pmView = () => { const d = pmData(), edge = d.up.ask != null ? 0.64 - d.up.ask : null, mine = [...P.positions.filter((p) => p.venue === "Polymarket").map((p) => ({ ...p, open: true })), ...P.history.filter((h) => h.venue === "Polymarket").slice(0, 4)];
-  return pmCard() + `<section class="card"><div class="row between"><div class="row"><b class="sec">BTC / USD</b>${statusChip(feed.hl)}<b class="mono" style="font-size:15px">${pxFmt(hlData().price)}</b></div>${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div><div class="row between cap"><span>Hyperliquid BTC perp candles, live</span><span>${d.target ? "window target " + pxFmt(d.target) : "target loading…"}</span></div><canvas id="hl"></canvas>
+  return pmCard() + `<section class="card"><div class="row between"><div class="row"><b class="sec">BTC / USD</b>${statusChip(feed.hl)}<b class="mono" style="font-size:15px">${pxFmt(hlData().price)}</b></div>${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div><div class="row between cap"><span class="row">${chartOpts()}<span>Hyperliquid BTC perp, live</span></span><span>${d.target ? "window target " + pxFmt(d.target) : "target loading…"}</span></div><canvas id="hl" class="pannable" title="drag to move, scroll to zoom, double-click for the latest"></canvas>
   <div class="grid g3" style="gap:8px"><div class="well"><div class="cap">Model P(up) · demo</div><b class="mono" style="font-size:18px">0.64</b></div><div class="well"><div class="cap">Market UP ask</div><b class="mono" style="font-size:18px">${cents(d.up.ask)}</b></div><div class="well"><div class="cap">Edge</div><b class="mono ${edge != null && edge >= 0 ? "up" : "down"}" style="font-size:18px">${edge == null ? "—" : (edge >= 0 ? "+" : "") + (edge * 100).toFixed(1) + "¢"}</b></div></div>
   <b class="sec" style="color:var(--muted)">Your paper bets</b>
   <table><tr><th>Side</th><th>Stake</th><th>Entry</th><th>Now / result</th><th></th></tr>${mine.map((p) => `<tr><td>${p.side}</td><td>$${p.stake.toFixed(0)}</td><td>${cents(p.entry)}</td><td>${p.open ? `${cents(markOf(feed, p))} ${pnlCell(pnlOf(feed, p), p.stake)}` : `${pnlCell(p.pnl, p.stake)} <span class="muted">${p.reason}</span>`}</td><td style="text-align:right">${p.open ? `<button class="btn sm" data-act="close-${p.id}">Close</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">no bets yet: place one with the buttons below</td></tr>`}</table></section>`; };
 
-const hlView = () => { const h = hlData(), S = feed.hl, f = state.form, size = +(f.hlSize ?? 500) || 0, lev = +(f.hlLev ?? 5) || 1, mid = h.price, liq = mid * (1 - 0.9 / lev), liqS = mid * (1 + 0.9 / lev);
+const hlView = () => { const h = hlData(), S = feed.hl, f = state.form, size = +(f.hlSize ?? 100) || 0, lev = +(f.hlLev ?? 5) || 1, mid = h.price, liq = mid * (1 - 0.9 / lev), liqS = mid * (1 + 0.9 / lev);
   const bookH = state.bookH ? `${state.bookH}px` : "minmax(120px,1fr)";
   return hlCard() + `<div id="hlcol" style="display:grid;grid-template-rows:${bookH} 6px ${state.bookH ? "minmax(0,1fr)" : "minmax(0,auto)"} auto;gap:4px;min-height:0">
   <section class="card" style="padding:10px 14px;gap:2px;min-height:0;display:flex;flex-direction:column"><div class="row between"><b class="sec">Order book</b><span class="cap mono">${S.latency != null ? S.latency + " ms" : ""}</span></div>
@@ -192,8 +233,8 @@ const hlView = () => { const h = hlData(), S = feed.hl, f = state.form, size = +
   <div class="splitter" data-split="bookH" title="drag to resize the order book, double-click to fit it again"></div>
   <section class="card scroll" style="gap:4px;padding:10px 14px;min-height:0"><div class="row between"><b class="sec">Paper positions</b><span class="cap">${money(equity(feed, "Hyperliquid"))}</span></div><table>${P.positions.filter((p) => p.venue === "Hyperliquid").map((r) => `<tr><td>${r.coin} ${r.side} ${r.lev}x<br><span class="muted">$${r.size.toFixed(0)} @ ${pxFmt(r.entry)}</span></td><td style="text-align:right" title="PnL and % of margin">${pnlCell(pnlOf(feed, r), r.margin, true)}</td><td style="text-align:right"><button class="btn sm" data-act="close-${r.id}">Close</button></td></tr>`).join("") || `<tr><td class="muted">none open</td></tr>`}</table></section>
   <section class="card" style="gap:8px;padding:12px 14px"><div class="row between"><b class="sec">Trade ${state.coin}</b>${modeBadge()}</div>
-  <div class="grid g2" style="gap:8px"><label class="f">Size (USD)<input type="text" ${bind("hlSize", 500)} style="text-align:right"></label><label class="f">Leverage ×<input type="text" ${bind("hlLev", 5)} style="text-align:right"></label><label class="f">TP %<input type="text" ${bind("hlTp", 2)} style="text-align:right"></label><label class="f">SL %<input type="text" ${bind("hlSl", 1)} style="text-align:right"></label></div>
-  <span class="cap mono">Margin ${money(size / lev)} · Liq. long ${pxFmt(liq)} / short ${pxFmt(liqS)} · Fee ~${(FEE * 100).toFixed(2)}%</span><div class="grid g2" style="gap:8px"><button class="btn up" data-act="hl-Long">Buy / Long</button><button class="btn down" data-act="hl-Short">Sell / Short</button></div></section></div>`; };
+  <div class="grid g2" style="gap:8px"><label class="f">Margin (USD)<input type="text" ${bind("hlSize", 100)} style="text-align:right"></label><label class="f">Leverage ×<input type="text" ${bind("hlLev", 5)} style="text-align:right"></label><label class="f">TP %<input type="text" ${bind("hlTp", 2)} style="text-align:right"></label><label class="f">SL %<input type="text" ${bind("hlSl", 1)} style="text-align:right"></label></div>
+  <span class="cap mono">Position ${money(size * lev)} (margin × ${lev}) · Liq. long ${pxFmt(liq)} / short ${pxFmt(liqS)} · Fee ~${(FEE * 100).toFixed(2)}%</span><div class="grid g2" style="gap:8px"><button class="btn up" data-act="hl-Long">Buy / Long</button><button class="btn down" data-act="hl-Short">Sell / Short</button></div></section></div>`; };
 
 const portfolio = () => { const A = feed.hl.account, V1 = state.venue === "Both" ? null : state.venue, eqv = equity(feed, V1), st = startEquity(V1), dp = dayPnl(feed, V1), rows = P.positions.filter((p) => !V1 || p.venue === V1), hist = P.history.filter((p) => !V1 || p.venue === V1).slice(0, 5), live = !!state.live;
   const card = (isLive) => { const armed = live === isLive;
@@ -237,25 +278,29 @@ const pmResultCard = () => { const R = E.res.Polymarket;
   <div class="row" style="gap:16px;font-weight:600;font-size:12px"><span class="accent">strategy</span><span style="color:var(--indigo)">always UP</span><span class="muted">always DOWN</span></div>
   <div class="cap">Baselines at minute 1, held to settlement. Always UP: ${n0(R.baselines.up.bets)} bets, win ${(R.baselines.up.winRate * 100).toFixed(1)}%, ROI ${pctS(R.baselines.up.roi * 100)}. Always DOWN: ${n0(R.baselines.down.bets)} bets, win ${(R.baselines.down.winRate * 100).toFixed(1)}%, ROI ${pctS(R.baselines.down.roi * 100)}. Prices carry an assumed ${R.halfSpreadCents} cent half spread: no order book history exists.</div>` : empty("No run yet. Pick a strategy and the bet values on the right, then Run.")}</section>`; };
 const pmBetsCard = () => { const R = E.res.Polymarket;
-  return `<section class="card" style="grid-column:1/3"><div class="row between"><b class="sec">Bets</b><span class="cap">${R ? `the last ${Math.min(500, R.bets)} of ${n0(R.bets)}, newest first` : ""}</span></div>
-  ${R ? `<div class="row grow" style="align-items:stretch;gap:20px;min-height:0"><div class="scroll grow" style="flex:1"><table><tr><th>Market (UTC)</th><th>Side</th><th>In</th><th>Buy</th><th>Out</th><th>Sold</th><th>Stake $</th><th>PnL $</th><th>Ended</th><th>Prices</th></tr>${R.betRows.map((t) => `<tr><td>${t.at}</td><td>${t.side}</td><td>${t.inM}</td><td>${t.buy.toFixed(2)}</td><td>${t.outM}</td><td>${t.sold.toFixed(2)}</td><td>${big(t.stake, (x) => x.toFixed(2))}</td><td class="${cls(t.pnl)}">${t.pnl >= 0 ? "+" : ""}${big(t.pnl, (x) => x.toFixed(2))}</td><td>${esc(t.ended)}</td><td class="muted">${t.prices}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">the rule never fired</td></tr>`}</table></div>
-  <div style="width:250px;display:grid;gap:8px;align-content:start"><b style="font-size:11px">How bets end</b>${reasonBars(R.reasons)}<b style="font-size:11px;margin-top:6px">Drawdown</b><canvas id="dd" style="height:90px"></canvas></div></div>` : empty("The bets of the last run show here.")}</section>`; };
+  return `<section class="card" style="grid-column:1;grid-row:2;min-height:0"><div class="row between"><b class="sec">Bets</b><span class="cap">${R ? `the last ${Math.min(500, R.bets)} of ${n0(R.bets)}, newest first` : ""}</span></div>
+  ${R ? `<div class="row grow" style="align-items:stretch;gap:20px;min-height:0"><div class="scroll grow" style="flex:1;min-width:0"><table class="nowrap"><tr><th>Market (UTC)</th><th>Side</th><th>In</th><th>Buy</th><th>Out</th><th>Sold</th><th>Stake $</th><th>PnL $</th><th>Ended</th><th>Prices</th></tr>${R.betRows.map((t) => `<tr><td>${t.at}</td><td>${t.side}</td><td>${t.inM}</td><td>${t.buy.toFixed(2)}</td><td>${t.outM}</td><td>${t.sold.toFixed(2)}</td><td>${big(t.stake, (x) => x.toFixed(2))}</td><td class="${cls(t.pnl)}">${t.pnl >= 0 ? "+" : ""}${big(t.pnl, (x) => x.toFixed(2))}</td><td>${esc(t.ended)}</td><td class="muted">${t.prices}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">the rule never fired</td></tr>`}</table></div>
+  <div style="width:200px;display:grid;gap:8px;align-content:start"><b style="font-size:11px">How bets end</b>${reasonBars(R.reasons)}<b style="font-size:11px;margin-top:6px">Drawdown</b><canvas id="dd" style="height:90px"></canvas></div></div>` : empty("The bets of the last run show here.")}</section>`; };
 const hlTopCard = () => { const R = E.res.Hyperliquid;
   return `<section class="card" style="grid-row:1"><div class="row between"><div><b class="sec">Backtest</b><div class="cap">${runNote()}</div></div><span class="row">${focusPills()}${runBtn()}</span></div>
   ${R ? `<div class="stats" style="gap:6px 12px">${stat("PnL", pctS(R.pnlPct), cls(R.pnlPct))}${stat("Final", money(R.final))}${stat("Max DD", pctS(R.maxDD), "down")}${stat("Trades", n0(R.trades))}${stat("Win rate", (R.winRate * 100).toFixed(1) + "%")}${stat("Fees", money(R.fees))}${stat("Random buy", pctS(R.randomPct), cls(R.randomPct))}${stat("Buy & hold", pctS(R.holdPct), cls(R.holdPct))}${stat("Bars", n0(R.bars) + " · " + R.timeframe)}</div><canvas id="hl"></canvas>` : empty("No run yet. Pick a strategy, a span and a timeframe on the right, then Run.")}</section>`; };
 const hlResultsCard = () => { const R = E.res.Hyperliquid;
-  return `<section class="card" style="grid-column:1/3"><div class="row between"><b class="sec">Results</b>${pills("btTab", ["Overview", "Trades"])}</div>
+  return `<section class="card" style="grid-column:1;grid-row:2;min-height:0"><div class="row between"><b class="sec">Results</b>${pills("btTab", ["Overview", "Trades"])}</div>
   ${!R ? empty("The curves and trades of the last run show here.") : state.btTab === "Trades" ? `<span class="cap">the last ${Math.min(500, R.trades)} of ${n0(R.trades)} closed trades, newest first</span><div class="scroll grow"><table><tr><th>#</th><th>PnL %</th><th>Ended</th></tr>${R.tradeRows.map((t) => `<tr><td>${t.n}</td><td class="${cls(t.pnl)}">${pctS(t.pnl, 3)}</td><td>${esc(t.reason)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">the rule never fired</td></tr>`}</table></div>`
   : `<span class="cap">return since the start: strategy, random buy with the same exits, buy and hold</span><div class="row grow" style="align-items:stretch;gap:20px;min-height:0"><div style="flex:1;display:grid;grid-template-rows:minmax(0,4fr) auto minmax(0,1fr);gap:6px;min-width:0"><canvas id="eq"></canvas><div class="row" style="gap:16px;font-weight:600;font-size:12px"><span class="accent">strategy ${pctS(R.pnlPct)}</span><span style="color:var(--indigo)">random buy ${pctS(R.randomPct)}</span><span class="muted">buy &amp; hold ${pctS(R.holdPct)}</span></div><canvas id="dd"></canvas></div><div style="width:250px;display:grid;gap:8px;align-content:start"><b style="font-size:11px">How trades end</b>${reasonBars(R.reasons)}<b style="font-size:11px;margin-top:6px">PnL distribution</b><div style="display:flex;align-items:end;height:100px;gap:1px">${(() => { const m = Math.max(1, ...R.histogram), [lo, hi] = R.histRange; return R.histogram.map((h, i) => `<i style="flex:1;height:${(h / m) * 100}%;background:${lo + ((hi - lo) * (i + 0.5)) / R.histogram.length < 0 ? "var(--down)" : "var(--up)"}"></i>`).join(""); })()}</div><div class="row between muted mono" style="font-size:10px"><span>${pctS(R.histRange[0])}</span><span>${pctS(R.histRange[1])}</span></div></div></div>`}</section>`; };
+const hlYears = () => { const y = (E.status?.candles || []).map((c) => String(c.year)); return y.length ? y : [String(new Date().getUTCFullYear())]; };
 const historyCard = () => { const S = E.status, pm = isPM();
   const yrs = S?.candles || [], rows = yrs.reduce((a, y) => a + y.rows, 0), cy = yrs.find((y) => y.year === new Date().getUTCFullYear());
   const disk = !S ? (E.offline ? "engine offline: nothing read from disk" : "reading the data folder…") : pm ? `Polymarket prices: ${n0(S.polymarket.markets)} markets on disk (${n0(S.polymarket.missing)} not on Polymarket)${S.polymarket.newest ? `, newest ${S.polymarket.newest} UTC` : ""}.<br>Binance 1m candles ${cy ? cy.year + ": " + n0(cy.rows) + " rows" : ": none this year"}.` : yrs.length ? `Binance 1m candles ${yrs[0].year} → ${yrs[yrs.length - 1].year}: ${n0(rows)} rows.` : "No candles on disk.";
-  return `<section class="card"><b class="sec">History</b><span class="cap">${disk}</span>${selB("Span", pm ? "btSpanPM" : "btSpanHL", pm ? "All history" : "Last 90 days", pm ? ["All history", "Last 90 days", "Last 30 days", "Last 7 days"] : ["Last 7 days", "Last 30 days", "Last 90 days", "Last year", "All history", ...yrs.map((y) => String(y.year)).reverse()])}
+  return `<section class="card"><b class="sec">History</b><span class="cap">${disk}</span>${pm ? selB("Span", "btSpanPM", "All history", ["All history", "Last 90 days", "Last 30 days", "Last 7 days"]) : `<div class="grid g2" style="gap:8px">${selB("From (start of)", "btFrom", hlYears().at(-1), hlYears())}${selB("To (end of)", "btTo", hlYears().at(-1), hlYears())}</div>`}
   ${pm ? "" : `<div class="grid" style="grid-template-columns:repeat(7,1fr);gap:6px">${["1m", "3m", "5m", "15m", "30m", "1h", "4h"].map((t) => `<button class="pill ${state.btTf === t ? "on" : ""}" style="padding:6px 0" data-set="btTf=${t}">${t}</button>`).join("")}</div>`}
   <span class="cap">${S ? `Data folder: <span class="mono">${esc(S.dataDir)}</span>. Download new history from the desktop app (Backtest → Download).` : ""}</span></section>`; };
 const valueCard = () => (isPM()
   ? `<section class="card"><b class="sec">Bet value</b><div class="grid g3" style="gap:8px">${selB("Side (one rule)", "pmSide", "Bet UP", ["Bet UP", "Bet DOWN"])}${fieldB("Start capital $", "pmCap", 1000)}${fieldB("Stake % of equity", "pmStake", 5)}${fieldB("First decision minute", "pmMin", 1)}${fieldB("Half spread (cents)", "pmSpread", 1)}${fieldB("Fee %", "pmFee", 0)}${fieldB("TP % (share price)", "pmTp", 0)}${fieldB("SL % (share price)", "pmSl", 0)}</div><span class="cap">A share pays $1 if its side won, $0 if not. With both a bet UP and a bet DOWN rule, each bets its own side. No order-book history exists: the spread is an assumption.</span></section>`
   : `<section class="card"><b class="sec">Backtest value</b><div class="grid g3" style="gap:8px">${fieldB("Initial capital $", "hlCap", 10000)}${selB("Side", "hlSideB", "Long", ["Long", "Short"])}${fieldB("Fee % per side", "hlFee", 0.06)}${fieldB("TP %", "hlTpB", 2)}${fieldB("SL %", "hlSlB", 1)}</div><span class="cap">BTC only, one position at a time, the whole book per trade. The exit rule reads pnl, tp and sl.</span></section>`);
+// The runs of this session on this venue; click one to show it again.
+const runsCard = () => { const list = (E.runs || []).map((x, i) => ({ ...x, i })).filter((x) => x.venue === V());
+  return `<section class="card" style="min-height:0;gap:6px"><div class="row between"><b class="sec">Runs</b><span class="cap">this session, newest first</span></div><div class="scroll grow" style="min-height:0">${list.length ? `<table><tr><th>Time</th><th>Strategy</th><th>Span</th><th style="text-align:right">Return</th></tr>${list.map((x) => { const p = x.venue === "Polymarket" ? (x.r.final / x.r.capital - 1) * 100 : x.r.pnlPct; return `<tr class="click ${E.res[V()] === x.r ? "sel" : ""}" data-act="run-show-${x.i}"><td>${x.at}</td><td>${esc(x.r.strategy)}</td><td class="muted">${esc(x.label)}</td><td class="${cls(p)}" style="text-align:right">${pctS(p)}</td></tr>`; }).join("")}</table>` : `<div class="cap">Each run you start here is listed, so you can compare and reopen them.</div>`}</div></section>`; };
 const stratCard = () => `<section class="card"><b class="sec">Strategy</b><div class="row">${stratPick()}<a class="btn" href="#builder" style="white-space:nowrap">Edit in builder</a></div><span class="cap" style="line-height:1.5">${rulesNote()}</span></section>`;
 
 export const views = {
@@ -284,7 +329,6 @@ export const views = {
     html: () => (state.venue === "Polymarket" ? pmView() : state.venue === "Hyperliquid" ? hlView() : pmCard() + hlCard()),
     get grid() { return state.venue === "Polymarket" ? "1.1fr 1fr" : state.venue === "Hyperliquid" ? "minmax(0,1fr) 330px" : "1fr 1fr"; },
     rows: "1fr",
-    topExtra: () => `<span class="muted" style="font-size:11px">${ck("Volume", state.vol, "vol")}${ck("Bollinger", state.bb, "bb")}</span>`,
     foot: () => (state.venue === "Both" ? bothBars() : state.venue === "Hyperliquid"
       ? `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:170px;font:12px var(--ui)">${strategies.find((x) => x.venue === "Hyperliquid" && x === strat())?.name || "Bollinger reversion"}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b><span class="tag">signal</span><b class="down">FALSE</b><div class="field" style="flex:1;font:12px var(--ui);color:var(--muted)">Position : none</div>${ck("Auto-trade", state.autobet, "autobet")}${modeBadge()}</div>`
       : `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:150px;font:12px var(--ui)">${strat().name}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span style="flex:1"></span>${ck("Auto-bet", state.autobet, "autobet")}<input type="text" ${bind("pmStake", 20)} style="width:70px;text-align:right">${modeBadge()}<button class="btn up ${state.pmSel === "UP" ? "sel" : ""}" data-act="pm-UP">Bet UP ${cents(pmData().up.ask)}</button><button class="btn down ${state.pmSel === "DOWN" ? "sel" : ""}" data-act="pm-DOWN">Bet DOWN ${cents(pmData().down.ask)}</button></div>`),
@@ -294,14 +338,14 @@ export const views = {
     html: () => `<div style="display:grid;grid-template-rows:auto 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:12px"><b class="sec">Strategy</b><div class="row"><input type="text" value="${esc(strat().name)}" data-sfield="name" style="font-family:var(--ui)"><input type="text" value="${esc(strat().tf)}" data-sfield="tf" style="width:70px;font-family:var(--ui)"></div><div class="row between">${focusPills()}${vtag(V())}</div></section>${stratList()}</div>
       <div style="display:grid;grid-template-rows:1.6fr 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:10px 12px"><div class="row between"><span class="row">${(isPM() ? [["entry", "BET UP RULES"], ["down", "BET DOWN RULES"], ["exit", "CASH OUT RULES"]] : [["entry", "ENTRY RULES"], ["exit", "EXIT RULES"]]).map(([k, l]) => `<button class="pill ${state.ruleSide === k ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=${k}">${l}</button>`).join("")}</span>${pills("mode", ["Rules", "Formula", "Code"])}</div>
       ${state.mode === "Code" ? codeMode() : state.mode === "Rules" ? rulesMode() : formulaMode()}</section>
-      ${resultsCard()}</div>`,
+      ${state.res === "Compare" ? compareCard() : resultsCard()}</div>`,
     grid: "280px 1fr", rows: "1fr",
-    foot: () => `<span class="cap">${esc(strat().name)} · ${strat().dirty || !strat().saved ? "unsaved" : "saved"}${E.path ? ` · ${esc(E.path)}` : ""}</span><span class="sp"></span><button class="btn" disabled>Delete strategy</button><button class="btn" data-act="eng-runbt" title="open the Backtest and run this strategy">Run backtest</button><button class="btn accent" data-act="eng-save">Save</button>`,
+    foot: () => `<span class="cap">${esc(strat().name)} · ${strat().dirty || !strat().saved ? "unsaved" : "saved"}${E.path ? ` · ${esc(E.path)}` : ""}</span><span class="sp"></span><button class="btn down" data-act="eng-del">Delete strategy</button><button class="btn" data-act="eng-runbt" title="open the Backtest and run this strategy">Run backtest</button><button class="btn accent" data-act="eng-save">Save</button>`,
   },
 
   backtest: {
     html: () => `${isPM() ? pmResultCard() : hlTopCard()}
-      <div class="dense" style="display:grid;gap:8px;grid-template-rows:auto auto auto;align-content:start;overflow:auto">${historyCard()}${stratCard()}${valueCard()}</div>
+      <div class="dense" style="grid-row:1/3;grid-column:2;display:grid;gap:8px;grid-template-rows:auto auto auto minmax(0,1fr);min-height:0">${historyCard()}${stratCard()}${valueCard()}${runsCard()}</div>
       ${isPM() ? pmBetsCard() : hlResultsCard()}`,
     grid: "1.65fr 1fr", rows: "1.85fr 1fr",
   },
@@ -380,7 +424,7 @@ export function draw() {
   const fmtP = (v) => pctS(v, 1);
   if ($("#hl")) {
     if (bt && R && R.price) drawLines($("#hl"), [{ v: R.price, color: "--accent" }], { grid: true, fmt: (v) => v.toFixed(0) });
-    else drawCandles($("#hl"), (location.hash === "#live" ? hlData().candles : cs).slice(-120), { ...o, markers: [], axis: bt ? 0 : 64 });
+    else drawCandles($("#hl"), location.hash === "#live" ? panWindow(hlData().candles) : cs.slice(-120), { ...o, markers: [], axis: bt ? 0 : 64 });
   }
   if ($("#hlmini")) { const c = hlData().candles.slice(-60).map((x) => x.c); drawLines($("#hlmini"), [{ v: c, color: "--accent", fill: true }]); }
   if ($("#pf")) drawLines($("#pf"), [{ v: JSON.parse($("#pf").dataset.series), color: "--indigo" }], { grid: true, fmt: (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%" });
@@ -422,17 +466,19 @@ export async function engAct(a, render, toast) {
   const rules = { entry: s.entry ?? "", short_entry: s.short_entry ?? "", exit: s.exit ?? "" };
   if (a === "eng-run") {
     if (E.busy) { E.again = true; return; }   // a run is going: run once more after it, on the newest rule
-    const span = f[pm ? "btSpanPM" : "btSpanHL"] ?? (pm ? "All history" : "Last 90 days"), year = /^\d{4}$/.test(span) ? Number(span) : null;
-    const days = SPANS[span] ?? 30;
+    // Backtest: the page's span (Polymarket) or years (Hyperliquid). Builder preview: always the last 90 days.
+    const onBt = location.hash === "#backtest", span = f.btSpanPM ?? "All history", days = onBt ? (pm ? SPANS[span] ?? 0 : 0) : 90;
+    const years = onBt && !pm ? { year_from: Number(f.btFrom ?? hlYears().at(-1)), year_to: Number(f.btTo ?? hlYears().at(-1)) } : {};
     const body = pm
       ? { ...rules, days, capital: n("pmCap", 1000), stake_pct: n("pmStake", 5), first_minute: n("pmMin", 1), half_spread_cents: n("pmSpread", 1), fee_pct: n("pmFee", 0), tp: n("pmTp", 0), sl: n("pmSl", 0), side: f.pmSide === "Bet DOWN" ? "down" : "up" }
-      : { ...rules, days, ...(year ? { year } : {}), timeframe: state.btTf, capital: n("hlCap", 10000), fee_pct: n("hlFee", 0.06), tp: n("hlTpB", 2), sl: n("hlSlB", 1), side: f.hlSideB === "Short" ? "short" : "long" };
+      : { ...rules, days, ...years, timeframe: state.btTf, capital: n("hlCap", 10000), fee_pct: n("hlFee", 0.06), tp: n("hlTpB", 2), sl: n("hlSlB", 1), side: f.hlSideB === "Short" ? "short" : "long" };
     E.busy = venue; E.err = ""; render();
     const t0 = performance.now();
     try {
       const r = await api(pm ? "/api/backtest/polymarket" : "/api/backtest", body);
       Object.assign(r, { strategy: s.name, ms: Math.round(performance.now() - t0), capital: body.capital, sig: sigOf(s) });
       E.res[venue] = r; s.pnl = +lastPct(venue).toFixed(2);
+      if (onBt) (E.runs ??= []).unshift({ venue, r, label: pm ? span : `${years.year_from}${years.year_to !== years.year_from ? "–" + years.year_to : ""} · ${state.btTf}`, at: new Date().toISOString().slice(11, 19) });
       toast(`${s.name}: ${pctS(lastPct(venue))} over ${pm ? n0(r.bets) + " bets" : n0(r.trades) + " trades"}.`);
     } catch (e) { E.err = e.message; toast(e.message, true); }
     E.busy = ""; render();
@@ -450,6 +496,16 @@ export async function engAct(a, render, toast) {
     state.strat = strategies.length - 1; state.ruleSide = "entry";
     if (location.hash !== "#builder") location.hash = "#builder";
     render(); return;
+  }
+  if (a.startsWith("run-show-")) { const x = E.runs?.[+a.slice(9)]; if (x) { E.res[x.venue] = x.r; render(); } return; }
+  if (a === "eng-del") {
+    const { value } = await ask({ title: `Delete "${s.name}"?`, text: s.saved ? "It is removed from the strategies file, for the desktop app too. This cannot be undone." : "It was never saved; it is removed from the list.", buttons: [{ label: "Cancel", value: null }, { label: "Delete", value: "del", cls: "down" }] });
+    if (!value) return;
+    if (s.saved) { try { await api("/api/strategies/delete", { name: s.name }); } catch (e) { toast(e.message, true); return; } }
+    strategies.splice(state.strat, 1);
+    if (!strategies.some((x) => x.venue === venue)) strategies.push({ venue, name: "New strategy", tf: pm ? "5m" : "1m", entry: "", exit: "", short_entry: "", pnl: null });
+    state.strat = strategies.findIndex((x) => x.venue === venue);
+    toast(`Deleted "${s.name}".`); render(); return;
   }
   if (a === "eng-runbt") {
     if (!s.saved || s.dirty) {

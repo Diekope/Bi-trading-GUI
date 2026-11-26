@@ -84,6 +84,24 @@ class EngineApi(unittest.TestCase):
         with self.assertRaises(engine_api.ApiError):
             engine_api._span({"year": "abc"})
 
+    def test_year_range_and_sweep(self):
+        first, last = engine_api._span({"year_from": 2019, "year_to": 2020})
+        self.assertEqual(engine_api._iso(first)[:4], "2019")
+        self.assertEqual(engine_api._iso(last)[:10], "2020-12-31")
+        with self.assertRaises(engine_api.ApiError):
+            engine_api._span({"year_from": 2021, "year_to": 2020})
+        out = engine_api.sweep({"entry": "close > sma(close, 20)", "timeframe": "5m", "days": 3, "tps": "0.05, 0.1", "sls": [0.05]})
+        self.assertEqual(len(out["cells"]), 2)
+        self.assertTrue(out["usesTpSl"])                      # the empty exit is pnl >= tp or pnl <= -sl
+        self.assertNotEqual(out["cells"][0]["trades"], 0)
+        with self.assertRaises(engine_api.ApiError):
+            engine_api.sweep({"entry": "close > open", "tps": "a, b"})
+
+    def test_delete(self):
+        engine_api.save_strategy({"name": "gone", "entry": "close > open"})
+        engine_api.delete_strategy({"name": "gone"})
+        self.assertNotIn("gone", [s["name"] for s in engine_api.list_strategies()["strategies"]])
+
     def test_errors(self):
         with self.assertRaises(engine_api.ApiError):
             engine_api.run_hyperliquid({"entry": "", "timeframe": "5m"})

@@ -22,7 +22,7 @@ export async function detectProxy(env = defaultEnv(), loc = globalThis.location)
 export const SLUG_PREFIX = "btc-updown-5m";
 export const WINDOW_MS = 300000;
 export const INTERVAL_MS = { "1m": 60e3, "3m": 180e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3 };
-const CANDLE_COUNT = 300;
+const CANDLE_COUNT = 1000; // enough history to pan back through
 
 // -- shared state and a small event log -------------------------------------
 

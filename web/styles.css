@@ -148,3 +148,29 @@ body[data-venue="Both"] #main .live-card { grid-column: span 6 !important; }
 /* Modal dialog (dialog.js) */
 .dialog-back { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .55); display: grid; place-items: center; }
 .dialog { width: min(440px, 90vw); gap: 12px; padding: 18px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+
+/* Venue switch: logos (tinted through a mask) with each venue's delay under it */
+.vsw a { height: auto; min-height: 36px; padding: 5px 0 3px; gap: 2px; grid-auto-flow: row; }
+.vlogo { display: block; width: 17px; height: 17px; background: currentColor; -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
+.vlogo.pm { --logo: url(assets/venues/polymarket.png); } .vlogo.hl { --logo: url(assets/venues/hyperliquid.png); }
+.vlat { font: 600 8px var(--mono); letter-spacing: 0; }
+/* Chart options inside the candle tile */
+.chart-opts { font-size: 11px; color: var(--muted); display: flex; gap: 12px; align-items: center; }
+canvas.pannable { cursor: grab; touch-action: none; } canvas.pannable.grabbing { cursor: grabbing; }
+
+/* A rule in plain words */
+.nl { font: 13px/1.7 var(--ui); color: var(--soft, var(--text)); }
+.nl .nl-var { color: #e87aa6; font-weight: 600; } .nl .nl-data { color: #8ab4ff; } .nl .nl-pm { color: #7f9bff; }
+.nl .nl-fn { color: var(--accent); } .nl .nl-num { color: #5fd6d0; font-family: var(--mono); } .nl .nl-op { color: var(--text); font-weight: 600; }
+.nl .nl-kw { color: var(--up); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+
+/* TP x SL sweep */
+table.sweep { border-collapse: separate; border-spacing: 3px; width: 100%; }
+table.sweep th { font: 600 10px var(--mono); color: var(--muted); padding: 4px; text-align: center; border: 0; }
+table.sweep th.corner { text-align: left; white-space: nowrap; }
+.sw-cell { position: relative; text-align: center; border-radius: 5px; padding: 6px 4px; border: 0; font: 600 11px var(--mono); color: var(--text); cursor: default; }
+.sw-cell.best { outline: 2px solid var(--accent); }
+.sw-cell .tip { display: none; position: absolute; z-index: 20; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font: 11px/1.5 var(--mono); color: var(--text); box-shadow: 0 6px 20px rgba(0,0,0,.45); text-align: left; }
+.sw-cell:hover .tip { display: block; } .sw-cell:hover { outline: 1px solid var(--text); }
+table.sweep tr:nth-child(2) .tip { bottom: auto; top: calc(100% + 6px); }
+table.nowrap td, table.nowrap th { white-space: nowrap; }

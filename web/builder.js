@@ -1,6 +1,10 @@
 // The Builder's Formula (blocks) and Rules (rows) views. Both read the rule text and write it back,
 // so Code, Formula and Rules always show the same rule.
-import { toLines, fromLines, tokenize, kind, insertion, assigned, isAssign, toRows, fromRows, FUNCS, EXIT_FUNCS, OPS } from "./rule.js";
+import { toLines, fromLines, tokenize, kind, insertion, assigned, isAssign, toRows, fromRows, sayRule, FUNCS, EXIT_FUNCS, OPS } from "./rule.js";
+
+// "BET UP WHEN" -> "Bet UP when"
+const sentence = (w) => w.toLowerCase().replace(/^./, (c) => c.toUpperCase()).replace(/\b(up|down)\b/g, (m) => m.toUpperCase());
+export const plain = (ctx, empty) => `<div class="nl">${sayRule(ctx.text, sentence(ctx.when), true) || `<span class="muted">${empty}</span>`}</div>`;
 
 const esc = (t) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const MATHS = ["+", "-", "*", "/", "(", ")", ",", "<", "<=", ">", ">=", "==", "!="];
@@ -34,7 +38,7 @@ export function formulaView(ctx) {
     <div class="well scroll" style="display:grid;gap:10px;align-content:start"><b class="sec" style="font-size:10px">Formula</b>
       ${ls.map(line).join("")}
       <div class="row"><button class="btn sm" data-act="f-addvar">+ Add variable</button><span class="sp"></span><input type="text" data-fnum placeholder="a number, e.g. 20 or 0.05" style="width:170px"><button class="btn sm" data-act="f-addnum">+ Add</button><button class="btn sm" data-act="f-clear" title="empty the condition line">⟲ Clear</button></div>
-      <div class="well" style="background:var(--well)"><pre class="code">${esc(ctx.text) || '<span class="muted">empty: drag blocks above</span>'}</pre>${ctx.badge}</div></div>
+      <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">IN WORDS</span>${plain(ctx, "No rule yet: drag blocks into the lines above.")}${ctx.badge}</div></div>
     <div class="well" style="display:flex;flex-direction:column;gap:8px"><b class="sec" style="font-size:10px">Selected block</b>${cur == null ? `<div class="cap">click a block in a line to edit, move or remove it. Drag blocks to reorder them, or drop them on another line.</div>`
       : `<input type="text" data-fedit value="${esc(cur)}" style="font-family:var(--mono)"><span class="cap">${kind(cur, vars) === "ind" ? "a function" : kind(cur, vars) === "var" ? "your variable" : kind(cur, vars) === "math" ? "a number or an operator" : kind(cur, vars) === "kw" ? "logic" : "a value from the data"}</span><div class="row"><button class="btn sm" data-act="f-left" title="move left">←</button><button class="btn sm" data-act="f-right" title="move right">→</button><span class="sp"></span><button class="btn sm down" data-act="f-del">Remove</button></div>`}</div></div>`;
 }
@@ -164,7 +168,7 @@ export function rulesView(ctx) {
   const fns = ctx.exit ? EXIT_FUNCS.map((f) => insertion(f)) : ["sma", "ema", "rsi", "highest", "lowest", "bollinger_lower", "bollinger_middle", "bollinger_upper", "change"].map(insertion);
   const side = `<div class="well scroll"><b class="sec" style="font-size:10px">Variables</b><div class="cap" style="font-size:10px;margin:4px 0 8px">click one to drop it into the box you are in</div><div style="display:grid;gap:7px;font-size:11px;padding-left:6px">${words.map(([g, a]) => `<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">${esc(g.toUpperCase())}</span>${a.map((v) => `<span class="pickword" data-word="${esc(v)}" style="cursor:pointer;${kind(v) === "pmv" ? "color:#7f9bff" : ""}">${esc(v)}</span>`).join("")}`).join("")}<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">FUNCTIONS</span>${fns.map((t) => `<span class="pickword" data-word="${esc(t.join("").replace(/,/g, ", "))}" style="cursor:pointer">${esc(t.join("").replace(/,/g, ", "))}</span>`).join("")}${d && d.vars.length ? `<span class="cap" style="font-size:10px;letter-spacing:.1em;margin-top:4px">YOURS</span>${d.vars.filter((v) => v.name).map((v) => `<span class="pickword accent" data-word="${esc(v.name)}" style="cursor:pointer">${esc(v.name)}</span>`).join("")}` : ""}</div></div>`;
   if (!d) {
-    return `<div class="grid grow" style="grid-template-columns:1fr 250px;gap:8px;min-height:0"><div class="well scroll" style="display:flex;flex-direction:column;gap:8px"><b class="sec" style="font-size:10px">Conditions</b><div class="cap" style="line-height:1.5">This rule mixes <b>and</b> with <b>or</b>, or uses <b>not</b> or brackets around a comparison: rows cannot show it. Edit it in Formula or Code.</div><div class="well" style="background:var(--well)"><pre class="code">${esc(ctx.text)}</pre>${ctx.badge}</div></div>${side}</div>`;
+    return `<div class="grid grow" style="grid-template-columns:1fr 250px;gap:8px;min-height:0"><div class="well scroll" style="display:flex;flex-direction:column;gap:8px"><b class="sec" style="font-size:10px">Conditions</b><div class="cap" style="line-height:1.5">This rule mixes <b>and</b> with <b>or</b>, or uses <b>not</b> or brackets around a comparison: rows cannot show it. Edit it in Formula or Code.</div><div class="well" style="background:var(--well);display:grid;gap:6px">${plain(ctx, "")}${ctx.badge}</div></div>${side}</div>`;
   }
   return `<div class="grid grow" style="grid-template-columns:1fr 250px;gap:8px;min-height:0"><div class="well scroll" style="display:flex;flex-direction:column;gap:8px">
     <b class="sec" style="font-size:10px">Let</b>
@@ -175,7 +179,7 @@ export function rulesView(ctx) {
       ${d.rows.map((r, k) => `<div class="row"><input type="text" data-rrow="${k}:0" value="${esc(r[0])}" placeholder="close" style="font-family:var(--mono)"><select data-rrow="${k}:1" style="width:64px">${OPS.map((o) => opt(o, r[1])).join("")}</select><input type="text" data-rrow="${k}:2" value="${esc(r[2])}" placeholder="0" style="font-family:var(--mono)"><button class="btn sm" data-act="r-delrow-${k}">×</button></div>`).join("") || `<span class="cap">no condition yet</span>`}
       <span><button class="btn sm accent" data-act="r-addrow">+ Add condition</button></span></div>
     <span class="grow"></span>
-    <div class="well" style="background:var(--well)"><pre class="code">${esc(ctx.text) || "<span class=\"muted\">empty</span>"}</pre>${ctx.badge}</div></div>${side}</div>`;
+    <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">IN WORDS</span>${plain(ctx, "No condition yet: add one above.")}${ctx.badge}</div></div>${side}</div>`;
 }
 
 let lastBox = null;

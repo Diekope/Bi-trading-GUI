@@ -67,15 +67,17 @@ export function placePM(feed, side, stake, now = Date.now()) {
   return { ok: true, pos };
 }
 
-export function placeHL(feed, { coin, side, size, lev, tp = 0, sl = 0 }, now = Date.now()) {
+// `margin` is the cash put up; the position (notional) is margin x leverage.
+export function placeHL(feed, { coin, side, margin: stakeIn, lev, tp = 0, sl = 0 }, now = Date.now()) {
   const S = feed.hl;
   if (S.status !== "live") return { ok: false, error: "Hyperliquid feed is not live, so there is no price to fill against." };
-  if (!(size > 0) || !(lev >= 1 && lev <= 50)) return { ok: false, error: "Size must be above 0 and leverage between 1 and 50." };
+  if (!(stakeIn > 0) || !(lev >= 1 && lev <= 50)) return { ok: false, error: "Margin must be above 0 and leverage between 1 and 50." };
+  const size = stakeIn * lev;
   const book = S.book?.coin === coin ? S.book : null, long = side === "Long";
   let entry = book ? walkUsd(long ? book.asks : book.bids, size) : null;
   entry ??= S.mids[coin] ?? null;
   if (!entry) return { ok: false, error: `No price for ${coin} yet.` };
-  const fee = size * FEE, margin = size / lev;
+  const fee = size * FEE, margin = stakeIn;
   if (margin + fee > P.cash.Hyperliquid) return { ok: false, error: `Margin $${(margin + fee).toFixed(2)} exceeds the paper cash ($${P.cash.Hyperliquid.toFixed(2)}).` };
   const pos = { id: P.seq++, venue: "Hyperliquid", kind: "perp", market: coin, coin, side, size, lev, entry, qty: size / entry, margin, tp, sl, fee, openedAt: now };
   P.cash.Hyperliquid -= margin + fee; P.positions.push(pos); save();

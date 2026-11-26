@@ -157,8 +157,9 @@ test("Polymarket positions value: v2 and v1 shapes, v2 first then v1", async () 
 test("paper: HL long fills on the ask, TP closes it, fees counted", () => {
   const feed = F.feed; P.resetPaper(); const S = feed.hl; S.status = "live"; S.coin = "HYPE";
   S.book = { coin: "HYPE", bids: [{ px: 99, sz: 100 }], asks: [{ px: 100, sz: 5 }, { px: 101, sz: 100 }] }; S.mids.HYPE = 100;
-  const r = P.placeHL(feed, { coin: "HYPE", side: "Long", size: 1000, lev: 5, tp: 2, sl: 1 });
+  const r = P.placeHL(feed, { coin: "HYPE", side: "Long", margin: 200, lev: 5, tp: 2, sl: 1 }); // $200 margin x5 = $1,000 position
   assert.ok(r.ok, r.error); assert.ok(r.pos.entry > 100 && r.pos.entry < 101); // walked 500 at 100 then 500 at 101
+  assert.equal(r.pos.size, 1000); assert.equal(r.pos.margin, 200);
   assert.ok(Math.abs(P.P.cash.Hyperliquid - (10000 - 200 - 0.6)) < 1e-9);
   S.book = { coin: "HYPE", bids: [{ px: 104, sz: 100 }], asks: [{ px: 105, sz: 100 }] };
   P.tick(feed); assert.equal(P.P.positions.length, 0);
@@ -166,9 +167,16 @@ test("paper: HL long fills on the ask, TP closes it, fees counted", () => {
   const eq = P.equity(feed, "Hyperliquid"); assert.ok(eq > 10000);
   // stop loss and liquidation
   S.book = { coin: "HYPE", bids: [{ px: 99, sz: 100 }], asks: [{ px: 100, sz: 100 }] };
-  P.placeHL(feed, { coin: "HYPE", side: "Short", size: 1000, lev: 20, sl: 0 });
+  P.placeHL(feed, { coin: "HYPE", side: "Short", margin: 50, lev: 20, sl: 0 });
   S.book = { coin: "HYPE", bids: [{ px: 110, sz: 100 }], asks: [{ px: 111, sz: 100 }] };
   P.tick(feed); assert.equal(P.P.history[0].reason, "liquidated"); assert.ok(P.P.cash.Hyperliquid < 10000);
+});
+
+test("paper: leverage scales the position, not the margin", () => {
+  const feed = F.feed; P.resetPaper(); const S = feed.hl; S.status = "live"; S.coin = "HYPE";
+  S.book = { coin: "HYPE", bids: [{ px: 99, sz: 1e6 }], asks: [{ px: 100, sz: 1e6 }] }; S.mids.HYPE = 100;
+  const a = P.placeHL(feed, { coin: "HYPE", side: "Long", margin: 100, lev: 2 }), b = P.placeHL(feed, { coin: "HYPE", side: "Long", margin: 100, lev: 20 });
+  assert.equal(a.pos.size, 200); assert.equal(b.pos.size, 2000); assert.equal(a.pos.margin, 100); assert.equal(b.pos.margin, 100);
 });
 
 test.after(() => { pmHandle?.stop(); setTimeout(() => process.exit(0), 50); });

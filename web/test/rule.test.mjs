@@ -1,7 +1,7 @@
 // The rule model the Builder's three views share: node --test test/rule.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tokenize, join, toLines, fromLines, toRows, fromRows, insertion, kind } from "../rule.js";
+import { tokenize, join, toLines, fromLines, toRows, fromRows, insertion, kind, sayRule } from "../rule.js";
 
 test("tokenize and join round-trip the engine's syntax", () => {
   const src = "band = bollinger_lower(close, 20, 2)\nclose < band and volume > 0";
@@ -36,4 +36,11 @@ test("blocks", () => {
   assert.equal(kind("up_price"), "pmv");
   assert.equal(kind("band", ["band"]), "var");
   assert.equal(kind("or"), "kw");
+});
+
+test("a rule in plain words", () => {
+  assert.equal(sayRule("body = close - open\nminute >= 2 and body > 0", "Bet UP when"), "Let body be the close − the open. Bet UP when the minute is at least 2 and body is above 0.");
+  assert.equal(sayRule("close < bollinger_lower(close, 20, 2)", "Buy when"), "Buy when the close is below the lower Bollinger band of the close (20 bars, 2σ).");
+  assert.equal(sayRule("pnl <= -sl or pnl <= -30", "Sell when"), "Sell when the trade's gain (%) is at most minus the stop loss or the trade's gain (%) is at most -30.");
+  assert.equal(sayRule("", "When"), "");
 });

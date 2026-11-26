@@ -1,4 +1,4 @@
-import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender, setAutoRun } from "./views.js";
+import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender, setAutoRun, pan } from "./views.js";
 import { boot } from "./engine.js";
 import { formulaClick, formulaInput, rulesClick, rulesInput, installDnD } from "./builder.js";
 import { feed, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
@@ -24,7 +24,7 @@ const ADDR_KEY = "bi-trading-sandbox-hl-address", PM_ADDR_KEY = "bi-trading-sand
 const liveViews = new Set(["home", "portfolio", "live", "logs"]);
 const $ = (s) => document.querySelector(s);
 const link = ([k, t, i], key) => `<a href="#${k}" title="${t}" class="${k === key || (k === "ml" && key === "model") ? "on" : ""}">${i}</a>`;
-const vs = [["Polymarket", "pm", "PM"], ["Hyperliquid", "hl", "HL"], ["Both", "", "⇄"]];
+const vs = [["Polymarket", "pm", "pm"], ["Hyperliquid", "hl", "hl"], ["Both", "", "⇄"]];
 const curKey = () => { const k = location.hash.slice(1) || "home"; return views[k] ? k : "home"; };
 
 function chrome(key) {
@@ -32,7 +32,7 @@ function chrome(key) {
   document.body.classList.toggle("hub", !!v.hub);
   document.body.classList.toggle("live-mode", !!state.live);
   document.body.dataset.venue = state.venue;
-  morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : n}">${t}</a>`).join("")}</div><hr>${rail.filter((r) => shown(r[0])).map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><div class="lat"><span style="color:#5b82ff">PM</span><span class="${cls(L.pm)}">${fmt(L.pm)}</span><span style="color:#97fce4">HL</span><span class="${cls(L.hl)}">${fmt(L.hl)}</span></div><hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
+  morph($("#rail"), `<div class="vsw">${vs.map(([n, c, t]) => { const ms = t === "pm" ? L.pm : t === "hl" ? L.hl : null; return `<a class="${c} ${state.venue === n ? "on" : ""}" data-set="venue=${n}" title="${n === "Both" ? "Both venues" : `${n} · ${fmt(ms)} delay`}">${t === "pm" || t === "hl" ? `<i class="vlogo ${t}"></i><span class="vlat ${cls(ms)}">${fmt(ms)}</span>` : t}</a>`; }).join("")}</div><hr>${rail.filter((r) => shown(r[0])).map((r) => link(r, key)).join("")}<span class="sp"></span>${tail.map((r) => link(r, key)).join("")}<hr><a class="pw" title="Quit"><svg viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg></a>`);
   const extra = v.topExtra ? v.topExtra() : "";
   morph($("#topbar"), `<b style="font-size:12px">${titles[key]}</b><span class="vtag ${state.venue === "Polymarket" ? "pm" : state.venue === "Hyperliquid" ? "hl" : ""}">${state.venue === "Both" ? "PM + HL" : state.venue}</span><span style="flex:1"></span>${extra}${feedChips()}${balChips()}<span class="modesw"><button class="paper ${state.live ? "" : "on"}" data-set="live=0">PAPER</button><button class="live ${state.live ? "on" : ""}" data-set="live=1">LIVE</button></span>`);
 }
@@ -102,7 +102,8 @@ function schedule() {
 function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t.className = err ? "err show" : "show"; clearTimeout(toast.h); toast.h = setTimeout(() => (t.className = ""), 3500); }
 function act(a) {
   const f = state.form;
-  if (a.startsWith("eng-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
+  if (a === "pan-latest") { pan.off = 0; render(); return; }
+  if (a.startsWith("eng-") || a.startsWith("run-show-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
   if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
   if (a === "pm-connect") { const addr = (f.pmAddr ?? feed.pm.account?.address ?? "").trim(); pmHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(PM_ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Polymarket positions value connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
@@ -118,7 +119,7 @@ function act(a) {
   }
   let r;
   if (a.startsWith("pm-")) r = placePM(feed, a.slice(3), Number(f.pmStake ?? 20));
-  else if (a.startsWith("hl-")) r = placeHL(feed, { coin: feed.hl.coin, side: a.slice(3), size: Number(f.hlSize ?? 500), lev: Number(f.hlLev ?? 5), tp: Number(f.hlTp ?? 2) || 0, sl: Number(f.hlSl ?? 1) || 0 });
+  else if (a.startsWith("hl-")) r = placeHL(feed, { coin: feed.hl.coin, side: a.slice(3), margin: Number(f.hlSize ?? 100), lev: Number(f.hlLev ?? 5), tp: Number(f.hlTp ?? 2) || 0, sl: Number(f.hlSl ?? 1) || 0 });
   else if (a.startsWith("close-")) r = closePosition(feed, Number(a.slice(6)));
   if (!r) return;
   if (!r.ok) { logEvent("warn", a.startsWith("pm-") ? "Polymarket" : "Hyperliquid", "Manual", "REJECT", r.error); toast(r.error, true); } else toast(a.startsWith("close-") ? "Position closed." : "Paper order filled.");
@@ -137,7 +138,15 @@ document.addEventListener("input", (e) => {
   if (d.sfield) setSField(d.sfield, e.target.value); // the builder edits the selected strategy; checks re-render when they land
   if (location.hash === "#builder" && (formulaInput(e.target) || rulesInput(e.target))) render();
 });
-addEventListener("hashchange", render); addEventListener("resize", draw);
+// Always to scale: below the 1280 x 860 the screens were laid out for, the whole app shrinks evenly
+// instead of cutting cards off; above it, the layout just grows.
+const BASE_W = 1280, BASE_H = 860;
+function fitScale() {
+  const z = Math.min(1, innerWidth / BASE_W, innerHeight / BASE_H), b = document.body.style;
+  b.zoom = z; b.boxSizing = "border-box"; b.width = `${innerWidth / z}px`; b.height = `${innerHeight / z}px`;
+}
+fitScale();
+addEventListener("hashchange", render); addEventListener("resize", () => { fitScale(); draw(); });
 addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && /^[1-8]$/.test(e.key)) { e.preventDefault(); const k = keys()[e.key - 1]; if (k) location.hash = k; }
   if (e.altKey && ["1", "2", "3"].includes(e.key)) { state.venue = ["Polymarket", "Hyperliquid", "Both"][e.key - 1]; render(); }
@@ -169,3 +178,28 @@ document.addEventListener("mousedown", (e) => {
   addEventListener("mousemove", move); addEventListener("mouseup", up);
 });
 document.addEventListener("dblclick", (e) => { if (e.target.closest?.("[data-split]")) { state.bookH = 0; render(); } });
+// Live candles: drag to move through time, scroll to zoom (around the pointer), double-click for the latest.
+const plotW = (cv) => cv.getBoundingClientRect().width - 64; // the price axis takes 64 px on the right
+document.addEventListener("mousedown", (e) => {
+  const cv = e.target.closest?.("canvas.pannable"); if (!cv || e.button !== 0) return;
+  e.preventDefault();
+  let x0 = e.clientX; const off0 = pan.off, per = plotW(cv) / pan.n, wasOff = pan.off > 0;
+  cv.classList.add("grabbing");
+  const move = (ev) => { pan.off = off0 + (ev.clientX - x0) / per; requestAnimationFrame(draw); };
+  const up = () => { cv.classList.remove("grabbing"); removeEventListener("mousemove", move); removeEventListener("mouseup", up); if ((pan.off > 0) !== wasOff) render(); };
+  addEventListener("mousemove", move); addEventListener("mouseup", up);
+});
+document.addEventListener("wheel", (e) => {
+  const cv = e.target.closest?.("canvas.pannable"); if (!cv) return;
+  e.preventDefault();
+  const wasOff = pan.off > 0;
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { pan.off += e.deltaX / (plotW(cv) / pan.n); }
+  else {
+    const r = cv.getBoundingClientRect(), fromRight = Math.min(1, Math.max(0, 1 - (e.clientX - r.left) / plotW(cv)));
+    const at = pan.off + fromRight * pan.n, n = Math.max(15, Math.min(1000, pan.n * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
+    pan.n = n; pan.off = Math.max(0, at - fromRight * n);
+  }
+  requestAnimationFrame(draw);
+  if ((pan.off > 0) !== wasOff) render();
+}, { passive: false });
+document.addEventListener("dblclick", (e) => { if (e.target.closest?.("canvas.pannable")) { pan.off = 0; render(); } });

@@ -95,3 +95,55 @@ export function fromRows({ vars, join: j, rows }) {
   if (cond) out.push(cond);
   return out.join("\n");
 }
+
+// -- the rule in plain words ---------------------------------------------------------------
+
+const WORDS = {
+  open: "the open", high: "the high", low: "the low", close: "the close", volume: "the volume", price: "the price",
+  up_price: "the UP price", down_price: "the DOWN price", minute: "the minute", seconds_left: "the seconds left",
+  pnl: "the trade's gain (%)", entry: "the entry price", tp: "the take profit", sl: "the stop loss", bars: "the bars held",
+  model_p: "the model's P(up)", funding: "the funding", oi: "the open interest", spread: "the spread", liquidity: "the liquidity", days_left: "the days left",
+};
+const SAY_OP = { "<": "is below", "<=": "is at most", ">": "is above", ">=": "is at least", "==": "equals", "!=": "is not", "+": "+", "-": "−", "*": "×", "/": "÷", "%": "mod", "^": "to the power" };
+const SAY_FN = {
+  sma: ([x, n]) => `the ${n}-bar average of ${x}`, ema: ([x, n]) => `the ${n}-bar exponential average of ${x}`, rsi: ([x, n]) => `the ${n}-bar RSI of ${x}`,
+  highest: ([x, n]) => `the highest ${x.replace(/^the /, "")} of the last ${n} bars`, lowest: ([x, n]) => `the lowest ${x.replace(/^the /, "")} of the last ${n} bars`,
+  stdev: ([x, n]) => `the ${n}-bar deviation of ${x}`, zscore: ([x, n]) => `the ${n}-bar z-score of ${x}`, change: ([x, n]) => `the change in ${x.replace(/^the /, "")} over ${n} bars`,
+  shift: ([x, n]) => `${x} ${n} bars ago`, abs: ([x]) => `the size of ${x}`, sqrt: ([x]) => `the square root of ${x}`, log: ([x]) => `the log of ${x}`,
+  min: ([a, b]) => `the smaller of ${a} and ${b}`, max: ([a, b]) => `the larger of ${a} and ${b}`,
+  bollinger_lower: ([x, n, d]) => `the lower Bollinger band of ${x} (${n} bars, ${d}σ)`, bollinger_middle: ([x, n, d]) => `the middle Bollinger band of ${x} (${n} bars, ${d}σ)`, bollinger_upper: ([x, n, d]) => `the upper Bollinger band of ${x} (${n} bars, ${d}σ)`,
+};
+const tag = (k, t, html) => (html ? `<span class="nl-${k}">${t}</span>` : t);
+
+// One line of tokens as words; `vars` are the user's own names, shown as they are.
+export function sayTokens(toks, vars = [], html = false) {
+  let i = 0;
+  const expr = (stop = []) => {
+    const out = [];
+    while (i < toks.length && !stop.includes(toks[i])) {
+      const t = toks[i];
+      if (t in FUNCS && toks[i + 1] === "(") {
+        i += 2; const args = [];
+        while (i < toks.length && toks[i] !== ")") { args.push(expr([",", ")"])); if (toks[i] === ",") i++; }
+        i++; out.push(tag("fn", (SAY_FN[t] || ((a) => `${t}(${a.join(", ")})`))(args), html));
+      } else if (t === "(") { i++; out.push(`(${expr([")"])})`); i++; }
+      else if (t === "-" && opener(toks[i - 1])) {   // a sign, not a subtraction
+        if (/^[\d.]/.test(toks[i + 1] ?? "")) { out.push(tag("num", "-" + toks[i + 1], html)); i += 2; } else { out.push("minus"); i++; }
+      }
+      else if (["and", "or", "not"].includes(t)) { out.push(tag("kw", t, html)); i++; }
+      else if (t in SAY_OP) { out.push(tag(COMPARE.has(t) ? "op" : "math", SAY_OP[t], html)); i++; }
+      else if (vars.includes(t)) { out.push(tag("var", t, html)); i++; }
+      else if (t in WORDS) { out.push(tag(PM_WORDS.includes(t) ? "pm" : "data", WORDS[t], html)); i++; }
+      else { const safe = html ? t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : t; out.push(tag(/^[\d.]/.test(t) ? "num" : "data", safe, html)); i++; }
+    }
+    return out.join(" ");
+  };
+  return expr();
+}
+
+// The whole rule: "Let body be the close − the open. Bet UP when ..."
+export function sayRule(text, when = "When", html = false) {
+  const ls = toLines(text), vars = assigned(ls);
+  if (!ls.length) return "";
+  return ls.map((t) => (isAssign(t) ? `Let ${tag("var", t[0], html)} be ${sayTokens(t.slice(2), vars, html)}.` : `${when} ${sayTokens(t, vars, html)}.`)).join(html ? "<br>" : " ");
+}
