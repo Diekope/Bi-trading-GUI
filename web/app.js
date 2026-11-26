@@ -1,7 +1,7 @@
 import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender, setAutoRun, pan } from "./views.js";
 import { boot } from "./engine.js";
 import { formulaClick, formulaInput, rulesClick, rulesInput, installDnD } from "./builder.js";
-import { feed, events, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
+import { feed, events, onChange, startHL, startPM, startBinance, logEvent, restoreLog, clearLog, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const rail = [
@@ -77,12 +77,18 @@ function feedChips() {
   const chip = (name, S) => { const h = health(S); return h.ok ? "" : `<a class="bal" href="#logs" title="${h.why || h.label}"><span class="mode paper">${name} ${h.label.toUpperCase()}</span> <span class="muted">demo data</span></a>`; };
   return chip("PM", feed.pm) + chip("HL", feed.hl);
 }
-let hlHandle = null, pmHandle = null;
+let hlHandle = null, pmHandle = null, bnHandle = null;
+let prevVenue = null;
 function render() {
+  const k0 = curKey();
+  if (k0 === "logs" && prevVenue !== null && prevVenue !== state.venue && state.venue !== "Both") { prevVenue = state.venue; location.hash = "#home"; return; }
+  if (k0 === "logs" && lastKey !== "logs" && state.venue !== "Both") state.venue = "Both";   // the log covers both venues
+  prevVenue = state.venue;
   normalize();
   if (!shown(curKey())) { location.hash = "#home"; return; } // a strategy screen while on "general": go home (hashchange re-renders)
   const key = curKey(), v = views[key];
-  hlHandle?.setWatch(state.venue === "Polymarket" ? "BTC" : state.coin, state.tf); // Polymarket's chart is BTC
+  hlHandle?.setWatch(state.venue === "Polymarket" ? "BTC" : state.coin, state.tf); // Polymarket's chart is BTC (Hyperliquid as the fallback)
+  if (state.venue === "Polymarket") bnHandle?.setInterval(state.tf);
   chrome(key);
   const full = key !== lastKey; lastKey = key;
   const main = $("#main");
@@ -105,7 +111,7 @@ function act(a) {
   if (a === "pan-latest") { pan.off = 0; render(); return; }
   if (a.startsWith("eng-") || a.startsWith("run-show-") || a.startsWith("walk-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
   if (a === "log-pause") { state.logPaused = !state.logPaused; state.logFrozen = state.logPaused ? [...events] : null; render(); return; }
-  if (a === "log-clear") { events.length = 0; state.logFrozen = state.logPaused ? [] : null; state.logSel = -1; toast("Logs cleared."); render(); return; }
+  if (a === "log-clear") { clearLog(); state.logFrozen = state.logPaused ? [] : null; state.logSel = -1; toast("Logs cleared."); render(); return; }
   if (a === "log-export") {
     const rows = [["time", "level", "source", "origin", "event", "message"], ...(state.logPaused ? state.logFrozen : events).map((e) => [new Date(e.t).toISOString(), e.level, e.source, e.origin, e.event, e.message])];
     const csv = rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -164,7 +170,7 @@ onChange(schedule);
 (async () => {
   const proxied = await detectProxy();
   logEvent("info", "System", "—", "FEED", proxied ? "Using the local relay (serve.py) for REST and the Polymarket socket" : "Calling the venues directly from the browser (run web/serve.py if Polymarket stays on demo data)");
-  hlHandle = startHL(); pmHandle = startPM();
+  hlHandle = startHL(); pmHandle = startPM(); bnHandle = startBinance(); if (state.venue === "Polymarket") bnHandle.setInterval(state.tf);
   try { const saved = localStorage.getItem(ADDR_KEY); if (saved) hlHandle.setAddress(saved); const p = localStorage.getItem(PM_ADDR_KEY); if (p) pmHandle.setAddress(p); } catch { /* storage blocked */ }
   render();
 })();
@@ -212,3 +218,4 @@ document.addEventListener("wheel", (e) => {
   if ((pan.off > 0) !== wasOff) render();
 }, { passive: false });
 document.addEventListener("dblclick", (e) => { if (e.target.closest?.("canvas.pannable")) { pan.off = 0; render(); } });
+restoreLog(P.history);

@@ -63,6 +63,9 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 - **Leverage:** the order's amount is the margin; the position is margin × leverage (shown under the form).
 - **Rail:** the venue switch shows the Polymarket and Hyperliquid logos with each feed's delay under it.
 - **Scale:** below 1280 × 860 the whole app shrinks evenly (CSS `zoom`) instead of cutting cards off.
+- **Prices from Binance:** BTC, ETH and SOL come from Binance's public market-data WebSocket (`data-stream.binance.vision`, no account, no KYC; `bookTicker` pushes every change of the best bid and ask, `kline` streams the candles). It drives the Polymarket chart (BTC/USDT candles with the timeframe pills), the BTC line on the left and the window's target (Binance's 1m open). Hyperliquid stays the source for the Hyperliquid screen, since its orders fill on its own book. If Binance stops answering, the page falls back to Hyperliquid's BTC.
+- **Logs are kept:** the log is saved in the browser (2,000 rows), so past orders and fills survive a reload; on the first load, the closed paper trades are added to it. Logs is a general screen: opening it switches to both venues, and picking Polymarket or Hyperliquid from it goes back to Home.
+- **No stale code:** `serve.py` sends `Cache-Control: no-cache` for every file, so a reload never mixes an old module with a new one.
 - **Portfolio:** only the book of the selected mode (PAPER or LIVE, top right).
 - **Logs:** source, origin, level, strategy and search filters all apply; Pause freezes the list, Clear empties it, Export downloads it as CSV.
 - **Strategy (Live footer):** a list of the venue's strategies; the one picked is the selected strategy everywhere.

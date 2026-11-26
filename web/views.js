@@ -1,6 +1,6 @@
 import { candles, equity as equity_, tape, market, stats, pmStats, pmBets, pmRun, dataFor, dataGroups, strategies, palette, features, heat, trades, histogram, rng } from "./synth.js";
 import { drawCandles, drawLines, drawArea } from "./chart.js";
-import { feed, events, health } from "./feeds.js";
+import { feed, events, health, binanceLive } from "./feeds.js";
 import { paintBtc } from "./btcchart.js";
 import { E, api, ruleKey, checkRule, checking } from "./engine.js";
 import { formulaView, rulesView } from "./builder.js";
@@ -163,6 +163,12 @@ function pmData() {
   const t2 = (ts) => new Date(ts).toISOString().slice(11, 19);
   return { live: true, title: m.question, win: `${hhmm(m.startMs)}–${hhmm(m.endMs)} UTC`, closes: clock(m.endMs - Date.now()), up: U, down: D, spread: U.bid != null && U.ask != null ? `${Math.round((U.ask - U.bid) * 100)}¢` : "—", liquidity: compact(m.liquidity), depth: depth == null ? "—" : compact(depth), target: S.target, btc, tape: S.trades.slice(0, 5).map((t) => ({ time: t2(t.ts || Date.now()), side: t.token === d.token ? "DOWN" : "UP", px: t.price, size: t.size })) };
 }
+// BTC for Polymarket: Binance spot by WebSocket when it is live, else Hyperliquid's BTC perp.
+function btcData() {
+  const B = feed.bn, want = B.series[`BTC|${state.tf}`], c = want?.length >= 2 ? want : B.series["BTC|1m"];
+  if (binanceLive() && c && c.length >= 2) return { live: true, candles: c, price: B.mids.BTC ?? c.at(-1).c, src: `Binance BTC/USDT spot${c === want ? "" : " · 1m while " + state.tf + " loads"}`, S: B };
+  return { ...hlData(), src: "Hyperliquid BTC perp", S: feed.hl };
+}
 function hlData() {
   const S = feed.hl, c = S.series[`${S.coin}|${S.interval}`];
   return c && c.length >= 2 && health(S).ok ? { live: true, candles: c, price: S.mids[S.coin] ?? c.at(-1).c } : { live: false, candles: cs, price: cs.at(-1).c };
@@ -229,7 +235,7 @@ const bothBars = () => { const d = pmData(), cp = "padding:5px 8px;width:58px;te
   const hl = `<div class="bar-foot row" style="flex:1"><span class="vtag hl">HL</span><b>${state.coin}</b><span style="flex:1"></span><label class="cap">Margin $ <input type="text" ${bind("hlSize", 100)} style="${cp}"></label><label class="cap">x <input type="text" ${bind("hlLev", 5)} style="${cp};width:42px"></label><label class="cap">TP% <input type="text" ${bind("hlTp", 2)} style="${cp};width:42px"></label><label class="cap">SL% <input type="text" ${bind("hlSl", 1)} style="${cp};width:42px"></label>${modeBadge()}<button class="btn up" data-act="hl-Long">Buy / Long</button><button class="btn down" data-act="hl-Short">Sell / Short</button></div>`;
   return pm + hl; };
 const pmView = () => { const d = pmData(), edge = d.up.ask != null ? 0.64 - d.up.ask : null, mine = [...P.positions.filter((p) => p.venue === "Polymarket").map((p) => ({ ...p, open: true })), ...P.history.filter((h) => h.venue === "Polymarket").slice(0, 4)];
-  return pmCard() + `<section class="card"><div class="row between"><div class="row"><b class="sec">BTC / USD</b>${statusChip(feed.hl)}<b class="mono" style="font-size:15px">${pxFmt(hlData().price)}</b></div>${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div><div class="row between cap"><span class="row">${chartOpts()}<span>Hyperliquid BTC perp, live</span></span><span>${d.target ? "window target " + pxFmt(d.target) : "target loading…"}</span></div><canvas id="hl" class="pannable" title="drag to move, scroll to zoom, double-click for the latest"></canvas>
+  return pmCard() + `<section class="card"><div class="row between"><div class="row"><b class="sec">BTC / USD</b>${statusChip(btcData().S)}<b class="mono" style="font-size:15px">${pxFmt(btcData().price)}</b></div>${pills("tf", ["1m", "3m", "5m", "15m", "30m", "1h"])}</div><div class="row between cap"><span class="row">${chartOpts()}<span>${btcData().src}, live</span></span><span>${d.target ? "window target " + pxFmt(d.target) : "target loading…"}</span></div><canvas id="hl" class="pannable" title="drag to move, scroll to zoom, double-click for the latest"></canvas>
   <div class="grid g3" style="gap:8px"><div class="well"><div class="cap">Model P(up) · demo</div><b class="mono" style="font-size:18px">0.64</b></div><div class="well"><div class="cap">Market UP ask</div><b class="mono" style="font-size:18px">${cents(d.up.ask)}</b></div><div class="well"><div class="cap">Edge</div><b class="mono ${edge != null && edge >= 0 ? "up" : "down"}" style="font-size:18px">${edge == null ? "—" : (edge >= 0 ? "+" : "") + (edge * 100).toFixed(1) + "¢"}</b></div></div>
   <b class="sec" style="color:var(--muted)">Your paper bets</b>
   <table><tr><th>Side</th><th>Stake</th><th>Entry</th><th>Now / result</th><th></th></tr>${mine.map((p) => `<tr><td>${p.side}</td><td>$${p.stake.toFixed(0)}</td><td>${cents(p.entry)}</td><td>${p.open ? `${cents(markOf(feed, p))} ${pnlCell(pnlOf(feed, p), p.stake)}` : `${pnlCell(p.pnl, p.stake)} <span class="muted">${p.reason}</span>`}</td><td style="text-align:right">${p.open ? `<button class="btn sm" data-act="close-${p.id}">Close</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">no bets yet: place one with the buttons below</td></tr>`}</table></section>`; };
@@ -448,7 +454,7 @@ export function draw() {
   const fmtP = (v) => pctS(v, 1);
   if ($("#hl")) {
     if (bt) { const S = W()?.snap; if (S?.candles?.length) drawCandles($("#hl"), S.candles.map(([t, o2, h, l, c, v]) => ({ t, o: o2, h, l, c, v })), { ...o, markers: S.markers.map((m) => ({ i: m.i, side: m.side === "in" ? "buy" : "sell" })), axis: 64 }); }
-    else drawCandles($("#hl"), location.hash === "#live" ? panWindow(hlData().candles) : cs.slice(-120), { ...o, markers: [], axis: bt ? 0 : 64 });
+    else drawCandles($("#hl"), location.hash === "#live" ? panWindow(state.venue === "Polymarket" ? btcData().candles : hlData().candles) : cs.slice(-120), { ...o, markers: [], axis: bt ? 0 : 64 });
   }
   if ($("#hlmini")) { const c = hlData().candles.slice(-60).map((x) => x.c); drawLines($("#hlmini"), [{ v: c, color: "--accent", fill: true }]); }
   if ($("#pf")) drawLines($("#pf"), [{ v: JSON.parse($("#pf").dataset.series), color: "--indigo" }], { grid: true, fmt: (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%" });

@@ -179,4 +179,15 @@ test("paper: leverage scales the position, not the margin", () => {
   assert.equal(a.pos.size, 200); assert.equal(b.pos.size, 2000); assert.equal(a.pos.margin, 100); assert.equal(b.pos.margin, 100);
 });
 
+test("binance: book ticker sets the BTC mid and tick, klines build candles", () => {
+  const S = F.feed.bn; S.mids = {}; S.series = {}; F.feed.hl.btcTicks = [];
+  assert.ok(F.dispatchBinance(S, JSON.stringify({ stream: "btcusdt@bookTicker", data: { u: 1, s: "BTCUSDT", b: "100.0", B: "1", a: "102.0", A: "1" } }), 1000));
+  assert.equal(S.mids.BTC, 101); assert.equal(F.feed.hl.btcMid, 101); assert.equal(F.feed.hl.btcTicks.at(-1).p, 101);
+  const k = (t, c) => ({ stream: "btcusdt@kline_1m", data: { e: "kline", k: { t, s: "BTCUSDT", i: "1m", o: "1", h: "2", l: "0.5", c: String(c), v: "3" } } });
+  F.dispatchBinance(S, k(60000, 1.5)); F.dispatchBinance(S, k(60000, 1.7)); F.dispatchBinance(S, k(120000, 1.9));
+  assert.deepEqual(S.series["BTC|1m"].map((c) => c.c), [1.7, 1.9]);
+  assert.equal(F.parseBinanceKlines([[60000, "1", "2", "0.5", "1.5", "3", 119999]])[0].c, 1.5);
+  assert.equal(F.dispatchBinance(S, "not json"), false);
+});
+
 test.after(() => { pmHandle?.stop(); setTimeout(() => process.exit(0), 50); });

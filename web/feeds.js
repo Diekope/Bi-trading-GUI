@@ -29,6 +29,8 @@ const CANDLE_COUNT = 1000; // enough history to pan back through
 export const feed = {
   hl: { status: "off", error: "", coin: "HYPE", interval: "1m", series: {}, mids: {}, book: null, btcMid: null, latency: null, latSrc: "", lastLat: 0, account: null, btcTicks: [], lastMsg: 0 },
   pm: { status: "off", error: "", market: null, books: {}, trades: [], target: null, windows: [], latency: null, lastMsg: 0, account: null },
+  // Binance spot market data: public, no account and no KYC; pushed by WebSocket the moment it changes.
+  bn: { status: "off", error: "", mids: {}, series: {}, interval: "1m", latency: null, lastMsg: 0 },
 };
 export const events = [];
 // "live" (data arriving), "stale" (connected but silent), or the raw status (connecting, error, off...).
@@ -40,11 +42,32 @@ export function health(S, now = Date.now(), staleMs = 12000) {
 const listeners = new Set();
 export const onChange = (f) => listeners.add(f);
 export const emit = () => listeners.forEach((f) => f());
-export function logEvent(level, source, origin, event, message, now = Date.now()) {
-  events.unshift({ t: now, level, source, origin, event, message });
-  if (events.length > 500) events.pop();
+// The log is kept in the browser, so a reload (or another day) still shows past orders and fills.
+const LOG_KEY = "bi-trading-sandbox-log-v1", LOG_MAX = 2000;
+const logStore = () => { try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; } };
+let logTimer = 0;
+const saveLog = () => { clearTimeout(logTimer); logTimer = setTimeout(() => { try { logStore()?.setItem(LOG_KEY, JSON.stringify(events)); } catch { /* full or blocked */ } }, 300); };
+export function restoreLog(history = []) {
+  let saved = [];
+  try { saved = JSON.parse(logStore()?.getItem(LOG_KEY) || "[]"); } catch { saved = []; }
+  if (!saved.length && history.length) {
+    // First run with a saved log: the closed paper trades become CLOSE rows, so they are not lost.
+    saved = history.map((h) => ({ t: h.closedAt ?? h.openedAt ?? 0, level: h.pnl >= 0 ? "info" : "warn", source: h.venue, origin: "Manual", event: "CLOSE",
+      message: `PAPER ${h.market} ${h.side} closed (${h.reason}) ${h.pnl >= 0 ? "+" : "-"}$${Math.abs(h.pnl).toFixed(2)}` }));
+  }
+  const now = new Set(events.map((e) => `${e.t}|${e.message}`));
+  events.push(...saved.filter((e) => e && !now.has(`${e.t}|${e.message}`)));
+  events.sort((x, y) => y.t - x.t);
+  if (events.length > LOG_MAX) events.length = LOG_MAX;
   emit();
 }
+export function logEvent(level, source, origin, event, message, now = Date.now()) {
+  events.unshift({ t: now, level, source, origin, event, message });
+  if (events.length > LOG_MAX) events.pop();
+  saveLog();
+  emit();
+}
+export const clearLog = () => { events.length = 0; saveLog(); emit(); };
 
 // -- parsing ------------------------------------------------------------------
 
@@ -167,7 +190,7 @@ export function dispatchHL(S, raw) {
   const d = m.data;
   switch (m.channel) {
     case "allMids": { Object.assign(S.mids, parseMids(d)); const b = S.mids.BTC; if (b != null && S.btcMid == null) pushTick(S, b); return true; }
-    case "bbo": { const u = parseBBO(d); if (u) { S.mids[u[0]] = u[1]; if (u[0] === "BTC") { S.btcMid = u[1]; pushTick(S, u[1]); } } return !!u; }
+    case "bbo": { const u = parseBBO(d); if (u) { S.mids[u[0]] = u[1]; if (u[0] === "BTC" && !binanceLive()) { S.btcMid = u[1]; pushTick(S, u[1]); } } return !!u; }
     case "l2Book": { const b = parseHLBook(d); if (b.coin && b.coin === S.coin) { S.book = b; return true; } return false; }
     case "candle": {
       const key = `${d?.s}|${d?.i}`, c = parseCandles([d])[0];
@@ -291,7 +314,81 @@ export function startHL(env = defaultEnv()) {
   };
 }
 
+// -- Binance (spot BTC, ETH, SOL) ----------------------------------------------------------------
+
+// Market-data-only host first (port 443; 9443 is often blocked), the main stream host as the fallback.
+const BN_WS = ["wss://data-stream.binance.vision/stream", "wss://stream.binance.com:443/stream"], BN_REST = "https://api.binance.com/api/v3";
+const BN_SYMBOLS = { BTC: "btcusdt", ETH: "ethusdt", SOL: "solusdt" };
+export const binanceLive = (now = Date.now()) => feed.bn.status === "live" && now - feed.bn.lastMsg < 5000;
+export const parseBinanceKlines = (rows) => (Array.isArray(rows) ? rows : []).map((r) => ({ t: +r[0], o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] })).filter((c) => Number.isFinite(c.c));
+
+// One combined-stream message: best bid/ask (bookTicker) or a candle update (kline).
+export function dispatchBinance(S, raw, now = Date.now()) {
+  let m; try { m = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return false; }
+  const d = m?.data; if (!d) return false;
+  if (d.e === "kline" && d.k) {
+    const k = d.k, key = `${String(k.s).replace(/USDT$/, "")}|${k.i}`, c = { t: +k.t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };
+    const arr = (S.series[key] ??= []), last = arr.at(-1);
+    if (last && last.t === c.t) arr[arr.length - 1] = c; else if (!last || c.t > last.t) { arr.push(c); if (arr.length > CANDLE_COUNT) arr.shift(); }
+    return true;
+  }
+  if (d.s && d.b != null && d.a != null) {                 // bookTicker: {s, b, B, a, A}
+    const coin = String(d.s).replace(/USDT$/, ""), mid = (+d.b + +d.a) / 2;
+    if (!Number.isFinite(mid)) return false;
+    S.mids[coin] = mid;
+    if (coin === "BTC") { feed.hl.btcMid = mid; pushTick(feed.hl, mid, now); }
+    return true;
+  }
+  return false;
+}
+
+export function startBinance(env = defaultEnv()) {
+  const S = feed.bn; let ws = null, stopped = false, tries = 0, reopen = false;
+  const streams = () => [...Object.values(BN_SYMBOLS).map((x) => `${x}@bookTicker`), "btcusdt@kline_1m", ...(S.interval !== "1m" ? [`btcusdt@kline_${S.interval}`] : [])];
+  async function snapshot(interval) {
+    try {
+      const r = await env.fetch(`${BN_REST}/klines?symbol=BTCUSDT&interval=${interval}&limit=${CANDLE_COUNT}`);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      S.series[`BTC|${interval}`] = parseBinanceKlines(await r.json()); emit();
+    } catch (e) { S.error = `candles: ${e.message}`; }
+  }
+  function connect() {
+    if (stopped) return;
+    S.status = tries ? "reconnecting" : "connecting"; emit();
+    const url = BN_WS[tries % BN_WS.length], sock = (ws = new env.WebSocket(`${url}?streams=${streams().join("/")}`));
+    const guard = env.setTimeout(() => { if (sock.readyState !== 1) { S.error = `no answer from ${url}`; try { sock.close(); } catch { /* closed */ } } }, 6000);
+    ws.onopen = () => { env.clearTimeout(guard); tries = 0; S.status = "live"; S.error = ""; logEvent("info", "System", "—", "CONNECTION", "Binance connected (BTC, ETH, SOL prices)", env.now()); };
+    ws.onmessage = (e) => { S.lastMsg = env.now(); if (dispatchBinance(S, e.data, env.now())) S._dirty = true; };
+    ws.onclose = () => { if (stopped) return; if (reopen) { reopen = false; connect(); return; } S.status = "reconnecting"; tries++; env.setTimeout(connect, Math.min(15000, 500 * 2 ** tries)); emit(); };
+    ws.onerror = () => { S.error = "websocket error"; };
+  }
+  // Round trip to Binance, as the delay shown for it.
+  const probe = async () => { const t0 = env.now(); try { await env.fetch(`${BN_REST}/time`); S.latency = Math.round(env.now() - t0); } catch { /* keep the last */ } };
+  snapshot("1m"); connect(); probe();
+  const timers = [env.setInterval(() => { if (S._dirty) { S._dirty = false; emit(); } }, 100), env.setInterval(probe, 5000)];
+  return {
+    // The candle interval the Polymarket chart shows; the socket is reopened with its stream.
+    setInterval(interval) {
+      if (interval === S.interval) return;
+      S.interval = interval;
+      if (!S.series[`BTC|${interval}`]) snapshot(interval);
+      reopen = true; try { ws && ws.close(); } catch { reopen = false; }
+    },
+    stop() { stopped = true; timers.forEach((t) => env.clearInterval(t)); try { ws && ws.close(); } catch { /* closed */ } },
+  };
+}
+
+// The BTC price a window opened at: Binance's minute candle, else Hyperliquid's.
 async function fetchTarget(env, startMs) {
+  try {
+    const r = await env.fetch(`${BN_REST}/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&limit=1`);
+    const c = parseBinanceKlines(await r.json())[0];
+    if (c && c.t === startMs) return c.o;
+  } catch { /* fall back */ }
+  return fetchTargetHL(env, startMs);
+}
+
+async function fetchTargetHL(env, startMs) {
   try {
     const rows = parseCandles(await hlPost(env, { type: "candleSnapshot", req: { coin: "BTC", interval: "1m", startTime: startMs - 60000, endTime: startMs + 120000 } }));
     return (rows.find((c) => c.t === startMs) || rows.find((c) => c.t >= startMs))?.o ?? null;

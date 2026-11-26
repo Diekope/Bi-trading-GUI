@@ -59,6 +59,11 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self):
+        # Always revalidate: a browser holding last week's views.js next to today's paper.js breaks the page.
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def log_message(self, fmt, *args):  # quiet: the request line only, no client details
         if os.environ.get("BT_VERBOSE"):
             super().log_message(fmt, *args)
