@@ -37,7 +37,10 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
   - The engine checks the rule as you type. **Preview** shows the selected strategy's run, started on its own when you pick a strategy or change a rule (no button).
   - **Create a strategy** starts a blank one; if the current one has unsaved changes it asks first (Save, Discard changes, Cancel).
   - **Run backtest** (footer) opens Backtest and runs the strategy there; an unsaved strategy is saved first, under a name you confirm (a default is offered).
-- **Backtest playback.** A finished run is walked on screen like the desktop app: a progress bar with the candles (or markets) walked, curves and figures growing as it goes; speed ×1, ×4, ×16 or Instant, Skip and Replay. The right column is 340 px wide so the charts get the room.
+- **Backtest is a live walk.** Run starts the run in the engine (`POST /api/play/start`) and the page steps it every 50 ms (`/api/play/step`, `/api/play/end` to skip), as the desktop's playback tile does:
+  - Hyperliquid uses the desktop's own walk (`BacktestSession` / `Playback` from `ui/strat/playback_session.py`, no Qt): the last candles walked appear with the entries and exits, and the figures, curves and trades grow with each step. The value card carries the walk's settings (sizing, position, max cash).
+  - Polymarket runs `engine.binary.run_binary` on a thread paced by the page through its `progress` callback (called after each market), so the equity curve and the bets appear market by market.
+  - Speed ×1 to ×64, Pause / Resume, Skip to end. The right column is 340 px wide so the charts get the room.
 - **Backtest.** History (Polymarket: a span; Hyperliquid: a start year and an end year, and a timeframe), Strategy and the value card feed the run; the Runs card lists this session's runs (click one to show it again); results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
 - **Not wired yet.** Compare (walk-forward, TP × SL sweep), Save / Load run, ML and Model builder still show demo content.
 - Tests: `node --test test/rule.test.mjs` (the rule model).
@@ -60,6 +63,8 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 - **Leverage:** the order's amount is the margin; the position is margin × leverage (shown under the form).
 - **Rail:** the venue switch shows the Polymarket and Hyperliquid logos with each feed's delay under it.
 - **Scale:** below 1280 × 860 the whole app shrinks evenly (CSS `zoom`) instead of cutting cards off.
+- **Portfolio:** only the book of the selected mode (PAPER or LIVE, top right).
+- **Logs:** source, origin, level, strategy and search filters all apply; Pause freezes the list, Clear empties it, Export downloads it as CSV.
 - **Strategy (Live footer):** a list of the venue's strategies; the one picked is the selected strategy everywhere.
 - **Builder time window:** Hyperliquid picks the strategy's bar from a list (1m to 4h); Polymarket has none (its markets are five minutes).
 - **Hyperliquid order book:** fills its tile (at least 160 px; the positions under it keep at least 100 px) (20 levels a side, the nearest kept when space runs out). Drag the handle under it to set its height; double-click the handle to let it fit again, the positions below grow as they open.

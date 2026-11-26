@@ -102,6 +102,21 @@ class EngineApi(unittest.TestCase):
         engine_api.delete_strategy({"name": "gone"})
         self.assertNotIn("gone", [s["name"] for s in engine_api.list_strategies()["strategies"]])
 
+    def test_live_walk(self):
+        out = engine_api.play_start({"entry": "close > sma(close, 20)", "timeframe": "5m", "year_from": time.gmtime().tm_year,
+                                     "year_to": time.gmtime().tm_year, "tp": 0.05, "sl": 0.05})
+        self.assertEqual(out["index"], 0)
+        self.assertGreater(out["total"], 100)
+        step = engine_api.play_step({"id": out["id"], "ticks": 30})
+        self.assertGreater(step["index"], 0)
+        self.assertLessEqual(len(step["candles"]), 160)
+        end = engine_api.play_end({"id": out["id"]})
+        self.assertTrue(end["done"])
+        self.assertEqual(end["index"], end["total"])
+        self.assertLessEqual(end["stats"]["maxDD"], 0)
+        with self.assertRaises(engine_api.ApiError):
+            engine_api.play_step({"id": "nope"})
+
     def test_errors(self):
         with self.assertRaises(engine_api.ApiError):
             engine_api.run_hyperliquid({"entry": "", "timeframe": "5m"})

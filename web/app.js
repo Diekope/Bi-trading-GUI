@@ -1,7 +1,7 @@
 import { views, state, draw, normalize, latency, balances, paintAll, engAct, setSField, setRerender, setAutoRun, pan } from "./views.js";
 import { boot } from "./engine.js";
 import { formulaClick, formulaInput, rulesClick, rulesInput, installDnD } from "./builder.js";
-import { feed, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
+import { feed, events, onChange, startHL, startPM, logEvent, detectProxy, endpoints, health } from "./feeds.js";
 import { P, placePM, placeHL, closePosition, resetPaper, tick as paperTick } from "./paper.js";
 const I = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const rail = [
@@ -103,7 +103,15 @@ function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t
 function act(a) {
   const f = state.form;
   if (a === "pan-latest") { pan.off = 0; render(); return; }
-  if (a.startsWith("eng-") || a.startsWith("run-show-") || a.startsWith("play-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
+  if (a.startsWith("eng-") || a.startsWith("run-show-") || a.startsWith("walk-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
+  if (a === "log-pause") { state.logPaused = !state.logPaused; state.logFrozen = state.logPaused ? [...events] : null; render(); return; }
+  if (a === "log-clear") { events.length = 0; state.logFrozen = state.logPaused ? [] : null; state.logSel = -1; toast("Logs cleared."); render(); return; }
+  if (a === "log-export") {
+    const rows = [["time", "level", "source", "origin", "event", "message"], ...(state.logPaused ? state.logFrozen : events).map((e) => [new Date(e.t).toISOString(), e.level, e.source, e.origin, e.event, e.message])];
+    const csv = rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const a2 = document.createElement("a"); a2.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a2.download = `bi-trading-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.csv`; a2.click(); URL.revokeObjectURL(a2.href);
+    return;
+  }
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
   if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
   if (a === "pm-connect") { const addr = (f.pmAddr ?? feed.pm.account?.address ?? "").trim(); pmHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(PM_ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Polymarket positions value connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
@@ -131,10 +139,10 @@ document.addEventListener("click", (e) => {
   const s = e.target.closest("[data-set]"); if (!s) return;
   const [k, ...v] = s.dataset.set.split("="), val = v.join("="); state[k] = val !== "" && !isNaN(val) ? Number(val) : val; render();
 });
-document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } const k = e.target.dataset.pick; if (k) { state[k] = Number(e.target.value); render(); } });
+document.addEventListener("change", (e) => { const f = e.target.dataset.flip; if (f) { state[f] = e.target.checked; render(); } const k = e.target.dataset.pick; if (k) { state[k] = Number(e.target.value); render(); } const ks = e.target.dataset.pickstr; if (ks) { state[ks] = e.target.value; state.logSel = -1; render(); } });
 document.addEventListener("input", (e) => {
   lastInput = Date.now(); const d = e.target.dataset || {};
-  if (d.bind) state.form[d.bind] = e.target.value;
+  if (d.bind) { state.form[d.bind] = e.target.value; if (d.bind === "logQ") render(); }
   if (d.sfield) setSField(d.sfield, e.target.value); // the builder edits the selected strategy; checks re-render when they land
   if (location.hash === "#builder" && (formulaInput(e.target) || rulesInput(e.target))) render();
 });

@@ -174,3 +174,7 @@ table.sweep th.corner { text-align: left; white-space: nowrap; }
 .sw-cell:hover .tip { display: block; } .sw-cell:hover { outline: 1px solid var(--text); }
 table.sweep tr:nth-child(2) .tip { bottom: auto; top: calc(100% + 6px); }
 table.nowrap td, table.nowrap th { white-space: nowrap; }
+
+/* Compact filter dropdowns (Logs): the same height as the pills beside them */
+.minisel { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-alt); font: 11px var(--ui); color: var(--muted); }
+.minisel select { border: 0; background: transparent; color: var(--text); font: 600 11px var(--ui); padding: 0 2px; height: 26px; width: auto; max-width: 130px; }

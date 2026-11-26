@@ -191,12 +191,16 @@ def run_binary(
     exit_: Formula | None,
     params: BinaryParams = BinaryParams(),
     entry_down: Formula | None = None,
+    progress=None,
 ) -> BinaryResult:
     """Walk every window once: enter on a rule, cash out on the exit rule or settle.
 
     `entry` bets `params.side` (UP by default). With `entry_down` the strategy has
     a rule for each side: `entry` bets UP, `entry_down` bets DOWN, and a minute at
     which both are true bets neither (the rules disagree).
+
+    `progress(result)`, when given, is called after each window with the result so
+    far, so a caller can show (or pace) the walk as it goes.
     """
     frame = build_frame(candles, history)
     result = BinaryResult(params, windows=len(frame.window_rows), final_equity=params.capital)
@@ -215,7 +219,9 @@ def run_binary(
     peak = equity
     result.equity.append(equity)
     result.window_equity.append(equity)
-    for start, first in frame.window_rows:
+    for n, (start, first) in enumerate(frame.window_rows):
+        if progress is not None and n:
+            progress(result)
         row = rows.get(start)
         if row is not None and row.prices:
             result.real_windows += 1
@@ -269,6 +275,8 @@ def run_binary(
             )
         )
     result.final_equity = equity
+    if progress is not None:
+        progress(result)
     return result
 
 

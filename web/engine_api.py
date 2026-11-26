@@ -394,6 +394,219 @@ def delete_strategy(body: dict) -> dict:
     return {"deleted": name, "count": len(kept)}
 
 
+# -- the live walk: the desktop app's playback, stepped from the page --------------------------
+#
+# A Hyperliquid backtest is not computed and then shown: the page starts a session here and asks
+# for a few ticks at a time, exactly as the desktop's playback tile advances its `BacktestSession`.
+
+PLAYS: dict[str, dict] = {}
+MAX_PLAYS = 4
+PLAY_TFS = ("1m", "3m", "5m", "15m", "30m", "1h")
+
+
+def _play(body: dict) -> dict:
+    p = PLAYS.get(str(body.get("id") or ""))
+    if p is None:
+        raise ApiError("this run is no longer held: start it again")
+    p["used"] = time.time()
+    return p
+
+
+def _keep(entry: dict) -> str:
+    import uuid
+
+    while len(PLAYS) >= MAX_PLAYS:                      # forget the least recently used run
+        old = PLAYS.pop(min(PLAYS, key=lambda k: PLAYS[k]["used"]))
+        if old.get("cond") is not None:                 # let a parked Polymarket walk finish and exit
+            with old["cond"]:
+                old["stop"] = True
+                old["cond"].notify_all()
+    pid = uuid.uuid4().hex[:12]
+    entry["used"] = time.time()
+    PLAYS[pid] = entry          # the same dict the walk thread writes to
+    return pid
+
+
+def pm_play_start(body: dict) -> dict:
+    """The Polymarket walk: `run_binary` itself, on a thread that waits for the page between markets."""
+    import threading
+
+    bars, history, entry, exit_, params, down = run_polymarket_inputs(body)
+    base = {side: binary.always_side(bars, history, side, params) for side in ("up", "down")}
+    p = {"pm": True, "cond": threading.Condition(), "budget": 0, "res": None, "n": 0, "done": False, "stop": False, "err": "",
+         "base": base, "meta": {"capital": params.capital, "halfSpread": params.half_spread * 100,
+                                "from": _iso(int(bars["timestamp"][0])), "to": _iso(int(bars["timestamp"][-1]))}}
+
+    def paced(result) -> None:
+        with p["cond"]:
+            p["res"], p["n"] = result, p["n"] + 1
+            p["budget"] -= 1
+            p["cond"].notify_all()
+            while p["budget"] <= 0 and not p["stop"]:
+                p["cond"].wait()
+
+    def walk() -> None:
+        try:
+            r = binary.run_binary(bars, history, entry, exit_, params, down, progress=paced)
+            with p["cond"]:
+                p["res"] = r
+        except Exception as exc:  # shown on the page
+            p["err"] = f"{type(exc).__name__}: {exc}"
+        with p["cond"]:
+            p["done"] = True
+            p["cond"].notify_all()
+
+    pid = _keep(p)
+    threading.Thread(target=walk, daemon=True).start()
+    return {"id": pid, **_pm_advance(p, 1, body)}
+
+
+def _pm_advance(p: dict, ticks: float, body: dict) -> dict:
+    with p["cond"]:
+        p["budget"] += ticks
+        p["cond"].notify_all()
+        deadline = time.time() + 20
+        while p["budget"] > 0 and not p["done"] and time.time() < deadline:
+            p["cond"].wait(0.5)
+        return _pm_snapshot(p, body)
+
+
+def _pm_snapshot(p: dict, body: dict) -> dict:
+    if p["err"]:
+        raise ApiError(p["err"])
+    r, meta, cap = p["res"], p["meta"], p["meta"]["capital"]
+    if r is None:
+        return {"pm": True, "index": 0, "total": 0, "done": p["done"], **meta}
+    n = len(r.window_equity) - 1
+    trades = list(r.trades)
+    pct = lambda curve: [(v / cap - 1) * 100 for v in curve]  # noqa: E731
+    eq = list(r.window_equity)
+    peak, dd, ddc = cap, 0.0, []
+    for v in eq:
+        peak = max(peak, v)
+        d = (v / peak - 1) * 100 if peak else 0
+        dd = min(dd, d)
+        ddc.append(d)
+    reasons: dict[str, int] = {}
+    for t in trades:
+        reasons[t.reason] = reasons.get(t.reason, 0) + 1
+    staked = sum(t.stake for t in trades)
+    pnl = sum(t.pnl for t in trades)
+    rows = int(_num(body, "rows", 100, 0, MAX_ROWS))
+    base = {side: list(b.window_equity[: n + 1]) for side, b in p["base"].items()}
+    return {
+        "pm": True, "index": n, "total": r.windows, "done": p["done"], **meta,
+        "stats": {"bets": len(trades), "markets": n, "winRate": sum(t.won for t in trades) / len(trades) if trades else 0.0,
+                  "roi": pnl / staked if staked else 0.0, "pnl": pnl, "equity": eq[-1], "maxDD": dd,
+                  "early": sum(1 for t in trades if t.exit_minute < binary.STEPS),
+                  "realEntries": sum(t.real_price for t in trades), "estimated": sum(t.estimated_outcome for t in trades)},
+        "baselines": {side: {"roi": (b[-1] / cap - 1) * 100 if b else 0.0} for side, b in base.items()},
+        "curves": {"strategy": _thin(pct(eq)), "up": _thin(pct(base["up"])), "down": _thin(pct(base["down"])), "drawdown": _thin(ddc)},
+        "reasons": sorted(({"label": k, "count": v, "share": v / (len(trades) or 1)} for k, v in reasons.items()), key=lambda x: -x["count"]),
+        "betRows": [
+            {"at": _iso(t.start_ms), "side": t.side.upper(), "inM": f"m{t.entry_minute}", "buy": round(t.entry_price, 3),
+             "outM": "settle" if t.exit_minute >= binary.STEPS else f"m{t.exit_minute}", "sold": round(t.exit_price, 3),
+             "stake": round(t.stake, 2), "pnl": round(t.pnl, 2), "ended": t.reason, "prices": "real" if t.real_price else "sim"}
+            for t in trades[-rows:][::-1]
+        ],
+    }
+
+
+def play_start(body: dict) -> dict:
+    import threading
+
+    from bi_trading.ui.strat.playback_session import build_session
+
+    if body.get("venue") == "Polymarket":
+        return pm_play_start(body)
+
+    tf = str(body.get("timeframe") or "1h")
+    if tf not in PLAY_TFS:
+        raise ApiError(f"timeframe: one of {', '.join(PLAY_TFS)}")
+    entry = _rule(body.get("entry"), ENTRY_FIELDS, what="entry")
+    if entry is None:
+        raise ApiError("entry: write an entry rule first")
+    exit_text = str(body.get("exit") or "").strip() or DEFAULT_EXIT
+    exit_ = _rule(exit_text, EXIT_FIELDS, EXIT_FUNCTIONS, what="exit")
+    short_entry = _rule(body.get("short_entry"), ENTRY_FIELDS, what="second entry")
+    y0 = int(_num(body, "year_from", 2026, 2009, 2100))
+    y1 = int(_num(body, "year_to", y0, 2009, 2100))
+    if y1 < y0:
+        raise ApiError(f"the end year ({y1}) is before the start year ({y0})")
+    have = {int(p.stem.split("-")[1]) for p in candles.candles_dir().glob("BTC-*-1m.parquet")}
+    years = [y for y in range(y0, y1 + 1) if y in have]
+    if not years:
+        raise ApiError(f"no candles on disk for {y0}–{y1} (looked in {candles.candles_dir()})")
+    params = {
+        "initial_capital": _num(body, "capital", 10_000, 1), "tp": _num(body, "tp", 2, 0, 1000),
+        "sl": _num(body, "sl", 1, 0, 100), "position": _num(body, "position", 10, 0, 1e9),
+        "sizing": "fixed" if body.get("sizing") == "fixed" else "balance",
+        "cash": _num(body, "max_cash", 2000, 0, 1e12), "fee": _num(body, "fee_pct", 0.06, 0, 10),
+    }
+    side = "both" if short_entry is not None and body.get("side") != "short" else ("short" if body.get("side") == "short" else "long")
+    session = build_session(years, params, "formula", tf, entry_formula=entry, exit_formula=exit_,
+                            side=side, short_entry_formula=short_entry)
+    pid = _keep({"s": session, "lock": threading.Lock(),
+                 "meta": {"years": [y0, y1], "timeframe": tf, "exit": exit_text, "capital": params["initial_capital"]}})
+    return {"id": pid, **_snapshot(PLAYS[pid], body)}
+
+
+def play_step(body: dict) -> dict:
+    p = _play(body)
+    ticks = int(_num(body, "ticks", 1, 0, 5000))
+    if p.get("pm"):
+        return _pm_advance(p, ticks, body)
+    with p["lock"]:
+        s = p["s"]
+        for _ in range(ticks):
+            if s.strategy.done:
+                break
+            s.advance()
+        return _snapshot(p, body)
+
+
+def play_end(body: dict) -> dict:
+    p = _play(body)
+    if p.get("pm"):
+        return _pm_advance(p, float("inf"), {**body, "rows": MAX_ROWS})
+    with p["lock"]:
+        p["s"].seek(p["s"].total)
+        return _snapshot(p, {**body, "rows": MAX_ROWS})
+
+
+def _snapshot(p: dict, body: dict) -> dict:
+    s, meta = p["s"], p["meta"]
+    play, cap = s.strategy, s.capital
+    view = int(_num(body, "view", 160, 20, 1500))
+    recent = play.recent()[-view:]
+    first_index = play.index - len(recent)
+    markers = [{"i": i - first_index - 1, "side": side, "px": px} for i, side, px in play.markers if i > first_index]
+    pct = lambda curve: [(v / cap - 1) * 100 for v in curve]  # noqa: E731
+    log = play.trades_log
+    reasons: dict[str, int] = {}
+    for t in log:
+        reasons[t[9]] = reasons.get(t[9], 0) + 1
+    words = {"tp": "Take profit", "sl": "Stop loss", "time": "Time", "rule": "Rule", "gap": "Data gap"}
+    return {
+        "index": play.index, "total": play.total, "stride": play.stride, "done": play.done,
+        "years": meta["years"], "timeframe": meta["timeframe"], "exit": meta["exit"], "capital": cap,
+        "candles": [[c.stamp, c.open, c.high, c.low, c.close, c.volume] for c in recent],
+        "markers": markers,
+        "stats": {
+            "equity": play.equity, "pnlPct": (play.equity / cap - 1) * 100, "drawdown": play.drawdown() * 100,
+            "maxDD": -abs(play.max_drawdown) * 100, "maxGain": play.max_gain * 100, "trades": play.trades,
+            "winRate": play.win_rate, "fees": play.fees, "sharpe": play.sharpe, "exposure": play.exposure,
+            "streak": play.streak, "bestWin": play.best_win, "worstLoss": play.worst_loss,
+            "randomPct": (s.random.equity / cap - 1) * 100, "holdPct": (s.buy_and_hold() / cap - 1) * 100,
+        },
+        "curves": {"strategy": _thin(pct(s.strategy_curve)), "random": _thin(pct(s.random_curve)), "hold": _thin(pct(s.benchmark))},
+        "reasons": sorted(({"label": words.get(k, k), "count": v, "share": v / (len(log) or 1)} for k, v in reasons.items()), key=lambda x: -x["count"]),
+        "tradeRows": [{"n": len(log) - k, "in": _iso(t[0]), "out": _iso(t[3]), "side": t[12], "inPx": t[2], "outPx": t[5],
+                       "pnl": round(t[6] * 100, 3), "usd": round(t[8], 2), "reason": words.get(t[9], t[9])}
+                      for k, t in enumerate(reversed(log[-int(_num(body, "rows", 100, 0, MAX_ROWS)):]))],
+    }
+
+
 ROUTES = {
     ("GET", "/api/status"): status,
     ("GET", "/api/strategies"): list_strategies,
@@ -402,5 +615,8 @@ ROUTES = {
     ("POST", "/api/backtest"): run_hyperliquid,
     ("POST", "/api/backtest/polymarket"): run_polymarket,
     ("POST", "/api/sweep"): sweep,
+    ("POST", "/api/play/start"): play_start,
+    ("POST", "/api/play/step"): play_step,
+    ("POST", "/api/play/end"): play_end,
     ("POST", "/api/strategies/delete"): delete_strategy,
 }
