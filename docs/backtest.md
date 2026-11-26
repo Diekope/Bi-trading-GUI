@@ -42,9 +42,17 @@ flattens the others into the axis. In percent the two strategies stay readable,
 and buy and hold is left to run off the top, with its number in the legend and
 a note when it does.
 
-Random buy is the benchmark that matters: it opens on a coin flip with the same
-exits, sizing and fees, so an entry rule that cannot beat it has no edge. Buy
-and hold puts the whole book in at the first bar and never sells.
+Random buy is the benchmark that matters: it opens on a coin flip and goes through the
+same walk as the strategy, with the same fills, exits, sizing and fees, so an entry rule
+that cannot beat it has no edge. Its signals come at the strategy's own rate and long/short
+mix (a strategy with no signals to copy, or a span streamed a year at a time, falls back to
+3% of bars, long only). That is the curve on the chart. For a verdict the chart is one
+draw, so a finished run also walks 100 more random runs, each from its own seed, in the
+background; the evidence line then reads *beats X% of 100 random runs*, with the 5th,
+median and 95th percentile of those runs. Spans too long to give enough runs show none. Buy
+and hold puts in what `Max cash` lets the run trade with (not the whole book), pays
+the same fee and slippage once on the way in, keeps the rest in cash and never
+sells, so it risks the same money as the strategy and costs the same.
 
 Under the six figures a second row reads **what one trade is worth**, all off the trade
 log: **Expectancy** (the average trade, as a return and in dollars), **Avg hold** (bars),
@@ -55,12 +63,58 @@ per bar). Profit factor and Sortino read `—` while there is no losing trade. P
 headline; Expectancy is the one to read next, because it says whether the edge is per trade
 or a few lucky ones. (`engine/stats.py`.)
 
+Two small lines sit under those figures once a run has trades, and say how far to trust
+them (`engine/stats.py`, shown only when there is something to say):
+
+- **Risk on a yearly footing:** Sharpe per year and Calmar (yearly return over the deepest
+  drawdown), for spans of at least 30 days (a yearly rate from a few days is a number about
+  nothing), and the **longest time under water** in bars and days. They assume BTC trades
+  every minute of the year.
+- **Doubt on the average trade:** a per-trade Sharpe (the same basis as the Sortino), the
+  t-stat of the average trade, its two-sided p-value and 95% interval, and a warning under
+  30 trades. They assume the trades are independent, which a rule that fires in clusters
+  breaks, so they are a floor on the doubt, not a proof of an edge.
+- **Costs:** the PnL at these costs and at 2x fees and slippage. A first-order estimate from
+  the trade log (each trade's fees and slippage doubled, later sizes not re-worked), not a
+  second run.
+- **By year:** trades, profit and win rate for each year the trades closed in.
+
 The curves are sampled **once per tick**, not once per bar — a run can be
 millions of bars and the chart cannot use more points than it has pixels.
 
 `Sizing` percentages are a share of what `Max cash $` allows the run to trade
 with, not of the whole book: with a $2,000 cap, a 10% position is $200 a
 trade.
+
+## What this backtest is not
+
+It simulates a **spot-style position on BTC candles**: a market entry at the close of
+the signal bar, a take profit, a stop loss, an optional trail, a hold limit, a flat fee
+and a flat slippage per side. The history is Binance BTCUSDT. Read every figure with
+that in mind. It does **not** model:
+
+- **Polymarket 5-minute markets.** Those are binary: a share costs the ask, pays 1 if
+  the window ends on the right side and 0 otherwise, and the edge is the model's
+  probability minus the ask. The backtest has no market price, so `min edge` is not
+  applied and a Polymarket strategy cannot be validated here. Test those in paper mode.
+- **Hyperliquid perps.** No funding, leverage, margin or liquidation.
+- **A different venue's candles.** Spreads, wicks and fills on the venue you trade
+  differ from Binance spot, most on 1m bars. The venue serves only its latest ~5,000
+  candles, so the history cannot be swapped; `python -m bi_trading.data.basis` compares
+  the stored Binance bars with Hyperliquid's over that window (close gap in basis points,
+  how wide its bars are, how often a level is touched on one venue and not the other),
+  saves the report, and the evidence line shows it. Until it is run the line says the
+  venue data was not compared.
+- **Queue position and maker fees.** A take profit needs the market to trade through its
+  price (see Fills) but still fills in full with no queue, and every fill pays the one
+  flat fee.
+
+The ML builder's own test-set simulator (`rule_stats` in `ml/train.py`) is separate from
+the walk. It has the same fill model (next-open entry, gapped stops, trade-through) from the
+same Settings, but not the data-gap rule, the volume cap or the trailing stop. Use a backtest
+of the saved strategy for the figure that counts.
+
+The full list of weaknesses, by importance, is in [backtest-audit.md](backtest-audit.md).
 
 ## Backtest tile
 
@@ -97,7 +151,17 @@ the small tiles the least — so they always fill it and never scroll. The
 results tile spans the window's full width below.
 
 Decided and hard-coded for the run: one position is held at a time, and a trade
-is refused across a data gap rather than filled through it.
+is never held through a hole in the data. A hole is two neighbouring bars more than
+one step apart (an exchange outage, a missing year). The walk closes an open position
+at the close of the last bar before the hole, as a market exit that slips like any
+other and reads `Data gap` in the results, and opens nothing on that bar. The baseline
+follows the same rule. It is the same in the native core, the Python fallback, the
+walk in pieces and the stepped playback.
+
+**Bars on the clock.** A 3m / 5m / 15m / 30m / 1h bar covers the minutes from a multiple
+of its length (a 5m bar opens at :00, :05, ...), built from its own minutes. A bar with
+any minute missing is dropped, not drawn from fewer, so after an outage the later bars
+stay on the grid and the hole shows up as a hole. Bars never span two year files.
 
 **Slippage** is what a market fill gives away, per side, in percent (the
 *Slippage %* parameter, `slippage` in the settings file; 0.01 by default). An
@@ -105,6 +169,18 @@ entry fills that much worse than the close it was decided on — higher for a
 long, lower for a short — and every exit slips against the trade, except the
 take profit, which is a resting limit order and fills at its price. The fee is
 charged on top. The builder's previews use the same 0.01%.
+
+**Fills.** Three settings under `backtest` in the settings file (no tile field) decide how
+orders fill. `entry` is `open` by default: a signal on one bar fills at the **open of the next**,
+a little worse by the slippage, and that bar's own range can stop it out or fill its target;
+`close` fills at the close of the signal bar, which no one can do. A signal on the last bar before
+a hole is dropped. `limit_through` (percent, 0.01 by default) is how far the market must trade
+past a take profit's price before that limit counts as filled: touching it is not enough. A
+stop, or a trail, that the market gapped past fills at the bar's open, not at the price it
+jumped over; a target it gapped past fills at the better open. The trailing stop is a market
+exit and slips; only the plain take profit is a resting limit order with no slippage. The ML
+builder, the whole-span seek, the streamed seek and the stepped playback all use the same
+rules.
 
 **Venue costs.** The *Venue costs* pick fills the fee and the slippage with a
 venue's own (Hyperliquid 0.045% + 0.01%, Polymarket 0% + 0% to start); typing
@@ -115,10 +191,16 @@ market. The Fees figure in the results shows the rates on hover.
 
 **Warm-up.** *Warm-up (bars)* (`warmup` in the settings file) is how much
 history must exist before a signal counts, so indicators have settled. It is
-**off by default** (0). With it on, the first N bars never open a trade, for the
+**100 by default** (0 turns it off; a settings file that already says 0 keeps 0). The first N bars never open a trade, for the
 strategy and for the random baseline alike. The live strategy bar uses the same
 setting: while the chart holds fewer than N bars its signal reads `WARM-UP`
 instead of firing. The builder's previews do not use it.
+
+**Volume cap.** An entry takes at most a share of what the entry bar traded
+(`participation` under `backtest` in the settings file, percent of volume times close;
+1 by default, 0 turns it off). BTC minutes trade far more than the default cash, so it
+rarely binds; it stops a large size from filling in a thin bar. It has no field on the
+tile. Not modelled: minimum lot, tick rounding, and market impact beyond the flat slippage.
 
 **Sanity clamps.** A max cash above the capital, or a fixed dollar position
 above it, is brought back to the capital, and a reverse % with the dynamic take
@@ -186,7 +268,8 @@ a window, the running values for `ema` and `rsi` — so the signals are exactly 
 whole pass gives (`SignalStream` in `engine/formula_eval.py`). Tested equal to the whole
 walk on a decade of minutes (same trades, same figures), and faster than loading the span
 whole. A rule that names something with no history on disk (`model_p`, `spread`…), or a
-span with a gap, loads whole as before. Run on a formula strategy over a span this long
+span with a gap, loads whole as before. (`model_p` is filled from the strategy's saved ML
+model when it has one; see [ml.md](ml.md).) Run on a formula strategy over a span this long
 walks it in pieces instead of playing it bar by bar; a built-in rule that is only played
 still steps in Python. When the
 extension is not built, `bi_trading.engine.core` falls back to the same walk in Python, so
@@ -211,9 +294,9 @@ rewinds the walk to it so it is on screen.
   latest close; an open short its margin plus what the price has fallen. So an
   open loss counts towards drawdown, and the stepped figures and the walk's
   curve agree.
-- **Sharpe is not annualised** — the walk is minutes long, so multiplying by
-  the square root of a year would produce a meaningless number. It is the mean
-  over deviation of the per-bar book returns.
+- **Sharpe here is per bar** — the mean over deviation of the per-bar book returns, as
+  a walk of a few minutes would give. The results tile also shows a yearly Sharpe once the
+  span is a month or more.
 - **The marks**: an amber ▲ under a candle is an entry, a grey ▼ above one is
   an exit.
 - **It stops at the end** of its series rather than looping, and says how the
@@ -235,8 +318,8 @@ otherwise take about two and a half days to watch.
 
 A span with nothing on disk falls back to a fixed-seed sample and says so.
 
-Fills are the optimistic kind — the target and the stop are both read off one
-candle's range, so a candle that touches both pays the target.
+The target and the stop are read off one candle's range (see **Fills**). When one candle
+touches both, the stop is booked, as in the run controls above.
 
 Nothing runs when the window opens: the tile sits idle until **Run** (in its
 header) or **Start backtest** (in the history tile) is pressed. A change of

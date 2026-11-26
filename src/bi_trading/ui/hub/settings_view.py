@@ -88,6 +88,7 @@ START_PAGE_LABELS = {
     "live": "Live",
     "builder": "Strategy builder",
     "backtest": "Backtest engine",
+    "ml": "ML strategy builder",
 }
 START_PAGES = {label: key for key, label in START_PAGE_LABELS.items()}
 

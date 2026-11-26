@@ -159,8 +159,11 @@ up/down window that is open right now.
   clipping the quotes.
 - **BTC chart** — a rolling fifteen-minute view of the underlying, with the
   current window's target as a dashed line and the gap shaded green above / red
-  below. A rollover does not reset the line: the previous windows scroll left
-  while the new target segment grows from the right edge. Five-minute
+  below. The line is drawn green above the target and red below it, and changes
+  colour exactly where the price crosses. A rollover does not reset the line: the
+  previous windows scroll left, each keeping its own target line (faint) where it
+  was drawn, while the new window starts with no target; its own fades in at its
+  window start once it arrives, so the old price is never drawn on the new window. Five-minute
   boundaries get a tick and a time label, not a full-height rule, so the line
   stays one unbroken curve. The view ends ~1.5s behind live — more than the
   one-second sample interval — so a fresh sample always lands ahead of the

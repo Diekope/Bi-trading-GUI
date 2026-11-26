@@ -61,6 +61,7 @@ class StrategyBar(Card):
         reading.setSpacing(16)
         self.close_label = self._reading("close", "—", reading)
         self.band_label = self._reading("band", "—", reading)
+        self.band_caption = self._captions["band"]
         self.signal_label = self._reading("signal", "—", reading)
         self.signal_label.setProperty("state", "off")
         row.addLayout(reading)
@@ -187,6 +188,8 @@ class StrategyBar(Card):
         self.status.setStyleSheet(f"color: {colour};")
 
     def _reading(self, caption: str, value: str, layout: QHBoxLayout) -> QLabel:
+        if not hasattr(self, "_captions"):
+            self._captions: dict[str, QLabel] = {}
         box = QHBoxLayout()
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)
@@ -198,6 +201,7 @@ class StrategyBar(Card):
         box.addWidget(key)
         box.addWidget(shown)
         layout.addLayout(box)
+        self._captions[caption] = key
         return shown
 
     def set_reading(
@@ -207,6 +211,7 @@ class StrategyBar(Card):
 
         Returns whether the signal holds.
         """
+        self.band_caption.setText("band")
         self.close_label.setText("—" if close is None else f"{close:,.1f}")
         self.band_label.setText("—" if band is None else f"{band:,.1f}")
         holds = (
@@ -214,6 +219,45 @@ class StrategyBar(Card):
         )
         self.signal_label.setText(
             "WARM-UP" if warming else "TRUE" if holds else "FALSE"
+        )
+        state = "on" if holds else "off"
+        if self.signal_label.property("state") != state:
+            self.signal_label.setProperty("state", state)
+            style = self.signal_label.style()
+            style.unpolish(self.signal_label)
+            style.polish(self.signal_label)
+        return holds
+
+    # -- an ML strategy ------------------------------------------------------
+
+    ML_PREFIX = "ML · "
+
+    def set_ml_choices(self, names: list[str]) -> None:
+        """List the saved ML strategies after the built-ins, keeping the pick."""
+        current = self.picker.currentText()
+        self.picker.blockSignals(True)
+        self.picker.clear()
+        self.picker.addItems(STRATEGIES)
+        self.picker.addItems([self.ML_PREFIX + name for name in names])
+        index = self.picker.findText(current)
+        self.picker.setCurrentIndex(max(0, index))
+        self.picker.blockSignals(False)
+
+    def ml_name(self) -> str:
+        """The ML strategy picked, or "" for a built-in."""
+        text = self.picker.currentText()
+        return text[len(self.ML_PREFIX):] if text.startswith(self.ML_PREFIX) else ""
+
+    def set_ml_reading(
+        self, close: float | None, p: float | None, side: str | None, note: str = ""
+    ) -> bool:
+        """Show the model's P(up) and the side it calls (UP, DOWN or FALSE)."""
+        self.band_caption.setText("P(up)")
+        self.close_label.setText("—" if close is None else f"{close:,.1f}")
+        self.band_label.setText("—" if p is None else f"{p:.2f}")
+        holds = side is not None
+        self.signal_label.setText(
+            side.upper() if side else (note.split(":")[0].upper()[:9] or "FALSE") if p is None else "FALSE"
         )
         state = "on" if holds else "off"
         if self.signal_label.property("state") != state:

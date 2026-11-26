@@ -32,7 +32,8 @@ class RuleEditDialog(QDialog):
     """The entry and the exit rule of one saved strategy, as editable text."""
 
     def __init__(
-        self, name: str, entry: str, exit_: str, parent: QWidget | None = None
+        self, name: str, entry: str, exit_: str, parent: QWidget | None = None,
+        entry_readonly: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("confirmDialog")
@@ -49,6 +50,9 @@ class RuleEditDialog(QDialog):
 
         self.entry_edit, self.entry_status = self._section(layout, "Entry rule", entry)
         self.exit_edit, self.exit_status = self._section(layout, "Exit rule", exit_)
+        if entry_readonly:
+            # The entry comes from somewhere else (a model's thresholds): show it.
+            self.entry_edit.setReadOnly(True)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)

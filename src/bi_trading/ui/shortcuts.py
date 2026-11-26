@@ -28,7 +28,7 @@ from bi_trading.ui.cards import mono_font
 # context -> (keys, what it does). The order is the order the overlay shows.
 SHORTCUTS: dict[str, tuple[tuple[str, str], ...]] = {
     "Everywhere": (
-        ("Ctrl+1 … Ctrl+5", "Home, Live, Builder, Backtest, Logs"),
+        ("Ctrl+1 … Ctrl+6", "Home, Live, Builder, Backtest, Logs, ML"),
         ("Ctrl+,", "Settings"),
         ("? or F1", "this list"),
     ),
@@ -64,6 +64,8 @@ CONTEXT_OF_VIEW = {
     "builder": "Builder",
     "backtest": "Backtest",
     "logs": "Logs",
+    "ml": "Everywhere",
+    "model": "Everywhere",
     "settings": "Everywhere",
 }
 

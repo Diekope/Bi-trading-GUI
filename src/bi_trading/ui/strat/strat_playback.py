@@ -90,12 +90,11 @@ from bi_trading.ui.strat.playback_session import (  # noqa: F401
     ChunkRun,
     ChunkTail,
     _after_warmup,
-    _random_draws,
     _walk_settings,
     bollinger_entries,
     bollinger_entries_columns,
     build_session,
-    random_entries,
+    random_draws,
     walk_clamps,
 )
 from bi_trading.ui.strat.playback_walk import (  # noqa: F401
@@ -432,6 +431,7 @@ class PlaybackTile(Card):
         self._wanted_side = "long"
         self._short_formula: Formula | None = None
         self._saved_short = ""
+        self._model = ""
 
         # Header: the title over its status line, then Restart, a speed picker
         # and the Run / Pause button, as in the mock.
@@ -525,6 +525,10 @@ class PlaybackTile(Card):
         self._reveal_timer.setSingleShot(True)
         self._reveal_timer.setInterval(0)
         self._reveal_timer.timeout.connect(self._reveal_pending)
+        # Waits for the random runs a finished walk leaves working in the background.
+        self._band_poll = QTimer(self)
+        self._band_poll.setInterval(400)
+        self._band_poll.timeout.connect(self._poll_band)
         self._refresh_metrics()
         self._refresh_progress()
 
@@ -581,6 +585,7 @@ class PlaybackTile(Card):
     show_saved = _panels.show_saved
     _on_walk_ready = _panels.on_walk_ready
     _landed = _panels.landed
+    _poll_band = _panels.poll_band
     restart = _panels.restart
     set_source = _panels.set_source
     set_params = _panels.set_params
@@ -591,6 +596,7 @@ class PlaybackTile(Card):
     saved_exit = _panels.saved_exit
     side = _panels.side
     saved_short = _panels.saved_short
+    saved_model = _panels.saved_model
     set_saved_strategy = _panels.set_saved_strategy
     _describe = _panels.describe
 

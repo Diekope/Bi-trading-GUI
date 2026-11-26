@@ -40,6 +40,10 @@ gets no error line, a typo gets its place — `line 2, column 9: unknown name
 'clsoe'`, or `fill the empty slot before this can be read` while a slot is
 blank.
 
+**`model_p`** is the probability an ML model gives for the bar closing higher, between 0 and 1
+and unknown (never zero) where the model has no honest call. A rule that compares it is
+false there. See [ML strategies](ml.md).
+
 ### The formula language
 
 A formula is a list of lines. All but the last define named series; the last is

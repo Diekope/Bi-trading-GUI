@@ -41,6 +41,14 @@ src/bi_trading/
     binary.py          the Polymarket walk: bets on 5m markets, cash out or settle
     binary_price.py    a simulated share price where no history exists
 
+  ml/              the ML layer (no Qt; scikit-learn and torch are optional)
+    features.py        causal features, the target, the time split
+    spec.py            model kinds, layers, the validator, the code view
+    models.py          the built-in models (scikit-learn)
+    nets.py            custom networks (torch)
+    train.py           train, score, walk-forward, `predict_series` for a backtest
+    store.py           saved architectures and trained models
+
   state/           config and what persists between runs
     settings.py        chart feel + defaults from ~/.config/bi-trading/settings.json
     accounts.py        public account settings + the private keys, in the keychain
@@ -64,6 +72,8 @@ src/bi_trading/
     main_window.py                  the terminal: window, top bar, feed wiring
     strategy_bar.py, trade_form.py  the bar under the charts and the trade form
     syntax.py, autocomplete.py      editor highlighting and completion
+    ml/            the ML strategy builder and the model builder
+      ml_builder.py, model_builder.py, ml_style.py, workers.py (training thread)
     hub/           the hub shell
       main_hub.py        rail, in-place views, feed wiring
       hub_widgets.py     the hub's small builders and self-painted widgets
@@ -102,8 +112,9 @@ Downloaded history lives in `data/candles/` — one OHLCV Parquet file per
 year, `BTC-<year>-1m.parquet`, with columns
 `timestamp, open, high, low, close, volume`. A legacy `BTC-<year>-1m.csv` is
 converted to Parquet the first time its year is read. Only BTC is fetched, and only at
-1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, so the
-store never holds the same data twice. The history tile reads those files to
+1m: a 3m / 5m / 15m / 30m / 1h series can be compacted from it later, on the clock
+(a bar needs all of its minutes; see [backtest.md](backtest.md)), so the store never
+holds the same data twice. The history tile reads those files to
 report which years of the selected span are missing (red) or only partly
 downloaded (amber), and offers the same set of resolutions — `1m`, `3m`, `5m`,
 `15m`, `30m`, `1h` — to run at.

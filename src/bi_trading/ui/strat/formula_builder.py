@@ -556,9 +556,10 @@ class FormulaBuilder(QWidget):
         missing = self.missing_names()
         if missing:
             names = ", ".join(missing)
-            self.warning_label.setText(
-                f"⚠ {names}: no history in a backtest"
-            )
+            text = f"⚠ {names}: no history in a backtest"
+            if missing == ["model_p"]:
+                text = "⚠ model_p: only a strategy made in the ML builder has it"
+            self.warning_label.setText(text)
         else:
             self.warning_label.setText("")
 

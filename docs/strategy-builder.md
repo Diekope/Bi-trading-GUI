@@ -164,9 +164,11 @@ only a border to mark them, so the text never sits on a darker patch.
 ![The code tab's right rail: the vocabulary above, and the picked variable described in Values below](images/part-code-rail.png)
 
 The palette carries the **market words** the mock shows — `model_p`, `spread`,
-`liquidity`, `days_left` — beside the bar's own. Nothing here carries them: they
-validate so a rule can name them, they evaluate to nothing, and the tile says so
-under the rule (`⚠ spread: no history in a backtest`). The indicators gained `σ`
+`liquidity`, `days_left` — beside the bar's own. Nothing here carries `spread`,
+`liquidity` or `days_left`: they validate so a rule can name them, they evaluate to nothing,
+and the tile says so under the rule (`⚠ spread: no history in a backtest`). `model_p` is the
+exception: a strategy made in the [ML builder](ml.md) carries a trained model, and its
+`model_p` is that model's P(up) in a backtest. Anywhere else it reads as unknown. The indicators gained `σ`
 (`stdev`), `zscore`, and maths gained `log`.
 
 The two read **different vocabularies**:

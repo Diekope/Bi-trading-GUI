@@ -71,7 +71,10 @@ TEMPLATE = {
         "dynamic_tp": False,
         "dyn_tp_reverse": 0.5,
         "hold": 7,
-        "warmup": 0,
+        "warmup": 100,
+        "participation": 1.0,
+        "entry": "open",
+        "limit_through": 0.01,
         "venues": {name: dict(costs) for name, costs in VENUE_COSTS.items()},
         "sizing": "balance",
         "timeframe": "1m",
@@ -96,7 +99,7 @@ TEMPLATE = {
         "live_orders": False,
     },
     "general": {
-        "_comment": "start_page = home | live | builder | backtest; an empty data_folder uses data/candles in the repo",
+        "_comment": "start_page = home | live | builder | backtest | ml; an empty data_folder uses data/candles in the repo",
         "start_page": "home",
         "data_folder": "",
     },
@@ -135,7 +138,10 @@ class BacktestDefaults:
     dynamic_tp: bool = False           # let the take profit trail
     dyn_tp_reverse: float = 0.5        # pull-back that closes a trailing TP, %
     hold: int = 7                      # candles a trade may run; 0 = no limit
-    warmup: int = 0                    # bars of history before a signal counts; 0 = off
+    warmup: int = 100                  # bars of history before a signal counts; 0 = off
+    participation: float = 1.0         # most a fill may take of the bar's traded value, percent; 0 = off
+    entry: str = "open"                # fill an entry at the next bar's open, or at the signal bar's close
+    limit_through: float = 0.01        # a take profit fills only this far (percent) past its price
     venues: dict = field(              # per-venue fee and slippage presets, percent
         default_factory=lambda: _venue_costs(None)
     )
@@ -211,6 +217,15 @@ class BacktestDefaults:
             warmup=int(
                 _clamp(_number(values.get("warmup"), defaults.warmup), 0, 1_000_000)
             ),
+            participation=_clamp(
+                _number(values.get("participation"), defaults.participation),
+                0.0,
+                100.0,
+            ),
+            entry="close" if values.get("entry") == "close" else "open",
+            limit_through=_clamp(
+                _number(values.get("limit_through"), defaults.limit_through), 0.0, 10.0
+            ),
             venues=_venue_costs(values.get("venues")),
             sizing=_choice(values.get("sizing"), defaults.sizing),
             timeframe=timeframe,
@@ -279,7 +294,7 @@ class TradingDefaults:
 class GeneralSettings:
     """The start page and where the downloaded candles live."""
 
-    start_page: str = "home"           # home | live | builder | backtest
+    start_page: str = "home"           # home | live | builder | backtest | ml
     data_folder: str = ""              # empty = data/candles in the repo
 
     @classmethod
@@ -307,7 +322,7 @@ class GeneralSettings:
         )
 
 
-START_PAGES = ("home", "live", "builder", "backtest")
+START_PAGES = ("home", "live", "builder", "backtest", "ml")
 
 # Sub-sections with their own loader; the top-level numeric pass skips them.
 NESTED_SECTIONS = ("backtest", "trading", "general")
@@ -451,6 +466,9 @@ def save_backtest_defaults(
         "dyn_tp_reverse": defaults.dyn_tp_reverse,
         "hold": defaults.hold,
         "warmup": defaults.warmup,
+        "participation": defaults.participation,
+        "entry": defaults.entry,
+        "limit_through": defaults.limit_through,
         "venues": defaults.venues,
         "sizing": defaults.sizing,
         "timeframe": defaults.timeframe,

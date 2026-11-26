@@ -9,12 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from bi_trading.engine.formula_eval import SignalStream
+from bi_trading.engine.stats import underwater_runs
 
-import random
 from bi_trading.engine.core import DEFAULT_HOLD
 from collections import deque
 from dataclasses import dataclass, field
-from bi_trading.ui.strat.playback_data import (BOLLINGER_DEVIATIONS, BOLLINGER_PERIOD, CHART_BARS, Candle, ColumnSpan, DEFAULT_STRATEGY, _stream_chunks, count_bars, iter_candles, load_span, plan_stride, sample_candles, span_columns,)
+from bi_trading.ui.strat.playback_data import (BOLLINGER_DEVIATIONS, BOLLINGER_PERIOD, CHART_BARS, Candle, ColumnSpan, DEFAULT_STRATEGY, _stream_chunks, count_bars, gap_flags, iter_candles, load_span, plan_stride, sample_candles, span_columns, step_ms,)
 from bi_trading.ui.strat.playback_walk import (Playback, _bollinger,)
 
 
@@ -42,16 +42,70 @@ def bollinger_entries(bars: list[Candle]) -> list[bool]:
     return entries
 
 
-def _random_draws(size: int, seed: int = 1234):
-    """One uniform per bar, from the fixed seed, for the coin-flip baseline.
+def benchmark_value(settings, first_close: float, close):
+    """Buy and hold: the book if the run's cash had bought at the first bar and kept it.
 
-    Drawn up front so the native and Python baselines consume the same values
-    in the same order — a draw only on the bars that are flat.
+    It puts in what `Max cash` lets the run trade with, not the whole book, and
+    pays the same fee and slippage on the way in, so the strategy and the
+    benchmark risk the same money and cost the same. The rest stays in cash.
+    `close` is a price or an array of them. There is no cost on the way out: it
+    is marked to market, never sold.
+    """
+    capital = float(settings["capital"])
+    cash = float(settings.get("max_cash", capital))
+    base = min(capital, cash) if cash > 0 else 0.0
+    fee = float(settings.get("fee", 0.0))
+    slip = float(settings.get("slippage", 0.0))
+    if not first_close:
+        return capital + 0.0 * close
+    notional = base / (1.0 + fee)
+    units = notional / (first_close * (1.0 + slip))
+    return (capital - base) + units * close
+
+
+RANDOM_SEED = 1234        # the baseline drawn on the chart
+BAND_RUNS = 100           # random runs behind the "beats X% of random" figure
+BAND_BUDGET = 200_000_000  # most bars x runs the band may walk
+FALLBACK_CHANCE = 0.03    # a signal's chance per bar when the strategy has none to copy
+
+
+def random_draws(size: int, seed: int = RANDOM_SEED):
+    """One uniform per bar for the coin-flip baseline.
+
+    The same stream whether a span is drawn whole or a piece at a time (a
+    generator's `random(n)` calls in sequence give what one big call would).
     """
     import numpy as np
 
-    rng = random.Random(seed)
-    return np.fromiter((rng.random() for _ in range(size)), float, size)
+    return np.random.default_rng(seed).random(size)
+
+
+def random_flags(draws, chance: float, long_share: float = 1.0):
+    """`(longs, shorts)` from one uniform per bar.
+
+    A bar signals when its draw is under `chance`; the first `long_share` of
+    those go long, the rest short, so the baseline can copy a strategy's side mix.
+    """
+    cut = chance * min(1.0, max(0.0, long_share))
+    return draws < cut, (draws >= cut) & (draws < chance)
+
+
+def matched_chance(longs, shorts) -> tuple[float, float]:
+    """The signal rate and long share of a strategy, for the baseline to copy.
+
+    The baseline walks through the same engine, so it is blocked by a position
+    the same way; matching how often a signal comes (and which way) keeps its
+    trade count and side mix near the strategy's. `(FALLBACK_CHANCE, 1.0)` when
+    there is nothing to copy.
+    """
+    import numpy as np
+
+    up = int(np.count_nonzero(longs)) if longs is not None else 0
+    down = int(np.count_nonzero(shorts)) if shorts is not None else 0
+    size = len(longs) if longs is not None else len(shorts or ())
+    if not size or up + down == 0:
+        return FALLBACK_CHANCE, 1.0
+    return min(0.5, (up + down) / size), up / (up + down)
 
 
 def bollinger_entries_columns(closes) -> list[bool]:
@@ -79,26 +133,6 @@ def bollinger_entries_columns(closes) -> list[bool]:
     return entries.tolist()
 
 
-def random_entries(
-    highs, lows, closes, settings, seed: int = 1234, chance: float = 0.03
-) -> list[bool]:
-    """The coin-flip baseline over the span's columns, via the core when built."""
-    from bi_trading.engine import core
-
-    draws = _random_draws(len(closes), seed)
-    return core.random_entries(
-        highs,
-        lows,
-        closes,
-        draws,
-        settings["tp"],
-        settings["sl"],
-        settings.get("max_hold", DEFAULT_HOLD),
-        chance,
-        settings.get("side") == "short",
-    )
-
-
 class ChunkRun:
     """One walk over a span read in pieces: its trades and its running figures.
 
@@ -123,6 +157,8 @@ class ChunkRun:
         self.best_win = 0
         self.worst_loss = 0
         self.fees = 0.0
+        self.under = 0             # bars in the run of bars below the peak now
+        self.longest_under = 0
 
     def take(self, trades, equity, stamps, offset: int, end_state) -> None:
         """Fold in a piece's trades and equity (one value per bar)."""
@@ -166,6 +202,13 @@ class ChunkRun:
             self.max_drawdown = min(
                 self.max_drawdown, float(np.nanmin(values / running - 1.0))
             )
+        below = values < running
+        runs = underwater_runs(below)
+        if runs.size:
+            if below[0] and self.under:       # the run carries over the piece's edge
+                runs[0] += self.under
+            self.longest_under = max(self.longest_under, int(runs.max()))
+        self.under = int(runs[-1]) if below[-1] else 0
         self.peak = float(running[-1])
         self.max_gain = max(self.max_gain, float(values.max() / self.capital - 1.0))
         series = np.concatenate(([self.last_equity], values))
@@ -224,6 +267,8 @@ class BacktestSession:
     random_curve: list[float] = field(default_factory=list)
     low: float = 0.0
     high: float = 0.0
+    # What the ML model behind `model_p` did for this span, or why it could not.
+    model_note: str = ""
     # When the span is held in memory, the core can jump the walk to a bar.
     bars: list | None = None
     span: ColumnSpan | None = None
@@ -236,8 +281,13 @@ class BacktestSession:
     random_entries: list | None = None
     strategy_entries_arr: Any = None
     random_entries_arr: Any = None
+    random_short_arr: Any = None
+    band: dict | None = None     # the random runs behind "beats X% of random"
+    band_state: str = ""         # "" not started, "running", "done"
     exit_formula: Any = None
     short_entries_arr: Any = None
+    # One flag per bar: the last before a hole in the data (see `gap_flags`).
+    gaps: Any = None
     # A span too long to hold is walked in pieces: (years, resolution, rule,
     # entry formula, short formula, exit formula). A formula is None for the
     # built-in rules; the short one only for a strategy that trades both ways.
@@ -278,9 +328,11 @@ class BacktestSession:
 
     def buy_and_hold(self) -> float:
         play = self.strategy
-        if not play.first_close:
+        if not play.first_close or self.settings is None:
             return play.capital
-        return play.capital * play.close_price() / play.first_close
+        return float(
+            benchmark_value(self.settings, play.first_close, play.close_price())
+        )
 
     def _grow(self, value: float) -> None:
         if not self.low:
@@ -356,37 +408,101 @@ class BacktestSession:
         That makes it safe off the main thread: the finish button runs it on a
         worker, and `_core_apply` then lands the result on the main thread.
         """
-        from bi_trading.engine import core
 
         if self.span is None:
             return self._chunk_compute(target)
 
-        s = self._settings()
-        # The span's columns go straight to the walk (a NumPy slice is a view).
-        assert self.span is not None
-        closes = self.span.closes[:target]
-        highs = self.span.highs[:target]
-        lows = self.span.lows[:target]
-        args = (closes, highs, lows)
-
-        def run(entries, exit_formula, shorts=None):
-            return core.walk(
-                *args,
-                entries[:target],
-                s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
-                s["max_cash"], s["fee"], s.get("max_hold", DEFAULT_HOLD),
-                s.get("dynamic_tp", False), s.get("reverse", 0.0),
-                s.get("side", "long"), exit_formula, shorts,
-                s.get("slippage", 0.0),
-            )
-
-        strategy_trades, strategy_equity = run(
-            self.strategy_entries_arr, self.exit_formula,
-            None if self.short_entries_arr is None
-            else self.short_entries_arr[:target],
+        strategy_trades, strategy_equity = self._whole(
+            target, self.strategy_entries_arr, self.exit_formula,
+            None if self.short_entries_arr is None else self.short_entries_arr,
         )
-        random_trades, random_equity = run(self.random_entries_arr, None)
+        random_trades, random_equity = self._whole(
+            target, self.random_entries_arr, None, self.random_short_arr,
+        )
         return strategy_trades, strategy_equity, random_trades, random_equity
+
+    def _whole(self, target: int, entries, exit_formula, shorts=None):
+        """One walk of the in-memory span to `target` with these entries."""
+        from bi_trading.engine import core
+
+        s = self._settings()
+        assert self.span is not None
+        gaps = None if self.gaps is None else self.gaps[:target]
+        entry_open = bool(s.get("entry_open"))
+
+        def stamped(flags):
+            # An entry at the next open acts one bar after its signal.
+            if flags is None:
+                return None
+            flags = flags[:target]
+            return core.delayed(flags, gaps) if entry_open else flags
+
+        return core.walk(
+            self.span.closes[:target], self.span.highs[:target],
+            self.span.lows[:target], stamped(entries),
+            s["capital"], s["tp"], s["sl"], s["position"], s["sizing"],
+            s["max_cash"], s["fee"], s.get("max_hold", DEFAULT_HOLD),
+            s.get("dynamic_tp", False), s.get("reverse", 0.0),
+            s.get("side", "long"), exit_formula, stamped(shorts),
+            s.get("slippage", 0.0), 0, None, gaps,
+            self.span.volumes[:target], s.get("participation", 0.0),
+            self.span.opens[:target], entry_open, s.get("through", 0.0),
+        )
+
+    def start_band(self, target: int) -> None:
+        """Work out the random runs in the background, once per session.
+
+        A thread of its own that touches nothing of Qt: it leaves its answer in
+        `band` and flips `band_state`, and the tile's timer notices. A whole span
+        only (a part-way seek would not be comparable with the full runs).
+        """
+        if self.span is None or target < self.total or self.band_state:
+            return
+        import threading
+
+        self.band_state = "running"
+
+        def work() -> None:
+            try:
+                self.band = self.random_band(target)
+            except Exception:  # the figure is optional; the run stands without it
+                self.band = None
+            finally:
+                self.band_state = "done"
+
+        threading.Thread(target=work, name="bi-trading-band", daemon=True).start()
+
+    def random_band(self, target: int) -> dict | None:
+        """The strategy's rivals: many random runs through the same walk.
+
+        Each run draws its own signals at the strategy's rate and side mix and is
+        walked with the same fills, costs, sizing and exits, so the spread of
+        their results is what luck alone gives on this span. Returns the runs'
+        returns (percent of the capital) or None when the span is too long for
+        enough runs to be worth the wait.
+        """
+        size = int(target)
+        runs = min(BAND_RUNS, BAND_BUDGET // max(1, size))
+        if self.span is None or runs < 10 or self.strategy_entries_arr is None:
+            return None
+        s = self._settings()
+        chance, share = matched_chance(
+            self.strategy_entries_arr[:size],
+            None if self.short_entries_arr is None else self.short_entries_arr[:size],
+        )
+        if s.get("side") == "short":
+            share = 0.0
+        returns = []
+        for k in range(runs):
+            draws = random_draws(size, RANDOM_SEED + 1 + k)
+            longs, shorts = random_flags(draws, chance, share)
+            if s.get("side") == "short":
+                longs, shorts = shorts, None
+            _, equity = self._whole(size, _after_warmup(longs, s["warmup"]), None,
+                                    None if shorts is None
+                                    else _after_warmup(shorts, s["warmup"]))
+            returns.append((float(equity[-1]) / s["capital"] - 1.0) * 100.0 if len(equity) else 0.0)
+        return {"runs": runs, "returns": sorted(returns), "chance": chance, "share": share}
 
     def _core_apply(self, target: int, walked) -> None:
         if self.span is None:
@@ -395,6 +511,7 @@ class BacktestSession:
         strategy_trades, strategy_equity, random_trades, random_equity = walked
         self._settle(target, strategy_trades, strategy_equity,
                      random_trades, random_equity)
+        self.start_band(target)
 
     def _chunk_compute(self, target: int):
         """The two walks to `target` over a span read a year at a time.
@@ -414,14 +531,11 @@ class BacktestSession:
         warmup = int(s.get("warmup", 0))
         capital = s["capital"]
         stride = max(1, self.strategy.stride)
-        short = s.get("side") == "short"
         strategy = ChunkRun(capital)
         baseline = ChunkRun(capital)
         tail = ChunkTail()
-        rng = random.Random(1234)
-        spare = np.empty(0)         # draws made but not yet used, in stream order
+        draws = np.random.default_rng(RANDOM_SEED)   # one uniform per bar, in order
         carry = np.empty(0)         # the last bars' closes, for the band
-        random_state = None
         # The curves open at the capital, then hold one point per tick: the
         # book after each `stride` bars, as stepping the run would have sampled.
         strategy_curve = [capital]
@@ -447,19 +561,35 @@ class BacktestSession:
             flags[picked - offset] = True
             return flags
 
-        def walk(run, entries, closes, highs, lows, offset, exit_rule=None, shorts=None):
+        entry_open = bool(s.get("entry_open"))
+        last_flags: dict[str, tuple[bool, bool]] = {}   # per stream: last flag, last gap
+
+        def later(key, flags, gaps):
+            """`flags` a bar later (for entries at the next open), carrying the
+            last bar of the piece before."""
+            if not entry_open or flags is None:
+                return flags
+            before = last_flags.get(key, (False, False))
+            last_flags[key] = (bool(flags[-1]), bool(gaps[-1]))
+            return core.delayed(flags, gaps, *before)
+
+        def walk(run, entries, closes, highs, lows, offset, gaps, volumes, opens, exit_rule=None, shorts=None):
             trades, equity, end = core.walk_chunk(
                 closes, highs, lows, entries, capital, s["tp"], s["sl"],
                 s["position"], s["sizing"], s["max_cash"], s["fee"],
                 s.get("max_hold", DEFAULT_HOLD), s.get("dynamic_tp", False),
                 s.get("reverse", 0.0), s.get("side", "long"), exit_rule, shorts,
-                s.get("slippage", 0.0), offset, run.state,
+                s.get("slippage", 0.0), offset, run.state, gaps,
+                volumes, s.get("participation", 0.0),
+                opens, entry_open, s.get("through", 0.0),
             )
             return trades, np.asarray(equity, dtype=float), end
 
-        for offset, data in _stream_chunks(years, resolution, target):
-            stamps, _opens, highs, lows, closes, _volumes = data
+        step = step_ms(resolution)
+        for offset, data, next_stamp in _stream_chunks(years, resolution, target):
+            stamps, opens, highs, lows, closes, volumes = data
             size = len(stamps)
+            holes = gap_flags(stamps, step, next_stamp)
             tail.add(data)
 
             mine_short = None
@@ -478,17 +608,7 @@ class BacktestSession:
             if offset < warmup:
                 mine[: warmup - offset] = False
 
-            need = size - len(spare)
-            if need > 0:
-                spare = np.concatenate(
-                    (spare, np.fromiter((rng.random() for _ in range(need)), float, need))
-                )
-            flags, random_state = core.random_entries_chunk(
-                highs, lows, closes, spare, s["tp"], s["sl"],
-                s.get("max_hold", DEFAULT_HOLD), 0.03, short, offset, random_state,
-            )
-            spare = spare[random_state[3]:]
-            other = np.asarray(flags, dtype=bool)
+            other = draws.random(size) < FALLBACK_CHANCE
             if offset < warmup:
                 other[: warmup - offset] = False
 
@@ -496,8 +616,10 @@ class BacktestSession:
             for run, entries in ((strategy, mine), (baseline, other)):
                 own = run is strategy
                 trades, equity, end = walk(
-                    run, entries, closes, highs, lows, offset,
-                    exit_formula if own else None, mine_short if own else None,
+                    run, later("s" if own else "r", entries, holes),
+                    closes, highs, lows, offset, holes, volumes, opens,
+                    exit_formula if own else None,
+                    later("l", mine_short, holes) if own else None,
                 )
                 run.take(trades, equity, stamps, offset, end)
                 equities.append(equity)
@@ -509,13 +631,15 @@ class BacktestSession:
                 position = next_tick - offset - 1
                 strategy_curve.append(float(equities[0][position]))
                 random_curve.append(float(equities[1][position]))
-                benchmark.append(capital * float(closes[position]) / tail.first_close)
+                benchmark.append(
+                    float(benchmark_value(s, tail.first_close, float(closes[position])))
+                )
                 next_tick += stride
         # A last, shorter tick when the walk does not end on a multiple of the stride.
         if walked and next_tick - stride < walked:
             strategy_curve.append(strategy.last_equity)
             random_curve.append(baseline.last_equity)
-            benchmark.append(capital * last_close / tail.first_close)
+            benchmark.append(float(benchmark_value(s, tail.first_close, last_close)))
         return strategy, baseline, tail, walked, strategy_curve, random_curve, benchmark
 
     def _chunk_apply(self, target: int, walked) -> None:
@@ -567,7 +691,7 @@ class BacktestSession:
         # The benchmark and the scale, over the whole span, in array maths
         # rather than a Python pass per bar.
         if len(closes):
-            self.benchmark = (s["capital"] * closes / float(closes[0])).tolist()
+            self.benchmark = benchmark_value(s, float(closes[0]), closes).tolist()
         else:
             self.benchmark = []
         self.low = self.high = s["capital"]
@@ -580,6 +704,10 @@ class BacktestSession:
 def _after_warmup(entries, warmup: int):
     """`entries` with the first `warmup` bars switched off."""
     if warmup <= 0:
+        return entries
+    if hasattr(entries, "copy") and hasattr(entries, "shape"):
+        entries = entries.copy()
+        entries[:warmup] = False
         return entries
     entries = list(entries)
     for index in range(min(warmup, len(entries))):
@@ -630,6 +758,12 @@ def _walk_settings(params: dict) -> dict:
         # The tile takes a percent; the walk a fraction per side.
         "fee": float(params.get("fee") or 0.0) / 100.0,
         "slippage": float(params.get("slippage") or 0.0) / 100.0,
+        # The most a fill may take of a bar's traded value, as a fraction; 0 off.
+        "participation": float(params.get("participation") or 0.0) / 100.0,
+        # Fill an entry at the next bar's open (the signal is delayed a bar), and
+        # how far past its price a take profit must trade to count as filled.
+        "entry_open": params.get("entry") == "open",
+        "through": float(params.get("limit_through") or 0.0) / 100.0,
         "dynamic_tp": dynamic_tp,
         "reverse": float(params.get("dyn_tp_reverse") or 0.0) if dynamic_tp else 0.0,
         "side": "short" if params.get("side") == "short" else "long",
@@ -648,6 +782,38 @@ def _walk_settings(params: dict) -> dict:
 CORE_MAX = 12_000_000
 
 
+def _with_model(columns: dict, span: ColumnSpan, model: str, resolution: str) -> tuple[dict, str]:
+    """The span's columns plus `model_p`, the saved model's P(up) for every bar.
+
+    Bars the model could have learned from carry no call (NaN), so a rule on
+    `model_p` trades only on bars the model had not seen. When the model cannot
+    be used, every bar is unknown and the note says why.
+    """
+    import numpy as np
+
+    try:
+        from bi_trading.ml.nets import MissingBackend
+        from bi_trading.ml.store import load_model, scored
+        from bi_trading.ml.train import MLError
+
+        trained = load_model(model)
+        p = scored(model, columns, span.stamps, resolution)
+        count = int(np.isfinite(p).sum())
+        if not count:
+            note = f"model {model} has no call on this span: backtest the years after {_day(trained.test_start)}"
+        else:
+            note = f"model {model} scores {count:,} bars (from {_day(trained.test_start)})"
+        return {**columns, "model_p": p}, note
+    except (MLError, MissingBackend, ImportError) as exc:
+        return {**columns, "model_p": np.full(span.length, np.nan)}, str(exc)
+
+
+def _day(stamp: int) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(stamp / 1000, tz=UTC).strftime("%Y-%m-%d") if stamp else "its start"
+
+
 def build_session(
     years: list[int],
     params: dict,
@@ -659,6 +825,7 @@ def build_session(
     exit_formula=None,
     side: str = "long",
     short_entry_formula=None,
+    model: str = "",
 ) -> BacktestSession:
     """A run over the whole span.
 
@@ -712,6 +879,8 @@ def build_session(
             from bi_trading.engine.formula_eval import entry_signals
 
             columns = span_columns(span)
+            if model:
+                columns, session.model_note = _with_model(columns, span, model, resolution)
             indices = set(
                 entry_signals(
                     entry_formula, columns, fields or ENTRY_FIELDS, warmup
@@ -734,9 +903,7 @@ def build_session(
             strategy_entries = [False] * total
         session.strategy_entries = strategy_entries
         session.short_entries = short_entries
-        session.random_entries = _after_warmup(
-            random_entries(span.highs, span.lows, span.closes, settings), warmup
-        )
+        session.gaps = gap_flags(span.stamps, step_ms(resolution))
         import numpy as np
 
         session.strategy_entries_arr = np.asarray(strategy_entries, dtype=bool)
@@ -744,9 +911,23 @@ def build_session(
             None if short_entries is None
             else np.asarray(short_entries, dtype=bool)
         )
-        session.random_entries_arr = np.asarray(
-            session.random_entries, dtype=bool
+        # The baseline copies the strategy's signal rate and long/short mix and
+        # goes through the same walk, so it is held to the same rules.
+        chance, share = matched_chance(
+            session.strategy_entries_arr, session.short_entries_arr
         )
+        if settings["side"] == "short":
+            share = 0.0
+        coin_longs, coin_shorts = random_flags(
+            random_draws(total, RANDOM_SEED), chance, share
+        )
+        if settings["side"] == "short":
+            coin_longs, coin_shorts = coin_shorts, None
+        session.random_entries_arr = _after_warmup(coin_longs, warmup)
+        session.random_short_arr = (
+            None if coin_shorts is None else _after_warmup(coin_shorts, warmup)
+        )
+        session.random_entries = session.random_entries_arr.tolist()
         strategy = Playback(
             None, rule=rule, total=total, stride=stride, span=span,
             entries=set(i for i, on in enumerate(strategy_entries) if on),
@@ -754,22 +935,28 @@ def build_session(
                 None if short_entries is None
                 else set(i for i, on in enumerate(short_entries) if on)
             ),
-            exit_formula=exit_formula,
+            exit_formula=exit_formula, step_ms=step_ms(resolution),
             **settings,
         )
         random_buy = Playback(
             None, rule="random", total=total, stride=stride, span=span,
-            entries=set(i for i, on in enumerate(session.random_entries) if on),
+            entries=set(np.flatnonzero(session.random_entries_arr).tolist()),
+            short_entries=(
+                None if session.random_short_arr is None
+                else set(np.flatnonzero(session.random_short_arr).tolist())
+            ),
+            step_ms=step_ms(resolution),
             **settings,
         )
     else:
         feeds = [lambda: iter_candles(years, resolution) for _ in range(2)]
         strategy = Playback(
             feeds[0], rule=rule, total=total, stride=stride,
-            exit_formula=exit_formula, **settings,
+            exit_formula=exit_formula, step_ms=step_ms(resolution), **settings,
         )
         random_buy = Playback(
-            feeds[1], rule="random", total=total, stride=stride, **settings
+            feeds[1], rule="random", total=total, stride=stride,
+            step_ms=step_ms(resolution), **settings,
         )
         # Too long to hold, so the core walks it a year at a time.
         session.settings = settings

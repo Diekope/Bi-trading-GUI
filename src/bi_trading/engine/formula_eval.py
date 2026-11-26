@@ -57,6 +57,7 @@ __all__ = [
     "curve_return",
     "curve_sharpe",
     "entry_signals",
+    "evaluate_columns",
     "names_used",
     "evaluate",
     "evaluate_scalar",
@@ -638,11 +639,19 @@ def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
         return None
     if isinstance(bars, dict):
         arrays: dict[str, Any] = {}
+        sparse_ok = _model_p_is_plain(formula)
+        used = set(names_used(formula))
         for name in fields:
             if name not in bars:
-                return None
+                if name in used:
+                    return None
+                continue  # a field the rule never reads need not be there
             array = _np.asarray(bars[name], dtype=float)
-            if _np.isnan(array).any():
+            # A model's probability is unknown where the model has no say (before
+            # its test period, say). Read directly it is unknown in a comparison,
+            # which is false, the same as the list walk; fed to a window it would
+            # poison the bars after it, so then the list walk takes over.
+            if _np.isnan(array).any() and not (name == "model_p" and sparse_ok):
                 return None
             arrays[name] = array
     else:
@@ -661,6 +670,51 @@ def _numpy_signals(formula: Formula, bars, fields) -> list[int] | None:
     except (ValueError, TypeError, KeyError):
         return None
     return [int(index) for index in _np.nonzero(values > 0)[0]]
+
+
+def _model_p_is_plain(formula: Formula) -> bool:
+    """True when `model_p` is only compared or combined, never smoothed.
+
+    A call over it (`sma(model_p, 3)`), or a line that renames it for a call to
+    read later, would carry its gaps into a rolling window.
+    """
+    nodes = [a.value for a in formula.assignments]
+    if formula.condition is not None:
+        nodes.append(formula.condition)
+
+    def mentions(node) -> bool:
+        return any(
+            isinstance(inner, Name) and inner.name == "model_p"
+            for inner in _walk_nodes(node)
+        )
+
+    for assignment in formula.assignments:
+        if mentions(assignment.value):
+            return False
+    for node in nodes:
+        for inner in _walk_nodes(node):
+            if isinstance(inner, Call) and any(mentions(arg) for arg in inner.args):
+                return False
+    return True
+
+
+def evaluate_columns(formula: Formula, columns) -> Any:
+    """The formula's value for every bar, as a float array (NaN where unknown).
+
+    `columns` maps each field to a whole series. This is the vectorised pass the
+    entry signals use, returned as numbers instead of indices; it is what makes
+    a custom model feature cost one pass over the span.
+    """
+    if _np is None:
+        raise ValueError("NumPy is needed to evaluate a formula over columns")
+    arrays = {name: _np.asarray(series, dtype=float) for name, series in columns.items()}
+    length = len(next(iter(arrays.values()))) if arrays else 0
+    if formula.condition is None or length == 0:
+        return _np.full(length, _np.nan)
+    scope = dict(arrays)
+    for assignment in formula.assignments:
+        scope[assignment.name] = _eval_np(assignment.value, scope, length)
+    return _np.asarray(_eval_np(formula.condition, scope, length), dtype=float)
 
 
 def _numpy_context(bars, fields) -> dict | None:

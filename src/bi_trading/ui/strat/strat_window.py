@@ -11,6 +11,8 @@ read as one product.
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -178,8 +180,82 @@ class StratWindow(QMainWindow):
 
         self.left.set_saved_strategy(
             item.name, item.entry, ENTRY_FIELDS, item.exit, item.side,
-            item.short_entry,
+            item.short_entry, item.model,
         )
+        if item.model and self._scoring is None:
+            self._warm_model(item.model)
+
+    def pick_strategy(self, name: str, run: bool = False) -> bool:
+        """Point the window at a saved strategy; with `run`, start the backtest.
+
+        A strategy that reads an ML model is run over the model's own test
+        period (the only bars it has an honest call on), at the model's
+        timeframe.
+        """
+        self.strategy.refresh_saved()
+        item = next((s for s in self.strategy.saved if s.name == name), None)
+        if item is None:
+            return False
+        if item.model:
+            self._span_for_model(item.model)
+        self.strategy.picker.setCurrentText(item.name)
+        self._apply_saved(item)
+        self._sync_playback()
+        self._sync_params()
+        if run and item.model:
+            self._warm_model(item.model, then=self.left.restart)
+        elif run:
+            self.left.restart()
+        return True
+
+    def _warm_model(self, model: str, then=None) -> None:
+        """Score the span with the model on a worker, then call `then`.
+
+        Scoring a decade of minutes takes seconds; done here it keeps the window
+        alive, and the run that follows reads the scores from the cache.
+        """
+        from bi_trading.ui.ml.workers import ScoreWorker
+
+        start, end, resolution = self.download.span()
+        worker = ScoreWorker(model, list(range(start, end + 1)), resolution)
+        self._scoring = worker
+        self.left.note.setText(f"scoring the span with {model}…")
+
+        def finished() -> None:
+            self._scoring = None
+            worker.deleteLater()
+            if then is not None:
+                then()
+
+        worker.done.connect(finished)
+        worker.start()
+
+    _scoring: Any = None
+
+    @staticmethod
+    def _model_stamp(model: str) -> float:
+        if not model:
+            return 0.0
+        from bi_trading.ml.store import model_summary
+
+        summary = model_summary(model)
+        return summary["trained_at"] if summary else 0.0
+
+    def _span_for_model(self, model: str) -> None:
+        from datetime import UTC, datetime
+
+        from bi_trading.ml import store
+        from bi_trading.ml.train import MLError
+
+        try:
+            trained = store.load_model(model)
+        except MLError:
+            return  # the run's own note says why the model cannot be used
+        if not trained.test_start:
+            return
+        first = datetime.fromtimestamp(trained.test_start / 1000, tz=UTC).year
+        last = datetime.fromtimestamp(trained.test_end / 1000, tz=UTC).year
+        self.download.set_span(first, max(first, last), trained.config.timeframe)
 
     # -- saved runs --------------------------------------------------------
 
@@ -200,6 +276,8 @@ class StratWindow(QMainWindow):
                 exit=self.left.saved_exit(),
                 side=self.left.side(),
                 short_entry=self.left.saved_short(),
+                model=self.left.saved_model(),
+                model_stamp=self._model_stamp(self.left.saved_model()),
                 params=self.params.params(),
                 trades=[
                     list(record)
@@ -278,13 +356,17 @@ class StratWindow(QMainWindow):
         if item.rule == "saved" and item.entry:
             self.left.set_saved_strategy(
                 item.strategy or item.name, item.entry, ENTRY_FIELDS,
-                item.exit, item.side, item.short_entry,
+                item.exit, item.side, item.short_entry, item.model,
             )
         else:
             self.left.set_strategy(item.rule)
         self._sync_playback()
         self._sync_params()
         self.left.restart(autoplay=False)
+        if item.model and item.model_stamp and self._model_stamp(item.model) != item.model_stamp:
+            self.load_run.note.setText(
+                f"{item.model} was retrained since this run: its trades are the old model's"
+            )
         # A loaded run is shown whole. Its own trades and curves were stored
         # with it, so they go straight back on screen; only when they do not
         # fit this span is it walked again, off the main thread, and the

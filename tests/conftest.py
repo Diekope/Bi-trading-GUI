@@ -18,6 +18,18 @@ os.environ["BI_TRADING_SETTINGS"] = os.path.join(
 os.environ["BI_TRADING_STRATEGIES"] = os.path.join(
     tempfile.mkdtemp(prefix="bi-trading-tests-"), "strategies.json"
 )
+# Saved ML models and custom architectures, likewise.
+os.environ["BI_TRADING_MODELS"] = os.path.join(
+    tempfile.mkdtemp(prefix="bi-trading-tests-"), "models"
+)
+os.environ["BI_TRADING_ARCHITECTURES"] = os.path.join(
+    tempfile.mkdtemp(prefix="bi-trading-tests-"), "architectures.json"
+)
+# The venue basis report, likewise.
+os.environ["BI_TRADING_BASIS"] = os.path.join(
+    tempfile.mkdtemp(prefix="bi-trading-tests-"), "basis.json"
+)
+
 # Secrets stay in the throwaway folder instead of the developer's keychain.
 os.environ["BI_TRADING_SECRETS"] = os.path.join(
     os.environ["BI_TRADING_SETTINGS"].rsplit("/", 1)[0], "secrets.json"

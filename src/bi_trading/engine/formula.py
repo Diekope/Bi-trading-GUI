@@ -98,7 +98,7 @@ FIELD_NOTES: dict[str, str] = {
     "sl": "the stop-loss level, as a percentage",
     "pnl": "the open profit or loss, as a percentage",
     "bars": "how many bars the trade has been open",
-    "model_p": "the model's probability — no history in a backtest",
+    "model_p": "P(up) from an ML model — only a strategy made in the ML builder has it",
     "spread": "the bid/ask spread — no history in a backtest",
     "liquidity": "how deep the book is — no history in a backtest",
     "days_left": "days until the market closes — no history in a backtest",

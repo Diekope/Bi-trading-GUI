@@ -55,6 +55,7 @@ class Bet:
     end_ms: int
     token: str = ""      # the outcome token bought, to match the venue's fill
     filled: bool = False  # stake and price are the venue's, not the intended ones
+    origin: str = "auto"  # "manual" for a bet the user pressed
 
     @property
     def shares(self) -> float:
@@ -135,16 +136,69 @@ class AutoBet:
         self.last_window = bet.slug
         self.open.append(bet)
 
-    def fill(self, token: str, shares: float, dollars: float) -> None:
-        """A real bet's fill: take the venue's price and stake over the intended ones."""
+    def fill(self, token: str, shares: float, dollars: float) -> bool:
+        """A real bet's fill: take the venue's price and stake over the intended ones.
+
+        True when it was the fill of a bet waiting for one.
+        """
         if shares <= 0 or dollars <= 0:
-            return
+            return False
         for bet in self.open:
             if not bet.paper and not bet.filled and bet.token == token:
                 bet.stake = dollars
                 bet.price = dollars / shares
                 bet.filled = True
+                return True
+        return False
+
+    def track_manual(self, bet: Bet) -> None:
+        """Keep a bet the user placed, from its fill, so its window settles it.
+
+        The stake and price are the venue's. It does not use up the window for
+        auto-bets, and a second fill of the same bet (a partial fill) adds to it.
+        """
+        for mine in self.open:
+            if (
+                mine.origin == "manual" and mine.slug == bet.slug
+                and mine.token == bet.token and mine.side == bet.side
+            ):
+                shares = mine.shares + bet.shares
+                mine.stake += bet.stake
+                mine.price = mine.stake / shares if shares > 0 else mine.price
                 return
+        self.open.append(bet)
+
+    def sold(self, token: str, shares: float, dollars: float) -> bool:
+        """Shares sold before the window ended: book the profit on them now.
+
+        The profit is what came in less what those shares cost; the rest of the
+        bet stays open for its window. True when a bet held that token.
+        """
+        if shares <= 0 or dollars < 0:
+            return False
+        for bet in self.open:
+            if bet.paper or bet.token != token or bet.shares <= 0:
+                continue
+            part = min(1.0, shares / bet.shares)
+            cost = bet.stake * part
+            profit = dollars - cost
+            sign = "+" if profit >= 0 else "−"
+            self._log.record(
+                "info", "polymarket", "RESOLVED",
+                f"Sold early · {bet.side.upper()} · {sign}${abs(profit):,.2f}",
+                bet.origin, bet.strategy,
+                pnl=round(profit, 2),
+                why=[
+                    f"bought {bet.side.upper()} at {bet.price * 100:.0f}¢",
+                    f"sold {shares:,.1f} of {bet.shares:,.1f} shares for ${dollars:,.2f} "
+                    f"(cost ${cost:,.2f})",
+                ],
+            )
+            bet.stake -= cost
+            if bet.stake < 0.005:
+                self.open.remove(bet)
+            return True
+        return False
 
     def awaiting(self, current_slug: str) -> list[str]:
         """Windows of real bets that are over and wait on Polymarket's settlement."""
@@ -198,7 +252,7 @@ class AutoBet:
         self._log.record(
             "info", "polymarket", "RESOLVED",
             f"Market closed · {side.upper()} won · {estimate}{sign}${abs(profit):,.2f}" + tail,
-            "auto", bet.strategy,
+            bet.origin, bet.strategy,
             pnl=round(profit, 2),
             why=[line for line in [
                 f"bet {bet.side.upper()} at {bet.price * 100:.0f}¢ for ${bet.stake:,.2f}"

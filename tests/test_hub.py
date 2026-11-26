@@ -80,7 +80,7 @@ def test_the_hub_binds_view_shortcuts(
         keys = sorted(s.key().toString() for s in window.findChildren(QShortcut))
         assert keys == [
             "?", "Alt+1", "Alt+2", "Alt+3", "Ctrl+,", "Ctrl+1", "Ctrl+2", "Ctrl+3",
-            "Ctrl+4", "Ctrl+5", "F1",
+            "Ctrl+4", "Ctrl+5", "Ctrl+6", "F1",
         ]
     finally:
         window.close()

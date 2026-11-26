@@ -127,6 +127,14 @@ def test_the_backtest_window_after_a_run(app: QApplication) -> None:
     window.left.set_source([2021], "1m")
     window.left.restart(autoplay=False)
     window.left.finish(wait=True)
+    # The random runs finish on a thread of their own: wait, so the picture is
+    # the finished one every time.
+    import time
+
+    session = window.left.session
+    end = time.time() + 30
+    while session.band_state == "running" and time.time() < end:
+        time.sleep(0.02)
     window.results.refresh()
     _settle(app)
     check(window, "backtest-run")

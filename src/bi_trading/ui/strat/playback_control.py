@@ -154,7 +154,18 @@ def on_walk_ready(self: PlaybackTile, token: int, session, target: int, result) 
     self._landed()
 
 
+def poll_band(self: PlaybackTile) -> None:
+    """Show the random runs' figure once the background walk has finished."""
+    session = self.session
+    if session is not None and session.band_state == "running":
+        return
+    self._band_poll.stop()
+    self._refresh_metrics()
+
+
 def landed(self: PlaybackTile) -> None:
+    if self.session is not None and self.session.band_state == "running":
+        self._band_poll.start()
     self._elapsed = 0
     self.player.set_offset(0.0)
     self.player.reset_range()
@@ -197,6 +208,7 @@ def restart(self: PlaybackTile, to: int = 0, autoplay: bool = True) -> None:
         exit_formula=self._exit_formula,
         side=self._wanted_side,
         short_entry_formula=self._short_formula,
+        model=self._model,
     )
     self.playback = self.session.strategy
     self.player.playback = self.playback
@@ -253,6 +265,7 @@ def set_strategy(self: PlaybackTile, rule: str) -> None:
     self._wanted_side = "long"
     self._short_formula = None
     self._saved_short = ""
+    self._model = ""
     self._describe()
 
 
@@ -280,8 +293,12 @@ def saved_short(self: PlaybackTile) -> str:
     return self._saved_short
 
 
+def saved_model(self: PlaybackTile) -> str:
+    return self._model
+
+
 def set_saved_strategy(self: PlaybackTile, name: str, entry: str, fields=None, exit: str = "",
-    side: str = "long", short_entry: str = "",
+    side: str = "long", short_entry: str = "", model: str = "",
 ) -> bool:
     """Point the run at a saved strategy: its rules and which way it goes.
 
@@ -320,6 +337,7 @@ def set_saved_strategy(self: PlaybackTile, name: str, entry: str, fields=None, e
     self._wanted_side = side if side in ("short", "both") else "long"
     self._short_formula = short_formula
     self._saved_short = short_entry
+    self._model = model
     self._entry_formula = formula
     self._entry_fields = tuple(fields or ENTRY_FIELDS)
     self._saved_name = name
@@ -339,6 +357,8 @@ def describe(self: PlaybackTile) -> None:
     pace = "" if stride <= 1 else f" · fast-forward ×{stride:,}"
     clamps = walk_clamps(self._wanted_params or {})
     pace += "".join(f" · {note}" for note in clamps)
+    if self.session is not None and self.session.model_note:
+        pace += f" · {self.session.model_note}"
     if self._wanted_years:
         span = f"{self._wanted_years[0]}–{self._wanted_years[-1]}"
         self.note.setText(

@@ -92,7 +92,7 @@ PALETTES: tuple = (
             Item("high", ("high",)),
             Item("low", ("low",)),
             Item("volume", ("volume",)),
-            Item("model_p", ("model_p",), "a model's probability — no history here",
+            Item("model_p", ("model_p",), "P(up) from an ML model — set by the ML builder",
                  missing=True),
             Item("spread", ("spread",), "the bid/ask spread — no history here",
                  missing=True),

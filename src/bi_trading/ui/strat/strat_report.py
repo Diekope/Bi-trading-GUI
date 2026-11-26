@@ -41,6 +41,7 @@ from bi_trading.engine.formula_eval import (
     REASON_TAKE_PROFIT,
     REASON_TIME,
     backtest,
+    names_used,
     watch_values,
 )
 from bi_trading.ui.panels import Card
@@ -558,7 +559,6 @@ class ReportTile(Card):
             self._clear(f"{year} · {self.resolution} — no entry rule yet")
             return
         from bi_trading.engine.formula import POLYMARKET_FIELDS
-        from bi_trading.engine.formula_eval import names_used
 
         used = set(names_used(self.entry_rule))
         for other in (self.exit_rule, self.short_rule):
@@ -582,6 +582,12 @@ class ReportTile(Card):
         self.note.setText(
             f"{year} · {self.resolution} · {len(bars):,} bars"
             f" · {self.side} · tp {self.tp:g} / sl {self.sl:g}"
+            + (
+                " · model_p is scored in the backtest, not here"
+                if "model_p" in names_used(self.entry_rule)
+                or (self.short_rule is not None and "model_p" in names_used(self.short_rule))
+                else ""
+            )
         )
         self.chart.set_report(report)
         self.reasons.set_report(report)

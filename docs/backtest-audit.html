@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backtest audit</title>
+<style>
+:root{--bg:#0b0b0d;--panel:#17181b;--border:#25262a;--text:#e6e6e8;--muted:#9a9ba1;
+--crit:#ff5c5c;--high:#e0b341;--med:#6aa7ff;--low:#8a8d94;--ok:#3ddc84}
+@media (prefers-color-scheme:light){:root{--bg:#f6f6f4;--panel:#fff;--border:#dcdcd6;--text:#1b1b1d;--muted:#66676d;
+--crit:#d63a3a;--high:#a87a00;--med:#2a6fdb;--low:#6b6e75;--ok:#1f9d5a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,Inter,Segoe UI,sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 16px 64px}
+h1{margin:0 0 4px;font-size:26px}
+.sub{color:var(--muted);margin:0 0 24px}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 16px;min-width:110px}
+.stat b{display:block;font-size:24px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+button{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:999px;padding:6px 14px;cursor:pointer;font:inherit}
+button[aria-pressed=true]{border-color:var(--text)}
+.card{background:var(--panel);border:1px solid var(--border);border-left:4px solid var(--c);border-radius:10px;margin-bottom:10px}
+.card summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;gap:12px;align-items:center}
+.card summary::-webkit-details-marker{display:none}
+.n{color:var(--muted);width:24px;flex:none}
+.t{flex:1;font-weight:600}
+.badge{flex:none;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--c);border:1px solid var(--c);border-radius:999px;padding:2px 10px}
+.done{flex:none;font-size:12px;color:var(--ok);border:1px solid var(--ok);border-radius:999px;padding:2px 10px}
+.body{padding:0 16px 14px 52px;color:var(--text)}
+.body p{margin:6px 0}
+.body ul{margin:6px 0 6px 18px;padding:0}
+.fix{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;color:var(--muted)}
+.fix b{color:var(--ok)}
+code{font:13px ui-monospace,JetBrains Mono,monospace;background:var(--bg);padding:1px 5px;border-radius:4px}
+.crit{--c:var(--crit)}.high{--c:var(--high)}.med{--c:var(--med)}.low{--c:var(--low)}
+h2{font-size:18px;margin:28px 0 10px}
+.solid li{margin:3px 0}
+ol li{margin:3px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Backtest audit</h1>
+<p class="sub">2026-11-20, updated after the critical, medium and high fixes. Findings from reading the code. Fixed: gap handling, time-aligned bars (<code>tests/test_gaps.py</code>), fills (<code>tests/test_fills.py</code>), the locked ML hold-out (<code>tests/test_holdout.py</code>), the random baseline (<code>tests/test_baseline.py</code>), risk metrics, benchmark, warm-up (<code>tests/test_evidence.py</code>). Partly fixed: the venue data check (<code>tests/test_basis.py</code>), significance tooling, volume cap. Scoped only: venue modelling. Markdown version: <code>backtest-audit.md</code>.</p>
+
+<div class="stats" id="stats"></div>
+<div class="filters" id="filters"></div>
+<div id="list"></div>
+
+<h2>What is solid</h2>
+<ul class="solid">
+<li>The Rust and Python walks mirror each other; chunked walking carries state across pieces.</li>
+<li>Parquet storage is repaired and time-sorted.</li>
+<li>A stop wins on a candle that touches both stop and target.</li>
+<li>Slippage applies to market exits.</li>
+<li>ML splits are time-ordered and purged.</li>
+</ul>
+
+<h2>Suggested order</h2>
+<ol>
+<li>Gaps and time-aligned resampling (1, 2).</li>
+<li>Fill realism (4), once for both walks.</li>
+<li>Monte Carlo random baseline and cost stress (6, 8, 9).</li>
+<li>Decide the target: binary-payoff simulator, or state spot-style only (3).</li>
+<li>Locked ML hold-out (5).</li>
+</ol>
+</main>
+
+<script>
+const LEVELS={crit:"Critical",high:"High",med:"Medium",low:"Low"};
+const F=[
+{l:"crit",st:"Fixed 2026-11-19",t:"No gap handling, though the docs say there is",
+ b:["<code>docs/backtest.md</code> and <code>data/candles.py</code> say a run refuses to trade across a gap. The walk (<code>engine/core.py</code>, <code>lib.rs</code>) never reads a timestamp: entries, the 7-bar hold and TP / SL all count bar indices.","A trade open before the 2017-09-06 outage exits hours later at whatever price comes next, as an ordinary <code>time</code> or <code>sl</code> exit. The files keep their gaps on purpose."],
+ f:"Pass timestamps into the walk (Python and Rust); refuse entries or force-close at the last bar before a gap."},
+{l:"crit",st:"Fixed 2026-11-19",t:"Resampling ignores time",
+ b:["<code>_compact_arrays</code> and <code>_iter_file</code> merge every N consecutive rows per year file, by position.","After any gap every later 5m / 15m / 1h bucket is off the clock grid, a bucket can straddle the gap, and the last bucket of each year is short.","The ML layer guards against holes in features; the backtest does not."],
+ f:"Bucket by <code>timestamp // period</code>; drop or flag incomplete buckets."},
+{l:"crit",st:"Scoped in the docs, not built",t:"The traded venue is not modelled",
+ b:["Polymarket 5m markets pay 1 on a win and 0 on a loss; the edge is <code>P - ask</code>. The backtest has no market price, so <code>min edge</code> is not applied there. A Polymarket strategy cannot be validated by this engine.","Hyperliquid perps have funding, leverage, margin and liquidation; none exist here. The engine simulates a spot-style position with TP, SL and a hold limit."],
+ f:"A binary-payoff simulator (needs historical Polymarket prices or a stated fixed-price assumption) and a funding / liquidation model. Until then, label the backtest spot-style only."},
+{l:"high",st:"Fixed 2026-11-20",t:"Optimistic fills",
+ b:["<b>Entry</b>: fills at the close of the signal bar; no next-bar-open option.","<b>Take profit</b>: fills at its exact price on any wick touch, no trade-through or queue.","<b>Stop and trail</b>: fill at the stop price even if the bar gapped past it; the trail is booked as <code>tp</code> with no slippage.","<b>Fees</b>: one flat fee on every fill, no maker / taker split."],
+ f:"Next-bar-open entry mode; stops fill at <code>min(open, stop)</code>; trade-through for limits; trail as a market exit. Done (entry at the next open by default, gapped stops at the open, <code>limit_through</code> 0.01%, trail slips). Not modelled: a maker fee and queue position."},
+{l:"high",st:"Fixed 2026-11-20",t:"ML results are selection-biased",
+ b:["A model only has calls on its test part, and the ML builder re-trades those bars while thresholds move. Auto-tune, model choice and thresholds all use the same data, so the test set stops being out-of-sample.","No second hold-out, no correction for the number of variants tried. <code>docs/ml.md</code> already says honest models sit near 51 to 54% accuracy and lose money after costs."],
+ f:"A locked final hold-out scored once, and a counter of variants tried. Done: the last 15% is never read until scored once, models tried are counted, and the p-value is shown corrected. Test-part threshold moves are still not counted."},
+{l:"high",st:"Fixed 2026-11-20",t:"The random benchmark is one draw and does not match the walk",
+ b:["Fixed seed 1234 and fixed 3% entry chance: one sample, not a distribution.","It simulates its own occupancy from unslipped entry prices, with no exit rule and no trailing TP, so its trade count and timing differ from what the walk does with its entries.","A long-and-short strategy is compared with a long-only baseline."],
+ f:"Many seeds through the real walk, shown as a percentile band; match trade count and side mix. Done: random signals through the same walk at the strategy's rate and side mix, plus 100 seeded runs (<i>beats X% of random</i>). Streamed spans keep 3% long only and no band."},
+{l:"high",st:"Partly fixed 2026-11-20",t:"Data source differs from the venue",
+ b:["History is Binance spot BTCUSDT; orders go to Hyperliquid perps and Polymarket. Prices, spreads and wicks differ, most on 1m bars, so a fill that worked on the data can be impossible on the venue."],
+ f:"Store the venue's own candles, or at least report the basis between the two. Partly done: <code>python -m bi_trading.data.basis</code> reports the basis over the venue's latest ~5,000 candles. Still open: a backtest on the venue's own history."},
+{l:"med",st:"Partly fixed 2026-11-19",t:"No significance or robustness tooling",
+ b:["No confidence interval, t-stat on expectancy, minimum trade count, bootstrap or permutation test.","The TP x SL sweep and walk-forward cover only the last 2,000 bars. No per-year or per-regime breakdown."],
+ f:"Done: t-stat, p-value and 95% interval of the average trade, per-trade Sharpe, a warning under 30 trades, a by-year table. Open: bootstrap or permutation test, a sweep over the full span."},
+{l:"med",st:"Fixed 2026-11-19",t:"Weak and inconsistent risk metrics",
+ b:["Sharpe is per bar, not annualised, and includes flat bars. Sortino is per trade, so the two cannot be compared.","No Calmar, time under water, or costs-stress view (result at 2x fees and slippage)."],
+ f:"Done: yearly Sharpe and Calmar (30 days or more), longest time under water, per-trade Sharpe, PnL at 2x costs (first-order estimate)."},
+{l:"med",st:"Fixed 2026-11-19",t:"Buy and hold ignores costs and uses a different capital base",
+ b:["<code>capital * close / first_close</code>: no fee, no slippage, whole book in. The strategy trades a fraction (<code>max_cash</code>, default $2,000), so the percent comparison is between different amounts of risk."],
+ f:"Done: it invests <code>Max cash</code>, pays the same fee and slippage on entry, keeps the rest in cash."},
+{l:"med",st:"Fixed 2026-11-19",t:"Warm-up is off by default",
+ b:["<code>warmup</code> defaults to 0, so indicator rules can fire on unsettled history at the start of a run."],
+ f:"Done: the default is 100 bars. A settings file that already says 0 keeps 0."},
+{l:"med",st:"Partly fixed 2026-11-19",t:"Sizing and liquidity are unrealistic",
+ b:["One position at a time, sized from deployable cash and a <code>Max cash</code> cap, so returns depend on the cap.","No minimum lot, tick rounding, volume limit or market impact. Volume is loaded but never used for fills."],
+ f:"Done: an entry is capped at a share of the bar's traded value (<code>backtest.participation</code>, 1% by default). Open: minimum lot, tick rounding, market impact, and the ML builder's own simulator (<code>rule_stats</code>)."},
+{l:"low",t:"Two walks to keep in sync by hand",
+ b:["<code>_python_walk</code> and <code>run_walk</code> are held equal by tests. Fixes for gaps and fills must be made twice, plus in both random-entry functions."]},
+{l:"low",st:"Fixed 2026-11-20",t:"Docs contradict each other",
+ b:["The playback section of <code>docs/backtest.md</code> says a candle touching both TP and SL pays the target. The code, and the run-controls section, book the stop."]},
+{l:"low",t:"Compare page and walk-forward limits",
+ b:["From <code>TODO.md</code>: Compare runs on preview candles where <code>model_p</code> is unknown; walk-forward covers built-in models only, not custom torch networks."]}
+];
+
+const stats=document.getElementById("stats"),filters=document.getElementById("filters"),list=document.getElementById("list");
+let active="all";
+function draw(){
+  stats.innerHTML="";
+  for(const k of Object.keys(LEVELS)){
+    const n=F.filter(x=>x.l===k).length;
+    stats.insertAdjacentHTML("beforeend",`<div class="stat ${k}"><b style="color:var(--c)">${n}</b>${LEVELS[k]}</div>`);
+  }
+  const fixed=F.filter(x=>x.st&&x.st.startsWith("Fixed")).length;
+  const part=F.filter(x=>x.st&&x.st.startsWith("Partly")).length;
+  stats.insertAdjacentHTML("beforeend",`<div class="stat"><b style="color:var(--ok)">${fixed}</b>Fixed</div><div class="stat"><b style="color:var(--ok)">${part}</b>Partly fixed</div>`);
+  filters.innerHTML="";
+  for(const k of ["all",...Object.keys(LEVELS)]){
+    const b=document.createElement("button");
+    b.textContent=k==="all"?"All":LEVELS[k];
+    b.setAttribute("aria-pressed",String(active===k));
+    b.onclick=()=>{active=k;draw()};
+    filters.appendChild(b);
+  }
+  list.innerHTML="";
+  F.forEach((x,i)=>{
+    if(active!=="all"&&x.l!==active)return;
+    list.insertAdjacentHTML("beforeend",`<details class="card ${x.l}" ${x.l==="crit"?"open":""}>
+      <summary><span class="n">${i+1}</span><span class="t">${x.t}</span>${x.st?`<span class="done">${x.st}</span>`:""}<span class="badge">${LEVELS[x.l]}</span></summary>
+      <div class="body">${x.b.map(p=>`<p>${p}</p>`).join("")}${x.f?`<div class="fix"><b>Fix:</b> ${x.f}</div>`:""}</div></details>`);
+  });
+}
+draw();
+</script>
+</body>
+</html>

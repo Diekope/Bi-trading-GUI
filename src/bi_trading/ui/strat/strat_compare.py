@@ -449,6 +449,10 @@ class ComparePage(QWidget):
             return  # the run on show already is that strategy
         if any(run["label"] == strategy.name for run in self.runs):
             return
+        if "model_p" in strategy.entry + getattr(strategy, "short_entry", ""):
+            # Its calls come from a trained model, scored in the backtest only.
+            self.sweep_hint.setText(f"{strategy.name} needs its model: run it in the backtest")
+            return
         try:
             entry, exit_ = self._rules_of(strategy)
             short_entry = (

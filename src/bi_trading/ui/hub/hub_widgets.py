@@ -36,6 +36,12 @@ ICONS: dict[str, str] = {
     ),
     "backtest": '<path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v5h5M12 8v4l3 2"/>',
     "live": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+    "ml": (
+        '<circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/>'
+        '<circle cx="12" cy="12" r="2"/><circle cx="19" cy="6" r="2"/>'
+        '<circle cx="19" cy="18" r="2"/>'
+        '<path d="M6.8 7l3.6 4M6.8 17l3.6-4M13.6 11l3.6-4M13.6 13l3.6 4"/>'
+    ),
     "settings": (
         '<circle cx="12" cy="12" r="3.1"/>'
         '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 '
@@ -317,9 +323,25 @@ class NewTile(QFrame):
 
 def _pnl_badge(
     entry: str, exit_: str, timeframe: str, side: str = "long",
-    short_entry: str = "",
+    short_entry: str = "", model: str = "",
 ) -> tuple[str, str]:
-    """(glyph, colour) for a strategy's return, or ('', '') when unknown."""
+    """(glyph, colour) for a strategy's return, or ('', '') when unknown.
+
+    A strategy that reads an ML model cannot be scored on the preview candles
+    (`model_p` is not there), so its badge is the model's own return over its
+    test period, marked `ML`.
+    """
+    if model:
+        from bi_trading.ml.store import model_summary
+
+        summary = model_summary(model)
+        if summary is None:
+            return f"{_accent('●', AMBER_DOT)} ML", AMBER_DOT
+        value = summary["test_return"]
+        colour = UP if value >= 0.05 else DOWN if value <= -0.05 else AMBER_DOT
+        glyph = "▲" if value >= 0.05 else "▼" if value <= -0.05 else "●"
+        sign = f"+{value:.2f}" if value >= 0 else f"−{abs(value):.2f}"
+        return f"{_accent(glyph, colour)} ML {sign}%", colour
     try:
         from bi_trading.ui.strat.strat_saved import strategy_pnl
 

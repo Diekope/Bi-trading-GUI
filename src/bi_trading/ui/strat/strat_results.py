@@ -43,7 +43,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from bi_trading.engine.stats import trade_stats, write_trades_csv
+from bi_trading.engine.stats import (
+    annualised_return,
+    bars_per_year,
+    by_year,
+    calmar,
+    cost_stress,
+    trade_stats,
+    write_trades_csv,
+)
 from bi_trading.ui.cards import mono_font
 from bi_trading.ui.panels import Card
 from bi_trading.ui.theme import ACCENT, BAND, BORDER, DOWN, TEXT_FAINT, TEXT_MUTED, UP
@@ -282,6 +290,20 @@ class ResultsTile(Card):
         figures_row.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         overview_layout.addWidget(figures_row)
 
+        # How much the figures can be trusted: the risk on a yearly footing, the
+        # doubt on the average trade, what higher costs do, and each year apart.
+        # Hidden until a run has trades, so an idle tile keeps its shape.
+        self.evidence = QLabel("")
+        self.evidence.setObjectName("hintLabel")
+        self.evidence.setWordWrap(True)
+        self.evidence.setVisible(False)
+        overview_layout.addWidget(self.evidence)
+        self.years = QLabel("")
+        self.years.setObjectName("hintLabel")
+        self.years.setWordWrap(True)
+        self.years.setVisible(False)
+        overview_layout.addWidget(self.years)
+
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(12)
@@ -335,6 +357,7 @@ class ResultsTile(Card):
             ("sl", "Stop loss", DOWN),
             ("time", "Time", BAND),
             ("rule", "Rule", TEXT_MUTED),
+            ("gap", "Data gap", TEXT_MUTED),
         ):
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
@@ -469,6 +492,8 @@ class ResultsTile(Card):
         self.trades_page.clear()
         for value in self.metrics.values():
             value.setText("—")
+        self.evidence.setVisible(False)
+        self.years.setVisible(False)
         for bar, pct in self.end_bars.values():
             bar.setValue(0)
             pct.setText("0%")
@@ -528,10 +553,11 @@ class ResultsTile(Card):
         else:
             for key in ("expectancy", "hold", "exposure", "pf", "sortino"):
                 self.metrics[key].setText("—")
+        self._refresh_evidence(session, play, stats, pnl)
         self.pnl_bars.set_values([record[6] for record in play.trades_log])
         self.drawdown.set_curve(session.strategy_curve)
 
-        reasons = {"tp": 0, "sl": 0, "time": 0, "rule": 0}
+        reasons = {"tp": 0, "sl": 0, "time": 0, "rule": 0, "gap": 0}
         for record in play.trades_log:
             reasons[record[9]] = reasons.get(record[9], 0) + 1
         total = max(1, sum(reasons.values()))
@@ -539,6 +565,75 @@ class ResultsTile(Card):
             share = reasons.get(key, 0) / total * 100
             bar.setValue(int(round(share)))
             pct.setText(f"{share:,.0f}%")
+
+
+    def _refresh_evidence(self, session, play, stats, pnl: float) -> None:
+        """The two small lines under the figures (see `evidence`, `years`)."""
+        bars = play.index or session.total
+        if not stats.trades or bars <= 0:
+            self.evidence.setVisible(False)
+            self.years.setVisible(False)
+            return
+        per_year = bars_per_year(session.resolution)
+        wet = play.longest_underwater
+        days = wet / per_year * 365.0
+        parts = []
+        if stats.few:
+            parts.append(f"only {stats.trades} trades: too few to tell skill from luck")
+        # A yearly rate from a few days is a number about nothing: show it only
+        # for a span of at least a month.
+        if bars / per_year * 365.0 >= MIN_ANNUAL_DAYS:
+            annual = annualised_return(pnl, bars, per_year)
+            ratio = calmar(annual, play.max_drawdown)
+            parts.append(f"Sharpe/yr {play.sharpe * per_year**0.5:,.2f}")
+            parts.append("Calmar " + ("—" if ratio is None else f"{ratio:,.2f}"))
+        else:
+            parts.append(f"span under {MIN_ANNUAL_DAYS} days: no yearly Sharpe or Calmar")
+        parts.append(f"longest under water {wet:,} bars ({days:,.1f} days)")
+        if stats.t_stat is not None and stats.p_value is not None:
+            parts.append(
+                f"trade Sharpe {stats.sharpe_trade or 0.0:,.3f} · t {stats.t_stat:+.2f} "
+                f"(p {stats.p_value:.2f}) · avg trade 95% "
+                f"{stats.ci_low * 100:+.2f}% to {stats.ci_high * 100:+.2f}%"
+            )
+        now, stressed = cost_stress(play.trades_log, play.slippage)
+        parts.append(f"PnL ${now:,.0f} at these costs, ${stressed:,.0f} at 2x")
+        if session.band_state == "running":
+            parts.append("random runs: working…")
+        elif session.band:
+            returns = session.band["returns"]
+            mine = pnl * 100.0
+            beaten = sum(1 for value in returns if value < mine) / len(returns)
+            low, mid, high = (
+                returns[int(len(returns) * q)] for q in (0.05, 0.5, 0.95)
+            )
+            parts.append(
+                f"beats {beaten * 100:.0f}% of {len(returns)} random runs "
+                f"(random {low:+.1f}% / {mid:+.1f}% / {high:+.1f}% at 5th / median / 95th)"
+            )
+        from bi_trading.data.basis import latest_basis, summary
+
+        parts.append(summary(latest_basis()))
+        self.evidence.setText("  |  ".join(parts))
+        self.evidence.setToolTip(
+            "Yearly figures assume BTC trades every minute of the year. The t, p and "
+            "interval assume independent trades; 2x costs is a first-order estimate "
+            "from the trade log, not a second run."
+        )
+        self.evidence.setVisible(True)
+        years = by_year(play.trades_log)
+        self.years.setText(
+            "By year:  "
+            + "  |  ".join(
+                f"{year or '?'}: {count} trades, {'-' if profit < 0 else '+'}${abs(profit):,.0f}, "
+                f"{win * 100:.0f}% won"
+                for year, count, profit, win in years
+            )
+        )
+        self.years.setVisible(len(years) > 0)
+
+
+MIN_ANNUAL_DAYS = 30
 
 
 class PnlBars(QWidget):
@@ -807,7 +902,7 @@ class TradesPage(QWidget):
 
     # How many of the newest trades the table reads; a run can hold far more.
     SHOWN = 400
-    REASONS = {"tp": "TP", "sl": "SL", "time": "Time", "rule": "Rule"}
+    REASONS = {"tp": "TP", "sl": "SL", "time": "Time", "rule": "Rule", "gap": "Data gap"}
     COLUMNS = ("Entry", "Market", "Side", "In → Out", "Size", "PnL", "Exit")
 
     def __init__(self, parent: QWidget | None = None) -> None:
