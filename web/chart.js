@@ -22,15 +22,16 @@ export function drawCandles(cv, data, { volume = true, bands = false, markers = 
 }
 
 // series: [{v, color, dash, fill}]. grid: show 3 guide lines labelled with fmt.
-export function drawLines(cv, series, { grid = false, fmt = (v) => v.toFixed(2), pad = 0, lo: LO, hi: HI } = {}) {
+export function drawLines(cv, series, { grid = false, fmt = (v) => v.toFixed(2), pad = 0, lo: LO, hi: HI, total = 0 } = {}) {
   const [g, W, H] = fit(cv), all = series.flatMap((s) => s.v), hi = HI ?? Math.max(...all), lo = LO ?? Math.min(...all), L = grid ? 44 : 0, w = W - L - pad;
   const Y = (v) => H - ((v - lo) / (hi - lo || 1)) * (H - 10) - 5;
   g.font = mono();
   if (grid) [lo, (lo + hi) / 2, hi].forEach((v) => { g.strokeStyle = css("--border"); g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(W, Y(v)); g.stroke(); g.fillStyle = css("--muted"); g.fillText(fmt(v), 0, Y(v) < 12 ? Y(v) + 11 : Y(v) - 3); });
   series.forEach((s) => {
-    g.beginPath(); s.v.forEach((v, i) => { const x = L + (i / (s.v.length - 1)) * w; i ? g.lineTo(x, Y(v)) : g.moveTo(x, Y(v)); });
+    const n = Math.max(total, s.v.length) - 1 || 1;
+    g.beginPath(); s.v.forEach((v, i) => { const x = L + (i / n) * w; i ? g.lineTo(x, Y(v)) : g.moveTo(x, Y(v)); });
     g.strokeStyle = css(s.color); g.lineWidth = 1.5; g.setLineDash(s.dash || []); g.stroke(); g.setLineDash([]);
-    if (s.fill) { g.lineTo(L + w, H); g.lineTo(L, H); g.closePath(); g.fillStyle = css(s.color); g.globalAlpha = 0.14; g.fill(); g.globalAlpha = 1; }
+    if (s.fill) { g.lineTo(L + ((s.v.length - 1) / n) * w, H); g.lineTo(L, H); g.closePath(); g.fillStyle = css(s.color); g.globalAlpha = 0.14; g.fill(); g.globalAlpha = 1; }
   });
 }
-export const drawArea = (cv, v, color = "--down") => drawLines(cv, [{ v, color, fill: true }], { grid: false });
+export const drawArea = (cv, v, color = "--down", opts = {}) => drawLines(cv, [{ v, color, fill: true }], { grid: false, ...opts });

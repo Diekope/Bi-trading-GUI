@@ -103,7 +103,7 @@ function toast(msg, err = false) { const t = $("#toast"); t.textContent = msg; t
 function act(a) {
   const f = state.form;
   if (a === "pan-latest") { pan.off = 0; render(); return; }
-  if (a.startsWith("eng-") || a.startsWith("run-show-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
+  if (a.startsWith("eng-") || a.startsWith("run-show-") || a.startsWith("play-")) { engAct(a, render, toast); return; } // backtests and saves: never an order
   if (a === "reset-paper") { resetPaper(); toast("Paper account reset."); return; }
   if (a === "hl-connect") { const addr = (f.hlAddr ?? feed.hl.account?.address ?? "").trim(); hlHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Live balance connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
   if (a === "pm-connect") { const addr = (f.pmAddr ?? feed.pm.account?.address ?? "").trim(); pmHandle.setAddress(addr).then((r) => { if (r.ok) { try { localStorage.setItem(PM_ADDR_KEY, addr); } catch { /* storage blocked */ } } toast(r.ok ? "Polymarket positions value connected (read-only)." : r.error, !r.ok); render(); }); toast("Checking the address…"); return; }
@@ -170,10 +170,11 @@ boot(render);
 document.addEventListener("mousedown", (e) => {
   const h = e.target.closest?.("[data-split]"); if (!h) return;
   e.preventDefault();
-  const col = h.parentElement, top = col.getBoundingClientRect().top, max = col.getBoundingClientRect().height - 140;
+  // The book keeps at least 160 px, the positions at least 100 px plus the trade form under them.
+  const col = h.parentElement, top = col.getBoundingClientRect().top, form = col.lastElementChild.getBoundingClientRect().height, max = col.getBoundingClientRect().height - form - 100 - 14;
   h.classList.add("drag");
   const rows = (px) => { col.style.gridTemplateRows = `${px}px 6px minmax(0,1fr) auto`; }; // same rows as hlView with a set height
-  const move = (ev) => { state.bookH = Math.round(Math.min(max, Math.max(90, ev.clientY - top))); rows(state.bookH); };
+  const move = (ev) => { state.bookH = Math.round(Math.max(160, Math.min(max, ev.clientY - top))); rows(state.bookH); };
   const up = () => { h.classList.remove("drag"); removeEventListener("mousemove", move); removeEventListener("mouseup", up); render(); };
   addEventListener("mousemove", move); addEventListener("mouseup", up);
 });

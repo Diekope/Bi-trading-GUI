@@ -38,7 +38,7 @@ export function formulaView(ctx) {
     <div class="well scroll" style="display:grid;gap:10px;align-content:start"><b class="sec" style="font-size:10px">Formula</b>
       ${ls.map(line).join("")}
       <div class="row"><button class="btn sm" data-act="f-addvar">+ Add variable</button><span class="sp"></span><input type="text" data-fnum placeholder="a number, e.g. 20 or 0.05" style="width:170px"><button class="btn sm" data-act="f-addnum">+ Add</button><button class="btn sm" data-act="f-clear" title="empty the condition line">⟲ Clear</button></div>
-      <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">IN WORDS</span>${plain(ctx, "No rule yet: drag blocks into the lines above.")}${ctx.badge}</div></div>
+      <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">DESCRIPTION</span>${plain(ctx, "No rule yet: drag blocks into the lines above.")}${ctx.badge}</div></div>
     <div class="well" style="display:flex;flex-direction:column;gap:8px"><b class="sec" style="font-size:10px">Selected block</b>${cur == null ? `<div class="cap">click a block in a line to edit, move or remove it. Drag blocks to reorder them, or drop them on another line.</div>`
       : `<input type="text" data-fedit value="${esc(cur)}" style="font-family:var(--mono)"><span class="cap">${kind(cur, vars) === "ind" ? "a function" : kind(cur, vars) === "var" ? "your variable" : kind(cur, vars) === "math" ? "a number or an operator" : kind(cur, vars) === "kw" ? "logic" : "a value from the data"}</span><div class="row"><button class="btn sm" data-act="f-left" title="move left">←</button><button class="btn sm" data-act="f-right" title="move right">→</button><span class="sp"></span><button class="btn sm down" data-act="f-del">Remove</button></div>`}</div></div>`;
 }
@@ -179,7 +179,7 @@ export function rulesView(ctx) {
       ${d.rows.map((r, k) => `<div class="row"><input type="text" data-rrow="${k}:0" value="${esc(r[0])}" placeholder="close" style="font-family:var(--mono)"><select data-rrow="${k}:1" style="width:64px">${OPS.map((o) => opt(o, r[1])).join("")}</select><input type="text" data-rrow="${k}:2" value="${esc(r[2])}" placeholder="0" style="font-family:var(--mono)"><button class="btn sm" data-act="r-delrow-${k}">×</button></div>`).join("") || `<span class="cap">no condition yet</span>`}
       <span><button class="btn sm accent" data-act="r-addrow">+ Add condition</button></span></div>
     <span class="grow"></span>
-    <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">IN WORDS</span>${plain(ctx, "No condition yet: add one above.")}${ctx.badge}</div></div>${side}</div>`;
+    <div class="well" style="background:var(--well);display:grid;gap:6px"><span class="cap" style="font-size:10px;letter-spacing:.1em">DESCRIPTION</span>${plain(ctx, "No condition yet: add one above.")}${ctx.badge}</div></div>${side}</div>`;
 }
 
 let lastBox = null;

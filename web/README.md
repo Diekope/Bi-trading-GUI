@@ -31,12 +31,13 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
   - **Formula:** one line of blocks per variable and one for the condition. Drag a block from the palette into a line (a function brings its brackets and arguments), drag blocks within or between lines, click one to edit, move or remove it, or click a palette block to add it after the selected one.
   - **Rules:** variables as `name = expression` rows, and conditions as rows all joined by AND or all by OR. A rule that mixes the two, or uses `not` or brackets around a comparison, says so and is edited in Formula or Code.
   - **Code:** the text itself.
-  - Under Formula and Rules the rule is spelled out in plain words (`sayRule` in `rule.js`); type the text itself in Code.
+  - Under Formula and Rules, DESCRIPTION spells the rule out in plain words (`sayRule` in `rule.js`); type the text itself in Code.
   - **Compare** runs the strategy for every take profit × stop loss pair you list (up to 8 each, last 90 days) through `POST /api/sweep`; hover a cell for its trades, win rate and drawdown, the best one is outlined. TP and SL act through the exit rule, so a rule that does not read them gives the same cell everywhere, and the page says so.
   - **Delete strategy** asks, then removes it from the list and from the strategies file (`POST /api/strategies/delete`).
   - The engine checks the rule as you type. **Preview** shows the selected strategy's run, started on its own when you pick a strategy or change a rule (no button).
   - **Create a strategy** starts a blank one; if the current one has unsaved changes it asks first (Save, Discard changes, Cancel).
   - **Run backtest** (footer) opens Backtest and runs the strategy there; an unsaved strategy is saved first, under a name you confirm (a default is offered).
+- **Backtest playback.** A finished run is walked on screen like the desktop app: a progress bar with the candles (or markets) walked, curves and figures growing as it goes; speed ×1, ×4, ×16 or Instant, Skip and Replay. The right column is 340 px wide so the charts get the room.
 - **Backtest.** History (Polymarket: a span; Hyperliquid: a start year and an end year, and a timeframe), Strategy and the value card feed the run; the Runs card lists this session's runs (click one to show it again); results, curves, drawdown, how trades end and the trade or bet table come from the engine. An empty Hyperliquid exit rule means `pnl >= tp or pnl <= -sl`, since TP and SL only act through the exit rule.
 - **Not wired yet.** Compare (walk-forward, TP × SL sweep), Save / Load run, ML and Model builder still show demo content.
 - Tests: `node --test test/rule.test.mjs` (the rule model).
@@ -59,7 +60,9 @@ Fonts (Inter, JetBrains Mono) are copied from `src/bi_trading/ui/assets/` into `
 - **Leverage:** the order's amount is the margin; the position is margin × leverage (shown under the form).
 - **Rail:** the venue switch shows the Polymarket and Hyperliquid logos with each feed's delay under it.
 - **Scale:** below 1280 × 860 the whole app shrinks evenly (CSS `zoom`) instead of cutting cards off.
-- **Hyperliquid order book:** fills its tile (20 levels a side, the nearest kept when space runs out). Drag the handle under it to set its height; double-click the handle to let it fit again, the positions below grow as they open.
+- **Strategy (Live footer):** a list of the venue's strategies; the one picked is the selected strategy everywhere.
+- **Builder time window:** Hyperliquid picks the strategy's bar from a list (1m to 4h); Polymarket has none (its markets are five minutes).
+- **Hyperliquid order book:** fills its tile (at least 160 px; the positions under it keep at least 100 px) (20 levels a side, the nearest kept when space runs out). Drag the handle under it to set its height; double-click the handle to let it fit again, the positions below grow as they open.
 - **Paper fill delay:** a paper order waits `Paper fill delay` ms (Settings → Trading defaults, 400 by default) and then fills against the book as it is then.
 - **Polymarket chart:** `btcchart.js` animates the BTC line like the Qt `PriceChart` (rolling 15-minute axis, smoothed curve, eased range, pulsing tip, target growing from the window start). The axis is a rolling minute; the animation never restarts at a market rollover (earlier windows keep their dashed target and scroll left); the line is backfilled from 1-minute candles so it spans the whole plot. The screen is patched in place on each live update (`morph` in `app.js`), so hover, focus and scroll survive. Click the UP or DOWN tile to select it: spread, return and per-$100 follow the selected side. Volume and Bollinger toggles are hidden on Polymarket.
 - **PnL %** appears next to every cash PnL: on a position it is the return on margin (perp) or on stake (bet); on the account and the day it is a share of start equity; on a book it is the total over the margin and stakes at risk.

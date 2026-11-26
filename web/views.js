@@ -174,6 +174,8 @@ const pmCard = () => { const d = pmData(), pl = feed.pm.latency, sel = state.pmS
       <b class="sec" style="color:var(--muted)">Tape</b><div class="mono" style="font-size:11px;color:var(--muted);display:grid;gap:1px">${d.tape.map((t) => `<div style="display:grid;grid-template-columns:80px 70px 1fr auto"><span>${t.time}</span><span class="${t.side === "UP" ? "up" : "down"}">${t.side}</span><span style="text-align:right;padding-right:30px">${cents(t.px)}</span><span>× ${(+t.size).toFixed(2)}</span></div>`).join("") || `<div>waiting for trades…</div>`}</div>${posStrip("Polymarket")}</section>`; };
 
 const COINS = ["HYPE", "BTC", "ETH", "SOL"];
+const livePick = () => `<select data-pick="strat" title="the strategy armed on this venue" style="width:180px;font:12px var(--ui)">${strategies.map((x, i) => (x.venue !== V() ? "" : `<option value="${i}" ${i === state.strat ? "selected" : ""}>${esc(x.name)}</option>`)).join("")}</select>`;
+const TFS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"];
 const chartOpts = () => `<span class="chart-opts">${ck("Volume", state.vol, "vol")}${ck("Bollinger", state.bb, "bb")}${pan.off ? `<button class="btn sm" data-act="pan-latest" title="back to the latest candle">⇥ latest</button>` : ""}</span>`;
 // The visible window of a live candle chart: how many candles, and how far back from the newest.
 export const pan = { n: 120, off: 0 };
@@ -272,7 +274,7 @@ const rulesNote = () => { const x = strat(), L = isPM() ? [["bet UP when", x.ent
 // Polymarket backtest (mirrors ui/strat/strat_pm.py): result figures, baselines, equity curve, and the bets table.
 const pmResultCard = () => { const R = E.res.Polymarket;
   return `<section class="card" style="grid-row:1"><div class="row between"><div><b class="sec">Result</b><div class="cap">${runNote()}</div></div><span class="row">${runBtn()}</span></div>
-  ${R ? `<div class="stats" style="gap:6px 18px">${stat("Bets", n0(R.bets))}${stat("Markets", n0(R.markets))}${stat("Win rate", (R.winRate * 100).toFixed(1) + "%")}${stat("ROI on stake", pctS(R.roi * 100), cls(R.roi))}${stat("PnL", cash(R.pnl), cls(R.pnl))}${stat("Final", big(R.final, money))}${stat("Max DD", "-" + (R.maxDD * 100).toFixed(1) + "%", "down")}</div>
+  ${R ? `${playBar(R, playFrac("Polymarket"))}${(playTick(), "")}<div class="stats" style="gap:6px 18px">${stat("Bets", n0(R.bets))}${stat("Markets", n0(R.markets))}${stat("Win rate", (R.winRate * 100).toFixed(1) + "%")}${stat("ROI on stake", pctS(R.roi * 100), cls(R.roi))}${stat("PnL", cash(R.pnl), cls(R.pnl))}${stat("Final", big(R.final, money))}${stat("Max DD", "-" + (R.maxDD * 100).toFixed(1) + "%", "down")}</div>
   <div class="cap">Cashed out early: ${n0(R.early)} · held to settlement: ${n0(R.settled)} · entry at a real price: ${n0(R.realEntries)} of ${n0(R.bets)} (the rest simulated) · outcome estimated from Binance: ${n0(R.estimated)}</div>
   <canvas id="eq"></canvas>
   <div class="row" style="gap:16px;font-weight:600;font-size:12px"><span class="accent">strategy</span><span style="color:var(--indigo)">always UP</span><span class="muted">always DOWN</span></div>
@@ -283,7 +285,8 @@ const pmBetsCard = () => { const R = E.res.Polymarket;
   <div style="width:200px;display:grid;gap:8px;align-content:start"><b style="font-size:11px">How bets end</b>${reasonBars(R.reasons)}<b style="font-size:11px;margin-top:6px">Drawdown</b><canvas id="dd" style="height:90px"></canvas></div></div>` : empty("The bets of the last run show here.")}</section>`; };
 const hlTopCard = () => { const R = E.res.Hyperliquid;
   return `<section class="card" style="grid-row:1"><div class="row between"><div><b class="sec">Backtest</b><div class="cap">${runNote()}</div></div><span class="row">${focusPills()}${runBtn()}</span></div>
-  ${R ? `<div class="stats" style="gap:6px 12px">${stat("PnL", pctS(R.pnlPct), cls(R.pnlPct))}${stat("Final", money(R.final))}${stat("Max DD", pctS(R.maxDD), "down")}${stat("Trades", n0(R.trades))}${stat("Win rate", (R.winRate * 100).toFixed(1) + "%")}${stat("Fees", money(R.fees))}${stat("Random buy", pctS(R.randomPct), cls(R.randomPct))}${stat("Buy & hold", pctS(R.holdPct), cls(R.holdPct))}${stat("Bars", n0(R.bars) + " · " + R.timeframe)}</div><canvas id="hl"></canvas>` : empty("No run yet. Pick a strategy, a span and a timeframe on the right, then Run.")}</section>`; };
+  ${R ? (() => { const f = playFrac("Hyperliquid"), c = R.curves, k = Math.max(1, Math.ceil(c.strategy.length * f)) - 1, now = (v) => v[Math.min(v.length - 1, k)], dd = Math.min(...part(c.drawdown, f)), done = f >= 1, wait = "…"; playTick();
+    return `${playBar(R, f)}<div class="stats" style="gap:6px 12px">${stat("PnL", pctS(now(c.strategy)), cls(now(c.strategy)))}${stat("Final", done ? money(R.final) : money(R.capital * (1 + now(c.strategy) / 100)))}${stat("Max DD", pctS(dd), "down")}${stat("Trades", done ? n0(R.trades) : wait)}${stat("Win rate", done ? (R.winRate * 100).toFixed(1) + "%" : wait)}${stat("Fees", done ? money(R.fees) : wait)}${stat("Random buy", pctS(now(c.random)), cls(now(c.random)))}${stat("Buy & hold", pctS(now(c.hold)), cls(now(c.hold)))}${stat("Bars", n0(Math.round(R.bars * f)) + " · " + R.timeframe)}</div><canvas id="hl"></canvas>`; })() : empty("No run yet. Pick a strategy, a span and a timeframe on the right, then Run.")}</section>`; };
 const hlResultsCard = () => { const R = E.res.Hyperliquid;
   return `<section class="card" style="grid-column:1;grid-row:2;min-height:0"><div class="row between"><b class="sec">Results</b>${pills("btTab", ["Overview", "Trades"])}</div>
   ${!R ? empty("The curves and trades of the last run show here.") : state.btTab === "Trades" ? `<span class="cap">the last ${Math.min(500, R.trades)} of ${n0(R.trades)} closed trades, newest first</span><div class="scroll grow"><table><tr><th>#</th><th>PnL %</th><th>Ended</th></tr>${R.tradeRows.map((t) => `<tr><td>${t.n}</td><td class="${cls(t.pnl)}">${pctS(t.pnl, 3)}</td><td>${esc(t.reason)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">the rule never fired</td></tr>`}</table></div>`
@@ -296,8 +299,8 @@ const historyCard = () => { const S = E.status, pm = isPM();
   ${pm ? "" : `<div class="grid" style="grid-template-columns:repeat(7,1fr);gap:6px">${["1m", "3m", "5m", "15m", "30m", "1h", "4h"].map((t) => `<button class="pill ${state.btTf === t ? "on" : ""}" style="padding:6px 0" data-set="btTf=${t}">${t}</button>`).join("")}</div>`}
   <span class="cap">${S ? `Data folder: <span class="mono">${esc(S.dataDir)}</span>. Download new history from the desktop app (Backtest → Download).` : ""}</span></section>`; };
 const valueCard = () => (isPM()
-  ? `<section class="card"><b class="sec">Bet value</b><div class="grid g3" style="gap:8px">${selB("Side (one rule)", "pmSide", "Bet UP", ["Bet UP", "Bet DOWN"])}${fieldB("Start capital $", "pmCap", 1000)}${fieldB("Stake % of equity", "pmStake", 5)}${fieldB("First decision minute", "pmMin", 1)}${fieldB("Half spread (cents)", "pmSpread", 1)}${fieldB("Fee %", "pmFee", 0)}${fieldB("TP % (share price)", "pmTp", 0)}${fieldB("SL % (share price)", "pmSl", 0)}</div><span class="cap">A share pays $1 if its side won, $0 if not. With both a bet UP and a bet DOWN rule, each bets its own side. No order-book history exists: the spread is an assumption.</span></section>`
-  : `<section class="card"><b class="sec">Backtest value</b><div class="grid g3" style="gap:8px">${fieldB("Initial capital $", "hlCap", 10000)}${selB("Side", "hlSideB", "Long", ["Long", "Short"])}${fieldB("Fee % per side", "hlFee", 0.06)}${fieldB("TP %", "hlTpB", 2)}${fieldB("SL %", "hlSlB", 1)}</div><span class="cap">BTC only, one position at a time, the whole book per trade. The exit rule reads pnl, tp and sl.</span></section>`);
+  ? `<section class="card"><b class="sec">Bet value</b><div class="grid g2" style="gap:8px">${selB("Side (one rule)", "pmSide", "Bet UP", ["Bet UP", "Bet DOWN"])}${fieldB("Start capital $", "pmCap", 1000)}${fieldB("Stake % of equity", "pmStake", 5)}${fieldB("First decision minute", "pmMin", 1)}${fieldB("Half spread (cents)", "pmSpread", 1)}${fieldB("Fee %", "pmFee", 0)}${fieldB("TP % (share price)", "pmTp", 0)}${fieldB("SL % (share price)", "pmSl", 0)}</div><span class="cap">A share pays $1 if its side won, $0 if not. With both a bet UP and a bet DOWN rule, each bets its own side. No order-book history exists: the spread is an assumption.</span></section>`
+  : `<section class="card"><b class="sec">Backtest value</b><div class="grid g2" style="gap:8px">${fieldB("Initial capital $", "hlCap", 10000)}${selB("Side", "hlSideB", "Long", ["Long", "Short"])}${fieldB("Fee % per side", "hlFee", 0.06)}${fieldB("TP %", "hlTpB", 2)}${fieldB("SL %", "hlSlB", 1)}</div><span class="cap">BTC only, one position at a time, the whole book per trade. The exit rule reads pnl, tp and sl.</span></section>`);
 // The runs of this session on this venue; click one to show it again.
 const runsCard = () => { const list = (E.runs || []).map((x, i) => ({ ...x, i })).filter((x) => x.venue === V());
   return `<section class="card" style="min-height:0;gap:6px"><div class="row between"><b class="sec">Runs</b><span class="cap">this session, newest first</span></div><div class="scroll grow" style="min-height:0">${list.length ? `<table><tr><th>Time</th><th>Strategy</th><th>Span</th><th style="text-align:right">Return</th></tr>${list.map((x) => { const p = x.venue === "Polymarket" ? (x.r.final / x.r.capital - 1) * 100 : x.r.pnlPct; return `<tr class="click ${E.res[V()] === x.r ? "sel" : ""}" data-act="run-show-${x.i}"><td>${x.at}</td><td>${esc(x.r.strategy)}</td><td class="muted">${esc(x.label)}</td><td class="${cls(p)}" style="text-align:right">${pctS(p)}</td></tr>`; }).join("")}</table>` : `<div class="cap">Each run you start here is listed, so you can compare and reopen them.</div>`}</div></section>`; };
@@ -330,12 +333,12 @@ export const views = {
     get grid() { return state.venue === "Polymarket" ? "1.1fr 1fr" : state.venue === "Hyperliquid" ? "minmax(0,1fr) 330px" : "1fr 1fr"; },
     rows: "1fr",
     foot: () => (state.venue === "Both" ? bothBars() : state.venue === "Hyperliquid"
-      ? `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:170px;font:12px var(--ui)">${strategies.find((x) => x.venue === "Hyperliquid" && x === strat())?.name || "Bollinger reversion"}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b><span class="tag">signal</span><b class="down">FALSE</b><div class="field" style="flex:1;font:12px var(--ui);color:var(--muted)">Position : none</div>${ck("Auto-trade", state.autobet, "autobet")}${modeBadge()}</div>`
-      : `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span><div class="field" style="width:150px;font:12px var(--ui)">${strat().name}</div><span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span style="flex:1"></span>${ck("Auto-bet", state.autobet, "autobet")}<input type="text" ${bind("pmStake", 20)} style="width:70px;text-align:right">${modeBadge()}<button class="btn up ${state.pmSel === "UP" ? "sel" : ""}" data-act="pm-UP">Bet UP ${cents(pmData().up.ask)}</button><button class="btn down ${state.pmSel === "DOWN" ? "sel" : ""}" data-act="pm-DOWN">Bet DOWN ${cents(pmData().down.ask)}</button></div>`),
+      ? `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span>${livePick()}<span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span class="tag">close</span><b>76.3</b><span class="tag">band</span><b>76.2</b><span class="tag">signal</span><b class="down">FALSE</b><div class="field" style="flex:1;font:12px var(--ui);color:var(--muted)">Position : none</div>${ck("Auto-trade", state.autobet, "autobet")}${modeBadge()}</div>`
+      : `<div class="bar-foot row" style="flex:1"><span class="tag">Strategy</span>${livePick()}<span class="valid" style="border-radius:12px;padding:4px 14px">armed</span><span style="flex:1"></span>${ck("Auto-bet", state.autobet, "autobet")}<input type="text" ${bind("pmStake", 20)} style="width:70px;text-align:right">${modeBadge()}<button class="btn up ${state.pmSel === "UP" ? "sel" : ""}" data-act="pm-UP">Bet UP ${cents(pmData().up.ask)}</button><button class="btn down ${state.pmSel === "DOWN" ? "sel" : ""}" data-act="pm-DOWN">Bet DOWN ${cents(pmData().down.ask)}</button></div>`),
   },
 
   builder: {
-    html: () => `<div style="display:grid;grid-template-rows:auto 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:12px"><b class="sec">Strategy</b><div class="row"><input type="text" value="${esc(strat().name)}" data-sfield="name" style="font-family:var(--ui)"><input type="text" value="${esc(strat().tf)}" data-sfield="tf" style="width:70px;font-family:var(--ui)"></div><div class="row between">${focusPills()}${vtag(V())}</div></section>${stratList()}</div>
+    html: () => `<div style="display:grid;grid-template-rows:auto 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:12px"><b class="sec">Strategy</b><div class="row"><input type="text" value="${esc(strat().name)}" data-sfield="name" style="font-family:var(--ui)">${isPM() ? "" : `<select data-sfield="tf" title="the strategy's bar" style="width:76px;font-family:var(--ui)">${TFS.map((t) => `<option ${t === strat().tf ? "selected" : ""}>${t}</option>`).join("")}</select>`}</div><div class="row between">${focusPills()}${vtag(V())}</div></section>${stratList()}</div>
       <div style="display:grid;grid-template-rows:1.6fr 1fr;gap:8px;min-height:0"><section class="card" style="gap:6px;padding:10px 12px"><div class="row between"><span class="row">${(isPM() ? [["entry", "BET UP RULES"], ["down", "BET DOWN RULES"], ["exit", "CASH OUT RULES"]] : [["entry", "ENTRY RULES"], ["exit", "EXIT RULES"]]).map(([k, l]) => `<button class="pill ${state.ruleSide === k ? "on" : ""}" style="font-weight:700;letter-spacing:.1em;padding:5px 10px" data-set="ruleSide=${k}">${l}</button>`).join("")}</span>${pills("mode", ["Rules", "Formula", "Code"])}</div>
       ${state.mode === "Code" ? codeMode() : state.mode === "Rules" ? rulesMode() : formulaMode()}</section>
       ${state.res === "Compare" ? compareCard() : resultsCard()}</div>`,
@@ -347,7 +350,7 @@ export const views = {
     html: () => `${isPM() ? pmResultCard() : hlTopCard()}
       <div class="dense" style="grid-row:1/3;grid-column:2;display:grid;gap:8px;grid-template-rows:auto auto auto minmax(0,1fr);min-height:0">${historyCard()}${stratCard()}${valueCard()}${runsCard()}</div>
       ${isPM() ? pmBetsCard() : hlResultsCard()}`,
-    grid: "1.65fr 1fr", rows: "1.85fr 1fr",
+    grid: "minmax(0,1fr) 340px", rows: "1.85fr 1fr",
   },
 
   logs: {
@@ -423,7 +426,7 @@ export function draw() {
   const o = { volume: state.vol, bands: state.bb }, bt = location.hash === "#backtest", R = (bt || location.hash === "#builder") ? E.res[V()] : null;
   const fmtP = (v) => pctS(v, 1);
   if ($("#hl")) {
-    if (bt && R && R.price) drawLines($("#hl"), [{ v: R.price, color: "--accent" }], { grid: true, fmt: (v) => v.toFixed(0) });
+    if (bt && R && R.price) drawLines($("#hl"), [{ v: part(R.price, playFrac(V())), color: "--accent" }], { grid: true, fmt: (v) => v.toFixed(0), ...span([R.price]), total: R.price.length });
     else drawCandles($("#hl"), location.hash === "#live" ? panWindow(hlData().candles) : cs.slice(-120), { ...o, markers: [], axis: bt ? 0 : 64 });
   }
   if ($("#hlmini")) { const c = hlData().candles.slice(-60).map((x) => x.c); drawLines($("#hlmini"), [{ v: c, color: "--accent", fill: true }]); }
@@ -431,15 +434,32 @@ export function draw() {
   paintAll();
   if ($("#eq")) {
     if (R) {
-      const c = R.curves, s = isPM() ? [{ v: c.strategy, color: "--accent" }, { v: c.up, color: "--indigo" }, { v: c.down, color: "--muted", dash: [3, 3] }] : [{ v: c.strategy, color: "--accent" }, { v: c.random, color: "--indigo" }, { v: c.hold, color: "--muted", dash: [3, 3] }];
-      drawLines($("#eq"), s, { grid: true, fmt: fmtP });
+      const c = R.curves, f = bt ? playFrac(V()) : 1, s = isPM() ? [{ v: part(c.strategy, f), color: "--accent" }, { v: part(c.up, f), color: "--indigo" }, { v: part(c.down, f), color: "--muted", dash: [3, 3] }] : [{ v: part(c.strategy, f), color: "--accent" }, { v: part(c.random, f), color: "--indigo" }, { v: part(c.hold, f), color: "--muted", dash: [3, 3] }];
+      drawLines($("#eq"), s, { grid: true, fmt: fmtP, ...span(isPM() ? [c.strategy, c.up, c.down] : [c.strategy, c.random, c.hold]), total: c.strategy.length });
     } else if (location.hash === "#ml") {
       drawLines($("#eq"), [{ v: eq.strategy, color: "--accent" }, { v: eq.random, color: "--indigo" }, { v: eq.hold.map((x) => x * 0.3), color: "--muted", dash: [3, 3] }], { grid: false, fmt: fmtP });
     }
   }
-  if ($("#dd") && R) drawArea($("#dd"), R.curves.drawdown);
+  if ($("#dd") && R) drawArea($("#dd"), part(R.curves.drawdown, bt ? playFrac(V()) : 1), "--down", { ...span([R.curves.drawdown, [0]]), total: R.curves.drawdown.length });
   if ($("#mini")) { const H = E.res[V()]; drawLines($("#mini"), H ? [{ v: H.curves.strategy, color: "--accent" }, { v: isPM() ? H.curves.up : H.curves.random, color: "--indigo" }] : [{ v: [0, 0], color: "--muted" }]); }
 }
+
+// -- playback: a finished backtest is walked on screen, as the desktop app does ----------------
+const SPEEDS = { "×1": 6000, "×4": 1500, "×16": 400, "Instant": 0 };
+export function playFrac(venue) {
+  const A = E.anim;
+  if (!A || A.venue !== venue || location.hash !== "#backtest") return 1;
+  const f = A.dur ? Math.min(1, (performance.now() - A.t0) / A.dur) : 1;
+  if (f >= 1) E.anim = null;
+  return f;
+}
+const part = (v, f) => (f >= 1 ? v : v.slice(0, Math.max(2, Math.ceil(v.length * f))));
+const span = (arrs) => { const all = arrs.flat(); return { lo: Math.min(...all), hi: Math.max(...all) }; };
+const playBar = (R, f) => { const total = R.bars ?? R.markets, unit = R.bars != null ? "candles" : "markets";
+  return `<div class="row"><div class="progress" style="flex:1;height:7px"><i style="width:${(f * 100).toFixed(1)}%"></i></div><span class="cap mono">${(f * 100).toFixed(0)}% · ${n0(Math.round(total * f))} / ${n0(total)} ${unit}</span>${f < 1 ? `<button class="btn sm" data-act="play-skip">Skip</button>` : `<button class="btn sm" data-act="play-again" title="walk the run again">Replay</button>`}${selB("", "playSpeed", "×4", Object.keys(SPEEDS)).replace('<label class="f">', '<label class="f" style="width:84px">')}</div>`; };
+let playTimer = 0;
+function playTick() { clearTimeout(playTimer); if (E.anim) playTimer = setTimeout(() => rerender(), 80); }
+export function startPlay(venue) { const d = SPEEDS[state.form.playSpeed ?? "×4"] ?? 1500; E.anim = d ? { venue, t0: performance.now(), dur: d } : null; }
 
 // The Builder's preview: the selected strategy's run, started on its own when the rules or the strategy change.
 const sigOf = (s) => JSON.stringify([V(), s.name, s.entry ?? "", s.short_entry ?? "", s.exit ?? "", isPM() ? "" : state.btTf]);
@@ -478,6 +498,7 @@ export async function engAct(a, render, toast) {
       const r = await api(pm ? "/api/backtest/polymarket" : "/api/backtest", body);
       Object.assign(r, { strategy: s.name, ms: Math.round(performance.now() - t0), capital: body.capital, sig: sigOf(s) });
       E.res[venue] = r; s.pnl = +lastPct(venue).toFixed(2);
+      if (onBt) startPlay(venue);
       if (onBt) (E.runs ??= []).unshift({ venue, r, label: pm ? span : `${years.year_from}${years.year_to !== years.year_from ? "–" + years.year_to : ""} · ${state.btTf}`, at: new Date().toISOString().slice(11, 19) });
       toast(`${s.name}: ${pctS(lastPct(venue))} over ${pm ? n0(r.bets) + " bets" : n0(r.trades) + " trades"}.`);
     } catch (e) { E.err = e.message; toast(e.message, true); }
@@ -497,6 +518,8 @@ export async function engAct(a, render, toast) {
     if (location.hash !== "#builder") location.hash = "#builder";
     render(); return;
   }
+  if (a === "play-skip") { E.anim = null; render(); return; }
+  if (a === "play-again") { startPlay(venue); render(); return; }
   if (a.startsWith("run-show-")) { const x = E.runs?.[+a.slice(9)]; if (x) { E.res[x.venue] = x.r; render(); } return; }
   if (a === "eng-del") {
     const { value } = await ask({ title: `Delete "${s.name}"?`, text: s.saved ? "It is removed from the strategies file, for the desktop app too. This cannot be undone." : "It was never saved; it is removed from the list.", buttons: [{ label: "Cancel", value: null }, { label: "Delete", value: "del", cls: "down" }] });
